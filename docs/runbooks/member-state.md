@@ -10,6 +10,10 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - visits are separate from workouts
 - presence is separate from matchmaking intent
 - `users.preferences` holds flexible member-intent state early
+- duplicate arrival delivery must be idempotent
+- unknown and inactive tags must not create visits
+- anonymous visit events are ignored
+- visit closing stays deferred until a real departure slice exists
 
 ## Required Checks
 
@@ -17,3 +21,5 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - ghost mode does not imply lobby entry
 - unavailable members never join the lobby
 - visit creation never creates a workout implicitly
+- duplicate delivery does not create a second visit
+- malformed presence events are rejected clearly

@@ -34,3 +34,12 @@ Create the cleanest possible first member-facing slice without dragging the whol
 - `Tracer 2`: consume ATHENA-backed presence to create visit records
 - `Tracer 3`: member auth -> profile -> privacy and availability state
 - `Tracer 4`: lobby eligibility from explicit availability, not tap-in
+
+## Current State
+
+Tracer 2 now owns the first executable APOLLO slice:
+
+- one visit can be created from an identified ATHENA arrival event
+- the runtime stays narrow: HTTP health, visit persistence, visit readback, and NATS consumption only
+- visit recording is still separate from workout logging, auth, and matchmaking intent
+- visit closing is intentionally deferred until a later tracer adds a real departure flow

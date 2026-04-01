@@ -2,7 +2,7 @@
 
 APOLLO is the member-facing multi-mode application in ASHTON. It will handle member profiles, privacy and availability controls, visit history, workout logging, recommendations, and the ARES matchmaking subsystem.
 
-This repo remains docs-first until the platform foundation is stable. The detailed brief lives in [ashton-platform/planning/repo-briefs/apollo.md](https://github.com/ixxet/ashton-platform/blob/main/planning/repo-briefs/apollo.md).
+This repo now has its first executable tracer slice. The detailed brief lives in [ashton-platform/planning/repo-briefs/apollo.md](https://github.com/ixxet/ashton-platform/blob/main/planning/repo-briefs/apollo.md).
 
 ## Role In The Platform
 
@@ -28,7 +28,14 @@ OAuth is explicitly deferred unless a real institutional or external provider be
 
 ## Current State
 
-Docs-first stub only. No Go API or Svelte frontend scaffold has been created yet.
+Tracer 2 now has a narrow executable slice:
+
+- a Go runtime scaffold exists with `apollo serve` and `/api/v1/health`
+- APOLLO can consume `athena.identified_presence.arrived` and record one visit
+- claimed tags map ATHENA identity hashes to member records without pulling auth into the tracer
+- duplicate arrivals, unknown tags, malformed payloads, and anonymous events are handled deterministically
+- workout creation remains separate and is not triggered by visit events
+- this repo is ready for a `v0.1.0` tracer-close tag
 
 See:
 
