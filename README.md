@@ -29,3 +29,9 @@ OAuth is explicitly deferred unless a real institutional or external provider be
 ## Current State
 
 Docs-first stub only. No Go API or Svelte frontend scaffold has been created yet.
+
+See:
+
+- `docs/roadmap.md`
+- `docs/runbooks/member-state.md`
+- `docs/growing-pains.md`

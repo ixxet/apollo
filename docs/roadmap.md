@@ -28,3 +28,9 @@ Create the cleanest possible first member-facing slice without dragging the whol
 - one user can log one workout successfully
 - the visit and workout records can be retrieved through stable read surfaces
 - the repo stays small enough to evolve without fighting premature frontend or ML complexity
+
+## Tracer Ownership
+
+- `Tracer 2`: consume ATHENA-backed presence to create visit records
+- `Tracer 3`: member auth -> profile -> privacy and availability state
+- `Tracer 4`: lobby eligibility from explicit availability, not tap-in
