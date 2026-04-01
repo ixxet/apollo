@@ -20,6 +20,12 @@ The first APOLLO slice should be narrow and real:
 - log one workout independently of a tap-in event
 - keep advanced diet guidance and richer recommendations as follow-on work
 
+## Authentication
+
+The first APOLLO auth path is student ID + email verification + signed session cookie.
+
+OAuth is explicitly deferred unless a real institutional or external provider becomes available later.
+
 ## Current State
 
 Docs-first stub only. No Go API or Svelte frontend scaffold has been created yet.

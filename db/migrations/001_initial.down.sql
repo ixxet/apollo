@@ -1,0 +1,13 @@
+DROP INDEX IF EXISTS apollo.idx_ares_matches_activity_played_at;
+DROP INDEX IF EXISTS apollo.idx_workouts_user_logged_at;
+DROP INDEX IF EXISTS apollo.idx_visits_user_arrived_at;
+DROP TABLE IF EXISTS apollo.recommendations;
+DROP TABLE IF EXISTS apollo.ares_match_players;
+DROP TABLE IF EXISTS apollo.ares_matches;
+DROP TABLE IF EXISTS apollo.ares_ratings;
+DROP TABLE IF EXISTS apollo.exercises;
+DROP TABLE IF EXISTS apollo.workouts;
+DROP TABLE IF EXISTS apollo.visits;
+DROP TABLE IF EXISTS apollo.claimed_tags;
+DROP TABLE IF EXISTS apollo.users;
+DROP SCHEMA IF EXISTS apollo;

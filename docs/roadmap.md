@@ -11,6 +11,7 @@ Create the cleanest possible first member-facing slice without dragging the whol
 - record visit history separately from workout history
 - log one workout entry
 - read back both current presence state and workout history
+- add member auth with email verification and session cookies
 - keep advanced diet guidance and full ARES automation as documented follow-on work
 
 ## Boundaries
@@ -18,7 +19,7 @@ Create the cleanest possible first member-facing slice without dragging the whol
 - no full PWA in the first slice
 - no recommendation engine until workout data exists
 - no automatic lobby entry from tap-in events
-- no matchmaking queue until user state and activity data are stable
+- no matchmaking lobby until user state and activity data are stable
 
 ## Exit Criteria
 
