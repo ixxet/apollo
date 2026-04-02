@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/store"
 	"github.com/ixxet/apollo/internal/testutil"
@@ -281,11 +282,13 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	}
 	sender := &integrationEmailSender{}
 	authService := auth.NewService(auth.NewRepository(db.DB), cookies, sender, 15*time.Minute, 7*24*time.Hour)
-	profileService := profile.NewService(profile.NewRepository(db.DB))
+	profileRepository := profile.NewRepository(db.DB)
+	profileService := profile.NewService(profileRepository)
+	eligibilityService := eligibility.NewService(profileRepository)
 
 	return &authProfileServerEnv{
 		db:      db,
-		handler: NewHandler(Dependencies{Auth: authService, Profile: profileService}),
+		handler: NewHandler(Dependencies{Auth: authService, Profile: profileService, Eligibility: eligibilityService}),
 		sender:  sender,
 		cookies: cookies,
 		queries: store.New(db.DB),

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/profile"
 )
 
@@ -30,10 +31,15 @@ type Profiler interface {
 	UpdateProfile(ctx context.Context, userID uuid.UUID, input profile.UpdateInput) (profile.MemberProfile, error)
 }
 
+type EligibilityReader interface {
+	GetLobbyEligibility(ctx context.Context, userID uuid.UUID) (eligibility.LobbyEligibility, error)
+}
+
 type Dependencies struct {
 	ConsumerEnabled bool
 	Auth            Authenticator
 	Profile         Profiler
+	Eligibility     EligibilityReader
 }
 
 type healthResponse struct {
@@ -149,6 +155,21 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, memberProfile)
+		})
+		authenticated.Get("/api/v1/lobby/eligibility", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			lobbyEligibility, err := deps.Eligibility.GetLobbyEligibility(r.Context(), principal.UserID)
+			if err != nil {
+				switch {
+				case errors.Is(err, eligibility.ErrNotFound):
+					writeError(w, http.StatusNotFound, err)
+				default:
+					writeError(w, http.StatusInternalServerError, err)
+				}
+				return
+			}
+
+			writeJSON(w, http.StatusOK, lobbyEligibility)
 		})
 		authenticated.Patch("/api/v1/profile", func(w http.ResponseWriter, r *http.Request) {
 			var request profile.UpdateInput

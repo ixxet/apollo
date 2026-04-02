@@ -18,6 +18,7 @@ import (
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/config"
 	"github.com/ixxet/apollo/internal/consumer"
+	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/server"
 	"github.com/ixxet/apollo/internal/visits"
@@ -107,6 +108,7 @@ func newServeCmd() *cobra.Command {
 			authService := auth.NewService(authRepository, cookies, sender, cfg.VerificationTokenTTL, cfg.SessionTTL)
 			profileRepository := profile.NewRepository(pool)
 			profileService := profile.NewService(profileRepository)
+			eligibilityService := eligibility.NewService(profileRepository)
 
 			httpServer := &http.Server{
 				Addr: cfg.HTTPAddr,
@@ -114,6 +116,7 @@ func newServeCmd() *cobra.Command {
 					ConsumerEnabled: consumerEnabled,
 					Auth:            authService,
 					Profile:         profileService,
+					Eligibility:     eligibilityService,
 				}),
 			}
 
