@@ -2,12 +2,10 @@ package workouts
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/ixxet/apollo/internal/store"
@@ -291,9 +289,4 @@ func mustNumeric(t *testing.T, value float64) pgtype.Numeric {
 	}
 
 	return numeric
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
