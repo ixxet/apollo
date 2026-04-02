@@ -46,3 +46,39 @@ func TestHandleMessageAcceptsSharedMarshalPayload(t *testing.T) {
 		t.Fatalf("input.SourceEventID = %q, want evt-compat-001", recorder.input.SourceEventID)
 	}
 }
+
+func TestHandleDepartureMessageAcceptsSharedMarshalPayload(t *testing.T) {
+	recorder := &stubDepartureRecorder{
+		result: visits.Result{Outcome: visits.OutcomeClosed},
+	}
+	handler := NewIdentifiedDepartureHandler(recorder)
+
+	payload, err := protoevents.MarshalIdentifiedPresenceDeparted(protoevents.IdentifiedPresenceDepartedEvent{
+		ID:        "evt-compat-002",
+		Timestamp: time.Date(2026, 4, 1, 13, 10, 0, 0, time.UTC),
+		Data: &athenav1.IdentifiedPresenceDeparted{
+			FacilityId:           "ashtonbee",
+			ZoneId:               "weight-room",
+			ExternalIdentityHash: "tag_tracer5_001",
+			Source:               athenav1.PresenceSource_PRESENCE_SOURCE_MOCK,
+			RecordedAt:           timestamppb.New(time.Date(2026, 4, 1, 13, 10, 0, 0, time.UTC)),
+		},
+	})
+	if err != nil {
+		t.Fatalf("MarshalIdentifiedPresenceDeparted() error = %v", err)
+	}
+
+	result, err := handler.HandleMessage(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("HandleMessage() error = %v", err)
+	}
+	if result.Outcome != visits.OutcomeClosed {
+		t.Fatalf("result.Outcome = %q, want %q", result.Outcome, visits.OutcomeClosed)
+	}
+	if recorder.input == nil {
+		t.Fatal("RecordDeparture() was not called")
+	}
+	if recorder.input.SourceEventID != "evt-compat-002" {
+		t.Fatalf("input.SourceEventID = %q, want evt-compat-002", recorder.input.SourceEventID)
+	}
+}
