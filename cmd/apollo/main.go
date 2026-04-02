@@ -15,8 +15,10 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 
+	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/config"
 	"github.com/ixxet/apollo/internal/consumer"
+	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/server"
 	"github.com/ixxet/apollo/internal/visits"
 	protoevents "github.com/ixxet/ashton-proto/events"
@@ -32,7 +34,7 @@ func main() {
 func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "apollo",
-		Short:         "APOLLO records member visit history from ATHENA presence.",
+		Short:         "APOLLO owns member auth, profile state, and visit history.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -48,7 +50,10 @@ func newServeCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Start the APOLLO HTTP server.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := config.Load()
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
 
 			pool, err := openPool(cmd.Context(), cfg.DatabaseURL)
 			if err != nil {
@@ -84,9 +89,32 @@ func newServeCmd() *cobra.Command {
 				defer closeNATS()
 			}
 
+			if cfg.SessionCookieSecret == "" {
+				return fmt.Errorf("APOLLO_SESSION_COOKIE_SECRET is required")
+			}
+
+			cookies, err := auth.NewSessionCookieManager(cfg.SessionCookieName, cfg.SessionCookieSecret, cfg.SessionCookieSecure)
+			if err != nil {
+				return err
+			}
+
+			var sender auth.EmailSender
+			if cfg.LogVerificationTokens {
+				sender = auth.LogEmailSender{}
+			}
+
+			authRepository := auth.NewRepository(pool)
+			authService := auth.NewService(authRepository, cookies, sender, cfg.VerificationTokenTTL, cfg.SessionTTL)
+			profileRepository := profile.NewRepository(pool)
+			profileService := profile.NewService(profileRepository)
+
 			httpServer := &http.Server{
-				Addr:    cfg.HTTPAddr,
-				Handler: server.NewHandler(consumerEnabled),
+				Addr: cfg.HTTPAddr,
+				Handler: server.NewHandler(server.Dependencies{
+					ConsumerEnabled: consumerEnabled,
+					Auth:            authService,
+					Profile:         profileService,
+				}),
 			}
 
 			slog.Info("starting APOLLO server", "addr", cfg.HTTPAddr)
@@ -111,7 +139,10 @@ func newVisitCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List visits for a student id.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := config.Load()
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
 
 			pool, err := openPool(cmd.Context(), cfg.DatabaseURL)
 			if err != nil {
