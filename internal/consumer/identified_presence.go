@@ -3,6 +3,8 @@ package consumer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/ixxet/apollo/internal/visits"
@@ -23,18 +25,22 @@ func NewIdentifiedPresenceHandler(service ArrivalRecorder) *IdentifiedPresenceHa
 
 func (h *IdentifiedPresenceHandler) HandleMessage(ctx context.Context, payload []byte) (visits.Result, error) {
 	if anonymous, err := isAnonymousIdentifiedPresence(payload); err != nil {
-		return visits.Result{}, err
+		slog.Warn("identified presence rejected", "error", err)
+		return visits.Result{}, fmt.Errorf("inspect identified arrival: %w", err)
 	} else if anonymous {
+		slog.Info("identified presence ignored", "outcome", visits.OutcomeIgnoredAnonymous, "reason", "anonymous")
 		return visits.Result{Outcome: visits.OutcomeIgnoredAnonymous}, nil
 	}
 
 	event, err := protoevents.ParseIdentifiedPresenceArrived(payload)
 	if err != nil {
-		return visits.Result{}, err
+		slog.Warn("identified presence rejected", "error", err)
+		return visits.Result{}, fmt.Errorf("parse identified arrival: %w", err)
 	}
 
 	identityHash := strings.TrimSpace(event.Data.GetExternalIdentityHash())
 	if identityHash == "" {
+		slog.Info("identified presence ignored", "event_id", event.ID, "outcome", visits.OutcomeIgnoredAnonymous, "reason", "anonymous")
 		return visits.Result{Outcome: visits.OutcomeIgnoredAnonymous}, nil
 	}
 
@@ -43,13 +49,20 @@ func (h *IdentifiedPresenceHandler) HandleMessage(ctx context.Context, payload [
 		zoneKey = &trimmed
 	}
 
-	return h.service.RecordArrival(ctx, visits.ArrivalInput{
+	result, err := h.service.RecordArrival(ctx, visits.ArrivalInput{
 		SourceEventID:        event.ID,
 		FacilityKey:          strings.TrimSpace(event.Data.GetFacilityId()),
 		ZoneKey:              zoneKey,
 		ExternalIdentityHash: identityHash,
 		ArrivedAt:            event.Data.GetRecordedAt().AsTime().UTC(),
 	})
+	if err != nil {
+		slog.Error("identified presence visit record failed", "event_id", event.ID, "error", err)
+		return visits.Result{}, fmt.Errorf("record identified arrival %q: %w", event.ID, err)
+	}
+
+	slog.Info("identified presence handled", "event_id", event.ID, "outcome", result.Outcome)
+	return result, nil
 }
 
 func isAnonymousIdentifiedPresence(payload []byte) (bool, error) {
