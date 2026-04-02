@@ -5,16 +5,17 @@ profile state, privacy and availability controls, workout logging,
 recommendations, and the ARES matchmaking subsystem.
 
 > Current real slice: first-party member auth and session-backed profile state,
-> deterministic visit-history ingest, and derived lobby eligibility from
-> persisted `visibility_mode` / `availability_mode`. APOLLO now proves account
-> ownership, signed session handling, and the first real intent-behavior slice
-> without widening into workouts, matchmaking, or recommendations.
+> deterministic visit-history ingest and close behavior, and derived lobby
+> eligibility from persisted `visibility_mode` / `availability_mode`. APOLLO
+> now proves account ownership, signed session handling, the first full visit
+> lifecycle slice, and the first real intent-behavior slice without widening
+> into workouts, matchmaking, or recommendations.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
-schema form or preserved as a future plan. Tracer 4 is specifically about the
-first real APOLLO intent-behavior slice, where explicit member state becomes
-lobby eligibility without allowing physical presence to imply social intent.
+schema form or preserved as a future plan. Tracer 5 completes the first visit
+lifecycle slice: physical departure can close visit history without inventing
+workout semantics or social intent.
 
 ## Architecture
 
@@ -23,10 +24,10 @@ The standalone Mermaid source for this flow lives at
 
 ```mermaid
 flowchart LR
-  athena["athena<br/>identified arrival publish"]
-  nats["NATS<br/>athena.identified_presence.arrived"]
+  athena["athena<br/>identified arrival and departure publish"]
+  nats["NATS<br/>athena.identified_presence.arrived<br/>athena.identified_presence.departed"]
   consumer["APOLLO consumer<br/>shared contract parse"]
-  service["visit service<br/>dedupe and idempotency"]
+  service["visit service<br/>dedupe, idempotency,<br/>open and close rules"]
   db["Postgres<br/>users, claimed_tags, visits"]
   cli["CLI<br/>apollo visit list"]
   health["HTTP health<br/>/api/v1/health"]
@@ -51,7 +52,7 @@ flowchart LR
 | Lobby eligibility read | `GET /api/v1/lobby/eligibility` | Real | Requires a valid session cookie and derives open-lobby eligibility from stored profile state only |
 | Logout | `POST /api/v1/auth/logout` | Real | Revokes the current server-side session and clears the cookie |
 | Visit readback | `apollo visit list --student-id ... --format text|json` | Real | Lists visit history for a member |
-| Event consumer | `apollo serve` with `APOLLO_NATS_URL` | Real | Consumes `athena.identified_presence.arrived` from NATS |
+| Event consumer | `apollo serve` with `APOLLO_NATS_URL` | Real | Consumes `athena.identified_presence.arrived` and `athena.identified_presence.departed` from NATS |
 | Workout logging runtime | - | Planned | Tables exist, runtime does not |
 | Recommendation runtime | - | Planned | Schema exists, pipeline does not |
 | Matchmaking runtime | - | Planned | ARES tables exist, service logic does not |
@@ -79,7 +80,7 @@ eligibility, or any social state.
 | `apollo.email_verification_tokens` | Real | Stores hashed verification tokens with expiry and single-use semantics |
 | `apollo.sessions` | Real | Stores server-side session state keyed by a signed cookie value |
 | `apollo.claimed_tags` | Real | Links ATHENA identity hashes to member accounts |
-| `apollo.visits` | Real | Stores arrival-driven visit history |
+| `apollo.visits` | Real | Stores visit open/close history with deterministic departure idempotency |
 | `apollo.workouts` and `apollo.exercises` | Schema authored | Runtime deferred until workout logging tracer work starts |
 | `apollo.ares_*` tables | Schema authored | Matchmaking and skill logic are deferred |
 | `apollo.recommendations` | Schema authored | Recommendation runtime is deferred |
@@ -94,7 +95,7 @@ eligibility, or any social state.
 | CLI | Cobra | Instituted | `serve` and `visit list` are real |
 | Database driver | pgx | Instituted | Used for runtime persistence |
 | SQL generation | sqlc | Instituted | Auth, session, profile, and visit queries are generated from checked-in SQL |
-| Eventing | NATS | Instituted | Consumes ATHENA identified-arrival events |
+| Eventing | NATS | Instituted | Consumes ATHENA identified arrival and departure events |
 | Shared contract | `ashton-proto` generated packages + runtime helper | Instituted | APOLLO no longer owns a private copy of the event wire format |
 | Auth path | first-party student ID + email verification + signed session cookie | Real | Tokens are stored hashed in Postgres and sessions are server-side rows referenced by a signed cookie |
 | Workout runtime | relational workout model | Planned | Tables exist; runtime does not |
@@ -106,12 +107,12 @@ eligibility, or any social state.
 
 | Step | Current Behavior |
 | --- | --- |
-| ATHENA publishes an event | Subject is `athena.identified_presence.arrived` |
+| ATHENA publishes lifecycle events | Subjects are `athena.identified_presence.arrived` and `athena.identified_presence.departed` |
 | APOLLO inspects for the narrow anonymous no-op | Anonymous misroutes are ignored before strict parsing |
 | APOLLO parses the payload | The shared `ashton-proto` helper validates source, type, enums, and timestamps |
 | APOLLO resolves member identity | `claimed_tags` maps the ATHENA identity hash to an active user |
-| APOLLO enforces idempotency | Duplicate `source_event_id` and already-open visits resolve deterministically |
-| APOLLO records the visit | A visit row is created only when the arrival is valid, identified, and new |
+| APOLLO enforces idempotency | Duplicate arrival ids, duplicate departure ids, and already-open visits resolve deterministically |
+| APOLLO records the lifecycle | Arrivals open visits, departures close matching open visits for the same member and facility |
 
 This flow is intentionally narrower than the future product shape. It proves the
 boundary from physical truth to member history first, before auth, workouts,
@@ -130,13 +131,15 @@ recommendations, or matchmaking are allowed to widen the repo.
   `eligible`, `reason`, `visibility_mode`, and `availability_mode` from stored
   member state only
 - logout revokes the current server-side session and clears the cookie
-- APOLLO can consume `athena.identified_presence.arrived` from NATS
+- APOLLO can consume `athena.identified_presence.arrived` and
+  `athena.identified_presence.departed` from NATS
 - the consumer uses the shared `ashton-proto` helper instead of a private event
   struct
 - malformed payloads, wrong source values, wrong types, bad enums, and invalid
   timestamps are rejected clearly
-- duplicate arrivals, unknown tags, anonymous events, and already-open visits
-  all resolve deterministically
+- duplicate arrivals, duplicate departures, unknown tags, anonymous events,
+  already-open visits, no-open departures, and out-of-order departures all
+  resolve deterministically
 - `apollo visit list` reads back recorded visit history for a specific student
 
 ### Real but intentionally narrow
@@ -144,7 +147,7 @@ recommendations, or matchmaking are allowed to widen the repo.
 - the active member-facing write surface is still limited to auth and profile
   settings
 - open-lobby eligibility is derived read-only state, not a join or leave flow
-- visit recording remains separate from auth and profile state
+- visit recording and visit closing remain separate from auth and profile state
 - workouts, recommendations, and matchmaking are still outside the active
   tracer scope
 
@@ -156,7 +159,7 @@ recommendations, or matchmaking are allowed to widen the repo.
 
 ### Deferred on purpose
 
-- tying visit creation to workout logging
+- tying visit creation or visit closing to workout logging
 - letting tap-in imply lobby or matchmaking intent
 - adding lobby membership persistence, invites, or match formation before the
   eligibility boundary is proven
@@ -203,5 +206,5 @@ operations system. Even in its current narrow form, it already shows contract
 discipline, first-party auth taste, deterministic failure handling, relational
 schema design, event-driven ingestion, and a strong boundary between presence,
 profile state, workouts, and matchmaking intent. The current tracer proves the
-first real APOLLO intent-behavior slice: explicit member state can become lobby
-eligibility without letting tap-in imply social intent.
+first full visit lifecycle slice: physical departure closes visit history
+without inventing workout semantics or social intent.

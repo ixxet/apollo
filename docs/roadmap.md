@@ -14,7 +14,8 @@ builds.
   `availability_mode`
 - authenticated lobby eligibility reads derive `eligible` and a machine-readable
   `reason` from persisted `visibility_mode` and `availability_mode`
-- visit history remains separate from auth and profile state
+- visit history now supports deterministic open and close behavior while
+  remaining separate from auth and profile state
 - workouts, recommendations, lobby membership, and matchmaking stay deferred
 
 ## Boundaries
@@ -41,10 +42,11 @@ builds.
 - `Tracer 2`: consume ATHENA-backed presence to create visit records
 - `Tracer 3`: member auth -> profile -> privacy and availability state
 - `Tracer 4`: lobby eligibility from explicit availability, not tap-in
+- `Tracer 5`: close the correct open visit from ATHENA departure truth
 
 ## Current State
 
-Tracer 4 now owns the first real APOLLO intent-behavior slice:
+Tracer 5 now completes the first full APOLLO visit lifecycle slice:
 
 - `POST /api/v1/auth/verification/start` creates or reuses the correct member
   record without touching tag linkage
@@ -58,7 +60,9 @@ Tracer 4 now owns the first real APOLLO intent-behavior slice:
   explicit member state only and never from tap-in or visit history
 - Ghost Mode is explicit: `ghost + available_now` remains ineligible for the
   open lobby
-- visit recording is still separate from auth, profile state, workouts, and
+- departures close the matching open visit for the same member and facility
+  without reopening history, creating workouts, or mutating member intent
+- duplicate and no-open departures resolve deterministically
+- visit lifecycle is still separate from auth, profile state, workouts, and
   lobby or matchmaking intent
-- visit closing, workouts, recommendations, lobby membership, and matchmaking
-  remain deferred
+- workouts, recommendations, lobby membership, and matchmaking remain deferred

@@ -20,9 +20,15 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - availability is evaluated before visibility so ineligible reasons stay stable
 - `ghost + available_now` remains ineligible for the open lobby
 - duplicate arrival delivery must be idempotent
+- duplicate departure delivery must be idempotent
 - unknown and inactive tags must not create visits
 - anonymous visit events are ignored
-- visit closing stays deferred until a real departure slice exists
+- departures close visits by exact member + facility match only
+- departures with no matching open visit must be deterministic no-ops
+- departures older than the open visit arrival must not backdate or corrupt
+  visit history
+- visit closing must not mutate `users.preferences`, claimed tags, workouts, or
+  derived eligibility state
 
 ## Required Checks
 
@@ -38,6 +44,8 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
   workouts, or claimed tags
 - profile writes must not mutate visits, workouts, or claimed tags
 - visit creation never creates a workout implicitly
+- visit closing never creates a workout implicitly
+- visit closing never mutates claimed tags or profile state
 - duplicate delivery does not create a second visit
 - malformed presence events are rejected clearly
 - producer-consumer compatibility is proven with shared helper or fixture bytes,

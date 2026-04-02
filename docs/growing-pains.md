@@ -76,3 +76,15 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   the cookie explicitly or terminate TLS in front of APOLLO.
   Rule: do not weaken real auth security semantics just to make localhost smoke
   more convenient.
+
+- Symptom: the first Tracer 5 end-to-end departure test consumed the shared
+  `athena.identified_presence.departed` fixture unchanged but still resolved to
+  `unknown_tag` instead of closing the visit.
+  Cause: the seeded member owned the arrival fixture hash
+  `tag_tracer2_001`, while the shared departure fixture intentionally used a
+  different identified hash, `tag_tracer5_001`.
+  Fix: seed the second claimed tag explicitly in the integration setup and keep
+  the shared departure payload bytes unchanged.
+  Rule: when an integration test claims to use shared contract bytes unchanged,
+  the seed data must be aligned to that contract instead of mutating the
+  payload under test.

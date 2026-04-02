@@ -1,8 +1,8 @@
 flowchart LR
-  athena["athena<br/>identified arrival publish"]
-  nats["NATS<br/>athena.identified_presence.arrived"]
+  athena["athena<br/>identified arrival and departure publish"]
+  nats["NATS<br/>athena.identified_presence.arrived<br/>athena.identified_presence.departed"]
   consumer["APOLLO consumer<br/>shared contract parse"]
-  service["visit service<br/>dedupe and idempotency"]
+  service["visit service<br/>dedupe, idempotency,<br/>open and close rules"]
   db["Postgres<br/>users, claimed_tags, visits"]
   cli["CLI<br/>apollo visit list"]
   health["HTTP health<br/>/api/v1/health"]
