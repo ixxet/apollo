@@ -16,6 +16,18 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
 
 ## 2026-04-02
 
+- Symptom: deriving lobby behavior from the normalized profile read path would
+  have silently treated corrupted persisted enum values as safe defaults.
+  Cause: profile reads intentionally coerce sparse or invalid preferences to
+  predictable fallback values, but eligibility needs to distinguish missing
+  state from bad stored state.
+  Fix: centralize preference-mode parsing, keep sparse fields deterministic, and
+  surface invalid persisted `visibility_mode` or `availability_mode` as
+  explicit ineligible reasons.
+  Rule: when member state drives behavior instead of just display, invalid
+  stored intent must be surfaced deterministically instead of being silently
+  normalized away.
+
 - Symptom: APOLLO still owned a private event contract even though
   `ashton-proto` already defined the identified-arrival schema and payload.
   Cause: the first Tracer 2 pass validated behavior, but the consumer tests and
