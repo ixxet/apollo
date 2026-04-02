@@ -54,6 +54,23 @@ func TestRecordArrivalReturnsUnknownTag(t *testing.T) {
 	}
 }
 
+func TestRecordArrivalIgnoresAnonymous(t *testing.T) {
+	service := NewService(&stubFinder{})
+
+	result, err := service.RecordArrival(context.Background(), ArrivalInput{
+		SourceEventID:        "mock-in-000",
+		FacilityKey:          "ashtonbee",
+		ExternalIdentityHash: "",
+		ArrivedAt:            time.Date(2026, 4, 1, 12, 30, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("RecordArrival() error = %v", err)
+	}
+	if result.Outcome != OutcomeIgnoredAnonymous {
+		t.Fatalf("result.Outcome = %q, want %q", result.Outcome, OutcomeIgnoredAnonymous)
+	}
+}
+
 func TestRecordArrivalReturnsDuplicateForExistingSourceEventID(t *testing.T) {
 	existingVisit := &store.ApolloVisit{FacilityKey: "ashtonbee"}
 	service := NewService(&stubFinder{

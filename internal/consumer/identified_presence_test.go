@@ -2,10 +2,13 @@ package consumer
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ixxet/apollo/internal/visits"
+	protoevents "github.com/ixxet/ashton-proto/events"
 )
 
 type stubArrivalRecorder struct {
@@ -25,19 +28,9 @@ func TestHandleMessageMapsValidPayloadToArrivalInput(t *testing.T) {
 	}
 	handler := NewIdentifiedPresenceHandler(recorder)
 
-	result, err := handler.HandleMessage(context.Background(), []byte(`{
-		"id":"evt-001",
-		"source":"athena",
-		"type":"athena.identified_presence.arrived",
-		"timestamp":"2026-04-01T12:30:00Z",
-		"data":{
-			"facility_id":"ashtonbee",
-			"zone_id":"weight-room",
-			"external_identity_hash":"tag_tracer2_001",
-			"source":"mock",
-			"recorded_at":"2026-04-01T12:30:00Z"
-		}
-	}`))
+	result, err := handler.HandleMessage(context.Background(), mutateValidPayload(t, func(event map[string]any) {
+		event["id"] = "evt-001"
+	}))
 	if err != nil {
 		t.Fatalf("HandleMessage() error = %v", err)
 	}
@@ -66,18 +59,10 @@ func TestHandleMessageReturnsUnknownTagOutcome(t *testing.T) {
 		result: visits.Result{Outcome: visits.OutcomeUnknownTag},
 	})
 
-	result, err := handler.HandleMessage(context.Background(), []byte(`{
-		"id":"evt-002",
-		"source":"athena",
-		"type":"athena.identified_presence.arrived",
-		"timestamp":"2026-04-01T12:31:00Z",
-		"data":{
-			"facility_id":"ashtonbee",
-			"external_identity_hash":"unknown",
-			"source":"mock",
-			"recorded_at":"2026-04-01T12:31:00Z"
-		}
-	}`))
+	result, err := handler.HandleMessage(context.Background(), mutateValidPayload(t, func(event map[string]any) {
+		event["id"] = "evt-002"
+		event["data"].(map[string]any)["external_identity_hash"] = "unknown"
+	}))
 	if err != nil {
 		t.Fatalf("HandleMessage() error = %v", err)
 	}
@@ -90,18 +75,10 @@ func TestHandleMessageIgnoresAnonymousPayload(t *testing.T) {
 	recorder := &stubArrivalRecorder{}
 	handler := NewIdentifiedPresenceHandler(recorder)
 
-	result, err := handler.HandleMessage(context.Background(), []byte(`{
-		"id":"evt-003",
-		"source":"athena",
-		"type":"athena.identified_presence.arrived",
-		"timestamp":"2026-04-01T12:32:00Z",
-		"data":{
-			"facility_id":"ashtonbee",
-			"external_identity_hash":"",
-			"source":"mock",
-			"recorded_at":"2026-04-01T12:32:00Z"
-		}
-	}`))
+	result, err := handler.HandleMessage(context.Background(), mutateValidPayload(t, func(event map[string]any) {
+		event["id"] = "evt-003"
+		event["data"].(map[string]any)["external_identity_hash"] = ""
+	}))
 	if err != nil {
 		t.Fatalf("HandleMessage() error = %v", err)
 	}
@@ -124,17 +101,7 @@ func TestHandleMessageRejectsMalformedJSON(t *testing.T) {
 func TestHandleMessageRejectsMissingFacilityID(t *testing.T) {
 	handler := NewIdentifiedPresenceHandler(&stubArrivalRecorder{})
 
-	if _, err := handler.HandleMessage(context.Background(), []byte(`{
-		"id":"evt-004",
-		"source":"athena",
-		"type":"athena.identified_presence.arrived",
-		"timestamp":"2026-04-01T12:33:00Z",
-		"data":{
-			"external_identity_hash":"tag_tracer2_001",
-			"source":"mock",
-			"recorded_at":"2026-04-01T12:33:00Z"
-		}
-	}`)); err == nil {
+	if _, err := handler.HandleMessage(context.Background(), protoevents.MissingFacilityIDIdentifiedPresenceArrivedFixture()); err == nil {
 		t.Fatal("HandleMessage() error = nil, want missing facility_id error")
 	}
 }
@@ -142,17 +109,85 @@ func TestHandleMessageRejectsMissingFacilityID(t *testing.T) {
 func TestHandleMessageRejectsMissingTimestamp(t *testing.T) {
 	handler := NewIdentifiedPresenceHandler(&stubArrivalRecorder{})
 
-	if _, err := handler.HandleMessage(context.Background(), []byte(`{
-		"id":"evt-005",
-		"source":"athena",
-		"type":"athena.identified_presence.arrived",
-		"data":{
-			"facility_id":"ashtonbee",
-			"external_identity_hash":"tag_tracer2_001",
-			"source":"mock",
-			"recorded_at":"2026-04-01T12:34:00Z"
-		}
-	}`)); err == nil {
+	if _, err := handler.HandleMessage(context.Background(), mutateValidPayload(t, func(event map[string]any) {
+		delete(event, "timestamp")
+	})); err == nil {
 		t.Fatal("HandleMessage() error = nil, want missing timestamp error")
+	}
+}
+
+func TestHandleMessageRejectsMissingID(t *testing.T) {
+	handler := NewIdentifiedPresenceHandler(&stubArrivalRecorder{})
+
+	if _, err := handler.HandleMessage(context.Background(), mutateValidPayload(t, func(event map[string]any) {
+		delete(event, "id")
+	})); err == nil {
+		t.Fatal("HandleMessage() error = nil, want missing id error")
+	}
+}
+
+func TestHandleMessageRejectsWrongEnvelopeSource(t *testing.T) {
+	handler := NewIdentifiedPresenceHandler(&stubArrivalRecorder{})
+
+	if _, err := handler.HandleMessage(context.Background(), mutateValidPayload(t, func(event map[string]any) {
+		event["source"] = "apollo"
+	})); err == nil {
+		t.Fatal("HandleMessage() error = nil, want wrong source error")
+	}
+}
+
+func TestHandleMessageRejectsWrongEnvelopeType(t *testing.T) {
+	handler := NewIdentifiedPresenceHandler(&stubArrivalRecorder{})
+
+	if _, err := handler.HandleMessage(context.Background(), mutateValidPayload(t, func(event map[string]any) {
+		event["type"] = "athena.identified_presence.departed"
+	})); err == nil {
+		t.Fatal("HandleMessage() error = nil, want wrong type error")
+	}
+}
+
+func TestHandleMessageRejectsInvalidSourceValue(t *testing.T) {
+	handler := NewIdentifiedPresenceHandler(&stubArrivalRecorder{})
+
+	if _, err := handler.HandleMessage(context.Background(), protoevents.InvalidSourceIdentifiedPresenceArrivedFixture()); err == nil {
+		t.Fatal("HandleMessage() error = nil, want invalid source error")
+	}
+}
+
+func TestHandleMessageRejectsInvalidRecordedAt(t *testing.T) {
+	handler := NewIdentifiedPresenceHandler(&stubArrivalRecorder{})
+
+	if _, err := handler.HandleMessage(context.Background(), protoevents.InvalidRecordedAtIdentifiedPresenceArrivedFixture()); err == nil {
+		t.Fatal("HandleMessage() error = nil, want invalid recorded_at error")
+	}
+}
+
+func mutateValidPayload(t *testing.T, mutate func(map[string]any)) []byte {
+	t.Helper()
+
+	var event map[string]any
+	if err := json.Unmarshal(protoevents.ValidIdentifiedPresenceArrivedFixture(), &event); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	mutate(event)
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	return payload
+}
+
+func TestHandleMessageErrorMentionsContractFailure(t *testing.T) {
+	handler := NewIdentifiedPresenceHandler(&stubArrivalRecorder{})
+
+	_, err := handler.HandleMessage(context.Background(), protoevents.InvalidSourceIdentifiedPresenceArrivedFixture())
+	if err == nil {
+		t.Fatal("HandleMessage() error = nil, want contract error")
+	}
+	if !strings.Contains(err.Error(), "source") {
+		t.Fatalf("HandleMessage() error = %v, want source context", err)
 	}
 }
