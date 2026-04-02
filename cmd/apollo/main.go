@@ -15,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 
+	dbmigrations "github.com/ixxet/apollo/db/migrations"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/config"
 	"github.com/ixxet/apollo/internal/consumer"
@@ -41,9 +42,43 @@ func newRootCmd() *cobra.Command {
 	}
 
 	rootCmd.AddCommand(newServeCmd())
+	rootCmd.AddCommand(newMigrateCmd())
 	rootCmd.AddCommand(newVisitCmd())
 
 	return rootCmd
+}
+
+func newMigrateCmd() *cobra.Command {
+	migrateCmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Apply APOLLO database migrations.",
+	}
+
+	migrateCmd.AddCommand(&cobra.Command{
+		Use:   "up",
+		Short: "Apply all pending up migrations.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+
+			pool, err := openPool(cmd.Context(), cfg.DatabaseURL)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			if err := dbmigrations.ApplyAll(cmd.Context(), pool); err != nil {
+				return err
+			}
+
+			slog.Info("apollo migrations applied")
+			return nil
+		},
+	})
+
+	return migrateCmd
 }
 
 func newServeCmd() *cobra.Command {
