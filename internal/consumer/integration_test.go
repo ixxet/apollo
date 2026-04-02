@@ -249,6 +249,80 @@ func TestIdentifiedDepartureReplayIsIdempotentEndToEnd(t *testing.T) {
 	}
 }
 
+func TestIdentifiedPresenceLifecycleDoesNotFinishExistingInProgressWorkout(t *testing.T) {
+	ctx := context.Background()
+	postgresEnv, err := testutil.StartPostgres(ctx)
+	if err != nil {
+		t.Fatalf("StartPostgres() error = %v", err)
+	}
+	defer func() {
+		if err := postgresEnv.Close(); err != nil {
+			t.Fatalf("postgresEnv.Close() error = %v", err)
+		}
+	}()
+
+	if err := testutil.ApplyApolloSchema(ctx, postgresEnv.DB); err != nil {
+		t.Fatalf("ApplyApolloSchema() error = %v", err)
+	}
+	if err := testutil.ApplySQLFiles(ctx, postgresEnv.DB, testutil.RepoFilePath("db", "seeds", "tracer2.sql")); err != nil {
+		t.Fatalf("ApplySQLFiles(seed) error = %v", err)
+	}
+
+	natsEnv, err := testutil.StartNATS()
+	if err != nil {
+		t.Fatalf("StartNATS() error = %v", err)
+	}
+	defer func() {
+		if err := natsEnv.Close(); err != nil {
+			t.Fatalf("natsEnv.Close() error = %v", err)
+		}
+	}()
+
+	repository := visits.NewRepository(postgresEnv.DB)
+	service := visits.NewService(repository)
+	arrivalHandler := NewIdentifiedPresenceHandler(service)
+	departureHandler := NewIdentifiedDepartureHandler(service)
+	if _, err := natsEnv.Conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
+		_, _ = arrivalHandler.HandleMessage(context.Background(), msg.Data)
+	}); err != nil {
+		t.Fatalf("Subscribe(arrived) error = %v", err)
+	}
+	if _, err := natsEnv.Conn.Subscribe(protoevents.SubjectIdentifiedPresenceDeparted, func(msg *nats.Msg) {
+		_, _ = departureHandler.HandleMessage(context.Background(), msg.Data)
+	}); err != nil {
+		t.Fatalf("Subscribe(departed) error = %v", err)
+	}
+
+	user := lookupIntegrationUser(t, ctx, repository, "tag_tracer2_001")
+	insertClaimedTag(t, ctx, postgresEnv.DB, user.ID, "tag_tracer5_001", "departure tracer tag")
+	var workoutID string
+	if err := postgresEnv.DB.QueryRow(ctx, `
+INSERT INTO apollo.workouts (user_id, notes, metadata)
+VALUES ($1, $2, $3::jsonb)
+RETURNING id::text
+`, user.ID, "in progress runtime workout", `{"source":"runtime"}`).Scan(&workoutID); err != nil {
+		t.Fatalf("QueryRow(insert workout) error = %v", err)
+	}
+
+	if err := natsEnv.Conn.Publish(protoevents.SubjectIdentifiedPresenceArrived, protoevents.ValidIdentifiedPresenceArrivedFixture()); err != nil {
+		t.Fatalf("Publish(arrived) error = %v", err)
+	}
+	if err := natsEnv.Conn.Flush(); err != nil {
+		t.Fatalf("Flush(arrived) error = %v", err)
+	}
+	waitForVisitCount(t, ctx, repository, "tracer2-student-001", 1)
+	assertWorkoutState(t, ctx, postgresEnv.DB, workoutID, "in_progress", false)
+
+	if err := natsEnv.Conn.Publish(protoevents.SubjectIdentifiedPresenceDeparted, protoevents.ValidIdentifiedPresenceDepartedFixture()); err != nil {
+		t.Fatalf("Publish(departed) error = %v", err)
+	}
+	if err := natsEnv.Conn.Flush(); err != nil {
+		t.Fatalf("Flush(departed) error = %v", err)
+	}
+	waitForClosedVisit(t, ctx, repository, "tracer2-student-001")
+	assertWorkoutState(t, ctx, postgresEnv.DB, workoutID, "in_progress", false)
+}
+
 func waitForVisitCount(t *testing.T, ctx context.Context, repository *visits.Repository, studentID string, want int) store.ApolloVisit {
 	t.Helper()
 
@@ -354,5 +428,21 @@ func insertClaimedTag(t *testing.T, ctx context.Context, db *pgxpool.Pool, userI
 
 	if _, err := db.Exec(ctx, "INSERT INTO apollo.claimed_tags (user_id, tag_hash, label, is_active) VALUES ($1, $2, $3, TRUE)", userID, tagHash, label); err != nil {
 		t.Fatalf("Exec(insert claimed tag %q) error = %v", tagHash, err)
+	}
+}
+
+func assertWorkoutState(t *testing.T, ctx context.Context, db *pgxpool.Pool, workoutID string, wantStatus string, wantFinished bool) {
+	t.Helper()
+
+	var status string
+	var finishedAt *time.Time
+	if err := db.QueryRow(ctx, "SELECT status, finished_at FROM apollo.workouts WHERE id = $1", workoutID).Scan(&status, &finishedAt); err != nil {
+		t.Fatalf("QueryRow(workout state) error = %v", err)
+	}
+	if status != wantStatus {
+		t.Fatalf("status = %q, want %q", status, wantStatus)
+	}
+	if (finishedAt != nil) != wantFinished {
+		t.Fatalf("finishedAt presence = %t, want %t", finishedAt != nil, wantFinished)
 	}
 }
