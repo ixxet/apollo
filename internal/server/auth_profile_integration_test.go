@@ -21,6 +21,7 @@ import (
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/store"
 	"github.com/ixxet/apollo/internal/testutil"
+	"github.com/ixxet/apollo/internal/workouts"
 )
 
 type integrationEmailSender struct {
@@ -285,10 +286,11 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	profileRepository := profile.NewRepository(db.DB)
 	profileService := profile.NewService(profileRepository)
 	eligibilityService := eligibility.NewService(profileRepository)
+	workoutService := workouts.NewService(workouts.NewRepository(db.DB))
 
 	return &authProfileServerEnv{
 		db:      db,
-		handler: NewHandler(Dependencies{Auth: authService, Profile: profileService, Eligibility: eligibilityService}),
+		handler: NewHandler(Dependencies{Auth: authService, Profile: profileService, Eligibility: eligibilityService, Workouts: workoutService}),
 		sender:  sender,
 		cookies: cookies,
 		queries: store.New(db.DB),
@@ -320,7 +322,7 @@ func (e *authProfileServerEnv) doRequest(t *testing.T, method string, path strin
 	}
 
 	request := httptest.NewRequest(method, path, reader)
-	if method == http.MethodPost || method == http.MethodPatch {
+	if method == http.MethodPost || method == http.MethodPatch || method == http.MethodPut {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	for _, cookie := range cookies {
