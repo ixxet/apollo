@@ -35,3 +35,32 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: when a tracer needs a defensive no-op path that is looser than the
   active shared contract, isolate that exception narrowly and keep the main
   parse path strict.
+
+- Symptom: adding `users.email_verified_at` to the generated auth/profile query
+  surface broke older APOLLO integration tests even though the new runtime code
+  was correct.
+  Cause: multiple tests were still booting only the Tracer 2 migration set, so
+  generated queries referenced columns that did not exist in those temporary
+  databases.
+  Fix: centralize APOLLO test schema bootstrapping through one helper that
+  applies the full active migration stack.
+  Rule: if generated queries depend on new columns, every integration test must
+  boot the full current schema, not a stale subset of migrations.
+
+- Symptom: Docker-backed Postgres tests hung on this machine before the first
+  auth integration assertion even ran.
+  Cause: the shared dockertest helper assumed `host.docker.internal` existed,
+  but that hostname did not resolve in this local environment.
+  Fix: make the helper detect whether `host.docker.internal` resolves and fall
+  back to `127.0.0.1`, then add a regression test around the resolver path.
+  Rule: local integration helpers must detect platform-specific Docker host
+  differences instead of assuming Docker Desktop DNS behavior.
+
+- Symptom: the local auth smoke could receive the correct `Secure` session
+  cookie, but a plain HTTP cookie jar would not send it back to `/api/v1/profile`.
+  Cause: curl and browsers correctly refuse to replay `Secure` cookies over
+  non-TLS HTTP.
+  Fix: keep the production cookie policy intact and document local smoke to send
+  the cookie explicitly or terminate TLS in front of APOLLO.
+  Rule: do not weaken real auth security semantics just to make localhost smoke
+  more convenient.
