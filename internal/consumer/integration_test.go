@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	protoevents "github.com/ixxet/ashton-proto/events"
 	"github.com/nats-io/nats.go"
 
 	"github.com/ixxet/apollo/internal/testutil"
@@ -48,25 +49,13 @@ func TestIdentifiedPresenceIntegrationCreatesOneVisitWithoutWorkout(t *testing.T
 	repository := visits.NewRepository(postgresEnv.DB)
 	service := visits.NewService(repository)
 	handler := NewIdentifiedPresenceHandler(service)
-	if _, err := natsEnv.Conn.Subscribe(SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
+	if _, err := natsEnv.Conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
 		_, _ = handler.HandleMessage(context.Background(), msg.Data)
 	}); err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 
-	if err := natsEnv.Conn.Publish(SubjectIdentifiedPresenceArrived, []byte(`{
-		"id":"evt-integration-001",
-		"source":"athena",
-		"type":"athena.identified_presence.arrived",
-		"timestamp":"2026-04-01T12:30:00Z",
-		"data":{
-			"facility_id":"ashtonbee",
-			"zone_id":"weight-room",
-			"external_identity_hash":"tag_tracer2_001",
-			"source":"mock",
-			"recorded_at":"2026-04-01T12:30:00Z"
-		}
-	}`)); err != nil {
+	if err := natsEnv.Conn.Publish(protoevents.SubjectIdentifiedPresenceArrived, protoevents.ValidIdentifiedPresenceArrivedFixture()); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	if err := natsEnv.Conn.Flush(); err != nil {
