@@ -65,4 +65,7 @@ Tracer 5 now completes the first full APOLLO visit lifecycle slice:
 - duplicate and no-open departures resolve deterministically
 - visit lifecycle is still separate from auth, profile state, workouts, and
   lobby or matchmaking intent
+- Milestone 1.5 now proves the bounded live deployment can bootstrap APOLLO,
+  consume the identified arrival subject in-cluster, and persist the visit
+  without widening into broader product runtime
 - workouts, recommendations, lobby membership, and matchmaking remain deferred

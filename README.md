@@ -141,6 +141,9 @@ recommendations, or matchmaking are allowed to widen the repo.
   already-open visits, no-open departures, and out-of-order departures all
   resolve deterministically
 - `apollo visit list` reads back recorded visit history for a specific student
+- the bounded live cluster deployment now proves APOLLO can boot its schema,
+  connect to in-cluster NATS, and persist the live ATHENA identified-arrival
+  path into Postgres
 
 ### Real but intentionally narrow
 
@@ -148,6 +151,8 @@ recommendations, or matchmaking are allowed to widen the repo.
   settings
 - open-lobby eligibility is derived read-only state, not a join or leave flow
 - visit recording and visit closing remain separate from auth and profile state
+- the live cluster proof is still only the visit-ingest boundary; it does not
+  widen APOLLO into a broader product deployment
 - workouts, recommendations, and matchmaking are still outside the active
   tracer scope
 
