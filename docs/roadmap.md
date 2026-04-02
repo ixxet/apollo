@@ -16,13 +16,15 @@ builds.
   `reason` from persisted `visibility_mode` and `availability_mode`
 - visit history now supports deterministic open and close behavior while
   remaining separate from auth and profile state
-- workouts, recommendations, lobby membership, and matchmaking stay deferred
+- authenticated workout create, update, finish, detail, and history reads are
+  now real while staying separate from visits and member intent
+- recommendations, lobby membership, and matchmaking stay deferred
 
 ## Boundaries
 
 - no full PWA build in this tracer
-- no workout runtime in this tracer
 - no recommendation engine until workout data exists
+- no workout inference from arrivals, departures, or visits
 - no automatic lobby entry from tap-in events
 - no lobby membership persistence or matchmaking until user state and activity
   data are stable
@@ -35,6 +37,8 @@ builds.
 - one member can read and update persisted privacy and availability settings
 - one authenticated member can read deterministic lobby eligibility derived from
   those persisted settings
+- one authenticated member can create, update, finish, read, and list workout
+  history without touching visits or profile intent
 - visit recording still stays separate from workouts and lobby intent
 
 ## Tracer Ownership
@@ -43,10 +47,11 @@ builds.
 - `Tracer 3`: member auth -> profile -> privacy and availability state
 - `Tracer 4`: lobby eligibility from explicit availability, not tap-in
 - `Tracer 5`: close the correct open visit from ATHENA departure truth
+- `Tracer 6`: explicit workout runtime without visit-derived workout inference
 
 ## Current State
 
-Tracer 5 now completes the first full APOLLO visit lifecycle slice:
+Tracer 6 now completes APOLLO's first workout-history runtime slice:
 
 - `POST /api/v1/auth/verification/start` creates or reuses the correct member
   record without touching tag linkage
@@ -63,9 +68,19 @@ Tracer 5 now completes the first full APOLLO visit lifecycle slice:
 - departures close the matching open visit for the same member and facility
   without reopening history, creating workouts, or mutating member intent
 - duplicate and no-open departures resolve deterministically
-- visit lifecycle is still separate from auth, profile state, workouts, and
+- `POST /api/v1/workouts` creates one member-owned `in_progress` workout
+- `PUT /api/v1/workouts/{id}` replaces ordered exercise data while the workout
+  is still mutable
+- `POST /api/v1/workouts/{id}/finish` explicitly finishes a non-empty workout
+- `GET /api/v1/workouts` and `GET /api/v1/workouts/{id}` now serve workout
+  history back through the authenticated runtime
+- one member can own many finished workouts, but only one `in_progress`
+  workout at a time
+- workout runtime is still separate from auth, profile state, visits, and
   lobby or matchmaking intent
 - Milestone 1.5 now proves the bounded live deployment can bootstrap APOLLO,
   consume the identified arrival subject in-cluster, and persist the visit
   without widening into broader product runtime
-- workouts, recommendations, lobby membership, and matchmaking remain deferred
+- workout runtime is proven locally; deployed truth is still unchanged from
+  Milestone 1.5 and does not claim live in-cluster workout surfaces
+- recommendations, lobby membership, and matchmaking remain deferred

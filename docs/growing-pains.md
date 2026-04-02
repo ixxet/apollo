@@ -88,3 +88,16 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: when an integration test claims to use shared contract bytes unchanged,
   the seed data must be aligned to that contract instead of mutating the
   payload under test.
+
+- Symptom: the first manual `apollo serve` workout smoke returned empty replies
+  from the new workout endpoints even though the handler and server integration
+  suites were green.
+  Cause: the real CLI serve path built `server.Dependencies` separately and
+  still omitted the workout service, so the live HTTP route panicked on a nil
+  dependency while the test-only server environment stayed healthy.
+  Fix: factor runtime dependency assembly into one helper, wire the workout
+  service into the real serve path, add a regression test for that assembly,
+  and rerun the manual `apollo serve` smoke.
+  Rule: when HTTP dependencies are assembled outside the handler tests, smoke
+  the real entrypoint and add a regression around the assembly helper instead
+  of assuming integration coverage already proves the live path.

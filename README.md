@@ -6,16 +6,17 @@ recommendations, and the ARES matchmaking subsystem.
 
 > Current real slice: first-party member auth and session-backed profile state,
 > deterministic visit-history ingest and close behavior, and derived lobby
-> eligibility from persisted `visibility_mode` / `availability_mode`. APOLLO
-> now proves account ownership, signed session handling, the first full visit
-> lifecycle slice, and the first real intent-behavior slice without widening
-> into workouts, matchmaking, or recommendations.
+> eligibility from persisted `visibility_mode` / `availability_mode`, plus the
+> first explicit member-owned workout runtime. APOLLO now proves account
+> ownership, signed session handling, the first full visit lifecycle slice, the
+> first real intent-behavior slice, and explicit workout-history create/update/
+> finish behavior without widening into recommendations or matchmaking.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
-schema form or preserved as a future plan. Tracer 5 completes the first visit
-lifecycle slice: physical departure can close visit history without inventing
-workout semantics or social intent.
+schema form or preserved as a future plan. Tracer 6 completes the first workout
+runtime slice: members explicitly create, update, finish, and read workout
+history without visit events implying exercise activity.
 
 ## Architecture
 
@@ -50,10 +51,14 @@ flowchart LR
 | Profile read | `GET /api/v1/profile` | Real | Requires a valid session cookie and returns persisted member profile state |
 | Profile update | `PATCH /api/v1/profile` | Real | Requires a valid session cookie and updates `visibility_mode` and `availability_mode` only |
 | Lobby eligibility read | `GET /api/v1/lobby/eligibility` | Real | Requires a valid session cookie and derives open-lobby eligibility from stored profile state only |
+| Workout create | `POST /api/v1/workouts` | Real | Requires a valid session cookie and creates one member-owned `in_progress` workout |
+| Workout list | `GET /api/v1/workouts` | Real | Requires a valid session cookie and returns deterministic workout history ordering |
+| Workout detail | `GET /api/v1/workouts/{id}` | Real | Requires a valid session cookie and is owner-scoped |
+| Workout update | `PUT /api/v1/workouts/{id}` | Real | Requires a valid session cookie and replaces draft exercise data while the workout is `in_progress` |
+| Workout finish | `POST /api/v1/workouts/{id}/finish` | Real | Requires a valid session cookie and finishes a non-empty `in_progress` workout |
 | Logout | `POST /api/v1/auth/logout` | Real | Revokes the current server-side session and clears the cookie |
 | Visit readback | `apollo visit list --student-id ... --format text|json` | Real | Lists visit history for a member |
 | Event consumer | `apollo serve` with `APOLLO_NATS_URL` | Real | Consumes `athena.identified_presence.arrived` and `athena.identified_presence.departed` from NATS |
-| Workout logging runtime | - | Planned | Tables exist, runtime does not |
 | Recommendation runtime | - | Planned | Schema exists, pipeline does not |
 | Matchmaking runtime | - | Planned | ARES tables exist, service logic does not |
 
@@ -81,7 +86,7 @@ eligibility, or any social state.
 | `apollo.sessions` | Real | Stores server-side session state keyed by a signed cookie value |
 | `apollo.claimed_tags` | Real | Links ATHENA identity hashes to member accounts |
 | `apollo.visits` | Real | Stores visit open/close history with deterministic departure idempotency |
-| `apollo.workouts` and `apollo.exercises` | Schema authored | Runtime deferred until workout logging tracer work starts |
+| `apollo.workouts` and `apollo.exercises` | Real | Stores explicit workout draft and finished history with ordered exercise rows |
 | `apollo.ares_*` tables | Schema authored | Matchmaking and skill logic are deferred |
 | `apollo.recommendations` | Schema authored | Recommendation runtime is deferred |
 | `users.preferences` JSONB | Real schema, future-heavy use | Intended home for flexible member-intent state such as `visibility_mode` and `availability_mode` |
@@ -98,7 +103,7 @@ eligibility, or any social state.
 | Eventing | NATS | Instituted | Consumes ATHENA identified arrival and departure events |
 | Shared contract | `ashton-proto` generated packages + runtime helper | Instituted | APOLLO no longer owns a private copy of the event wire format |
 | Auth path | first-party student ID + email verification + signed session cookie | Real | Tokens are stored hashed in Postgres and sessions are server-side rows referenced by a signed cookie |
-| Workout runtime | relational workout model | Planned | Tables exist; runtime does not |
+| Workout runtime | relational workout model | Real | Authenticated create, update, finish, read, and list behavior is active |
 | Recommendation pipeline | LangGraph + vLLM + Mem0 | Deferred | Preserved as future direction, not current runtime truth |
 | ARES rating engine | OpenSkill | Deferred | Schema groundwork exists, service layer does not |
 | Frontend | SvelteKit PWA | Deferred | Not yet present in the repo |
@@ -115,8 +120,9 @@ eligibility, or any social state.
 | APOLLO records the lifecycle | Arrivals open visits, departures close matching open visits for the same member and facility |
 
 This flow is intentionally narrower than the future product shape. It proves the
-boundary from physical truth to member history first, before auth, workouts,
-recommendations, or matchmaking are allowed to widen the repo.
+boundary from physical truth to member history first, then layers explicit
+member-owned auth, intent, and workout runtime without letting visits imply
+exercise, recommendations, or matchmaking.
 
 ## Current State Block
 
@@ -130,6 +136,11 @@ recommendations, or matchmaking are allowed to widen the repo.
 - authenticated `GET /api/v1/lobby/eligibility` is real and derives
   `eligible`, `reason`, `visibility_mode`, and `availability_mode` from stored
   member state only
+- authenticated `POST/GET/PUT /api/v1/workouts` and
+  `POST /api/v1/workouts/{id}/finish` are real and keep workout state
+  member-owned, explicit, and owner-scoped
+- only one `in_progress` workout is allowed per member at a time
+- finished workouts are immutable through the current runtime surface
 - logout revokes the current server-side session and clears the cookie
 - APOLLO can consume `athena.identified_presence.arrived` and
   `athena.identified_presence.departed` from NATS
@@ -147,24 +158,24 @@ recommendations, or matchmaking are allowed to widen the repo.
 
 ### Real but intentionally narrow
 
-- the active member-facing write surface is still limited to auth and profile
-  settings
+- the active member-facing write surface is limited to auth, profile settings,
+  and explicit workout history
 - open-lobby eligibility is derived read-only state, not a join or leave flow
 - visit recording and visit closing remain separate from auth and profile state
 - the live cluster proof is still only the visit-ingest boundary; it does not
   widen APOLLO into a broader product deployment
-- workouts, recommendations, and matchmaking are still outside the active
-  tracer scope
+- recommendations and matchmaking are still outside the active tracer scope
 
 ### Authored in schema, not yet active in runtime
 
-- workout and exercise tables
 - ARES rating and match tables
 - recommendation storage
 
 ### Deferred on purpose
 
 - tying visit creation or visit closing to workout logging
+- auto-starting a workout from arrival or auto-finishing a workout from
+  departure
 - letting tap-in imply lobby or matchmaking intent
 - adding lobby membership persistence, invites, or match formation before the
   eligibility boundary is proven
@@ -181,8 +192,9 @@ recommendations, or matchmaking are allowed to widen the repo.
 | `internal/consumer/` | NATS consumer and strict event parsing |
 | `internal/profile/` | authenticated profile state read and update over `users.preferences` |
 | `internal/visits/` | visit service and repository boundary |
+| `internal/workouts/` | workout repository and service for explicit member-owned workout history |
 | `internal/store/` | sqlc-generated models and query bindings |
-| `internal/server/` | health, auth, profile, and session middleware wiring |
+| `internal/server/` | health, auth, profile, workout, and session middleware wiring |
 | `db/migrations/` | current schema for users, auth/session state, visits, workouts, ARES, and recommendations |
 | `db/queries/` | checked-in SQL for auth, profile, and visit operations |
 | `docs/` | roadmap, ADRs, runbook, growing pains, and diagrams |
@@ -210,6 +222,6 @@ APOLLO is where the platform starts to look like a product instead of only an
 operations system. Even in its current narrow form, it already shows contract
 discipline, first-party auth taste, deterministic failure handling, relational
 schema design, event-driven ingestion, and a strong boundary between presence,
-profile state, workouts, and matchmaking intent. The current tracer proves the
-first full visit lifecycle slice: physical departure closes visit history
-without inventing workout semantics or social intent.
+profile state, workout history, and matchmaking intent. The current tracer
+proves the first real workout-history runtime: members explicitly create and
+complete workout records without visit history implying exercise activity.
