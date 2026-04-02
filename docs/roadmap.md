@@ -2,32 +2,34 @@
 
 ## Objective
 
-Create the cleanest possible first member-facing slice without dragging the whole recommendation and matchmaking system in on day one.
+Keep APOLLO moving through narrow member-facing tracers instead of broad app
+builds.
 
-## First Implementation Slice
+## Current Narrow Slice
 
-- define the minimum user, presence, and workout contract surface
-- store member privacy and availability settings
-- record visit history separately from workout history
-- log one workout entry
-- read back both current presence state and workout history
-- add member auth with email verification and session cookies
-- keep advanced diet guidance and full ARES automation as documented follow-on work
+- member registration and passwordless sign-in start from student ID + email
+- email verification tokens are stored hashed, expired, and single-use
+- successful verification issues a signed server-backed session cookie
+- authenticated profile reads and writes persist `visibility_mode` and
+  `availability_mode`
+- visit history remains separate from auth and profile state
+- workouts, recommendations, and matchmaking stay deferred
 
 ## Boundaries
 
-- no full PWA in the first slice
+- no full PWA build in this tracer
+- no workout runtime in this tracer
 - no recommendation engine until workout data exists
 - no automatic lobby entry from tap-in events
 - no matchmaking lobby until user state and activity data are stable
 
 ## Exit Criteria
 
-- one user can store profile, privacy, and availability settings successfully
-- one visit can be recorded without creating a workout entry
-- one user can log one workout successfully
-- the visit and workout records can be retrieved through stable read surfaces
-- the repo stays small enough to evolve without fighting premature frontend or ML complexity
+- one member can start verification with student ID + email
+- one member can verify ownership through a real token lifecycle
+- one member can receive and use a signed session cookie
+- one member can read and update persisted privacy and availability settings
+- visit recording still stays separate from workouts and matchmaking intent
 
 ## Tracer Ownership
 
@@ -37,12 +39,16 @@ Create the cleanest possible first member-facing slice without dragging the whol
 
 ## Current State
 
-Tracer 2 now owns the first executable APOLLO slice:
+Tracer 3 now owns the first real member-account and profile-state slice:
 
-- one visit can be created from an identified ATHENA arrival event
-- the runtime stays narrow: HTTP health, visit persistence, visit readback, and NATS consumption only
-- the consumer now shares one runtime contract surface with ATHENA through
-  `ashton-proto` and uses shared fixture and helper bytes in tests instead of
-  hand-written JSON payloads
-- visit recording is still separate from workout logging, auth, and matchmaking intent
-- visit closing is intentionally deferred until a later tracer adds a real departure flow
+- `POST /api/v1/auth/verification/start` creates or reuses the correct member
+  record without touching tag linkage
+- verification tokens are persisted hashed in Postgres, expire cleanly, and are
+  rejected after use
+- `GET/POST /api/v1/auth/verify` verifies ownership and issues a signed
+  `HTTPOnly`, `Secure`, `SameSite=Strict` session cookie backed by Postgres
+- `GET/PATCH /api/v1/profile` now persists `visibility_mode` and
+  `availability_mode` through `users.preferences`
+- visit recording is still separate from auth, profile state, workouts, and
+  matchmaking intent
+- visit closing, workouts, recommendations, and lobby behavior remain deferred

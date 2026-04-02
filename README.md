@@ -4,10 +4,11 @@ APOLLO is the member-facing application in ASHTON. It will eventually own
 profile state, privacy and availability controls, workout logging,
 recommendations, and the ARES matchmaking subsystem.
 
-> Current real slice: consume `athena.identified_presence.arrived`, validate it
-> through the shared `ashton-proto` runtime contract, and record deterministic
-> visit history in Postgres without collapsing visits into workouts or
-> matchmaking intent.
+> Current real slice: first-party member auth and session-backed profile state,
+> plus `athena.identified_presence.arrived` ingestion for deterministic visit
+> history. APOLLO now proves account ownership, signed session handling, and
+> persisted `visibility_mode` / `availability_mode` without widening into
+> workouts or matchmaking behavior.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -41,9 +42,13 @@ flowchart LR
 | --- | --- | --- | --- |
 | HTTP health | `GET /api/v1/health` | Real | Indicates service health and whether the NATS consumer is enabled |
 | Serve command | `apollo serve` | Real | Starts the health endpoint and optional NATS consumer |
+| Verification start | `POST /api/v1/auth/verification/start` | Real | Starts registration or passwordless sign-in with student ID + email |
+| Verification consume | `GET/POST /api/v1/auth/verify` | Real | Consumes a stored token, marks it used, verifies email ownership, and issues a signed session cookie |
+| Profile read | `GET /api/v1/profile` | Real | Requires a valid session cookie and returns persisted member profile state |
+| Profile update | `PATCH /api/v1/profile` | Real | Requires a valid session cookie and updates `visibility_mode` and `availability_mode` only |
+| Logout | `POST /api/v1/auth/logout` | Real | Revokes the current server-side session and clears the cookie |
 | Visit readback | `apollo visit list --student-id ... --format text|json` | Real | Lists visit history for a member |
 | Event consumer | `apollo serve` with `APOLLO_NATS_URL` | Real | Consumes `athena.identified_presence.arrived` from NATS |
-| Profile endpoints | - | Planned | Belong to Tracer 3 and later |
 | Workout logging runtime | - | Planned | Tables exist, runtime does not |
 | Recommendation runtime | - | Planned | Schema exists, pipeline does not |
 | Matchmaking runtime | - | Planned | ARES tables exist, service logic does not |
@@ -66,7 +71,9 @@ eligibility, or any social state.
 
 | Area | Status | Current Runtime Use |
 | --- | --- | --- |
-| `apollo.users` | Real | Member records exist and are looked up during visit creation |
+| `apollo.users` | Real | Member records now support visit linkage, email verification state, and flexible profile preferences |
+| `apollo.email_verification_tokens` | Real | Stores hashed verification tokens with expiry and single-use semantics |
+| `apollo.sessions` | Real | Stores server-side session state keyed by a signed cookie value |
 | `apollo.claimed_tags` | Real | Links ATHENA identity hashes to member accounts |
 | `apollo.visits` | Real | Stores arrival-driven visit history |
 | `apollo.workouts` and `apollo.exercises` | Schema authored | Runtime deferred until workout logging tracer work starts |
@@ -82,10 +89,10 @@ eligibility, or any social state.
 | HTTP router | chi | Instituted | Current API surface is intentionally tiny |
 | CLI | Cobra | Instituted | `serve` and `visit list` are real |
 | Database driver | pgx | Instituted | Used for runtime persistence |
-| SQL generation | sqlc | Instituted | Visit queries and models are generated from checked-in SQL |
+| SQL generation | sqlc | Instituted | Auth, session, profile, and visit queries are generated from checked-in SQL |
 | Eventing | NATS | Instituted | Consumes ATHENA identified-arrival events |
 | Shared contract | `ashton-proto` generated packages + runtime helper | Instituted | APOLLO no longer owns a private copy of the event wire format |
-| Auth path | student ID + email verification + session cookie | Planned | Locked in ADR, not implemented yet |
+| Auth path | first-party student ID + email verification + signed session cookie | Real | Tokens are stored hashed in Postgres and sessions are server-side rows referenced by a signed cookie |
 | Workout runtime | relational workout model | Planned | Tables exist; runtime does not |
 | Recommendation pipeline | LangGraph + vLLM + Mem0 | Deferred | Preserved as future direction, not current runtime truth |
 | ARES rating engine | OpenSkill | Deferred | Schema groundwork exists, service layer does not |
@@ -111,6 +118,11 @@ recommendations, or matchmaking are allowed to widen the repo.
 ### Already real in this repo
 
 - `apollo serve` starts a real Go process with health reporting
+- APOLLO can start a member verification flow from student ID + email
+- verification tokens are generated, stored hashed, expired, invalidated after use, and can be surfaced in local development through explicit token logging
+- successful verification marks the user email as verified and issues a signed `HTTPOnly`, `Secure`, `SameSite=Strict` session cookie
+- authenticated profile reads and writes are real for `visibility_mode` and `availability_mode`
+- logout revokes the current server-side session and clears the cookie
 - APOLLO can consume `athena.identified_presence.arrived` from NATS
 - the consumer uses the shared `ashton-proto` helper instead of a private event
   struct
@@ -122,14 +134,14 @@ recommendations, or matchmaking are allowed to widen the repo.
 
 ### Real but intentionally narrow
 
-- the API surface only exposes health today
-- visit recording is the only active member-facing runtime behavior
-- auth, workouts, recommendations, and matchmaking are still outside the active
+- the active member-facing write surface is still limited to auth and profile
+  settings
+- visit recording remains separate from auth and profile state
+- workouts, recommendations, and matchmaking are still outside the active
   tracer scope
 
 ### Authored in schema, not yet active in runtime
 
-- flexible member state in `users.preferences`
 - workout and exercise tables
 - ARES rating and match tables
 - recommendation storage
@@ -146,12 +158,14 @@ recommendations, or matchmaking are allowed to widen the repo.
 | Path | Purpose |
 | --- | --- |
 | `cmd/apollo/` | CLI entrypoint and serve command |
+| `internal/auth/` | verification token lifecycle, server-side sessions, and signed cookie handling |
 | `internal/consumer/` | NATS consumer and strict event parsing |
+| `internal/profile/` | authenticated profile state read and update over `users.preferences` |
 | `internal/visits/` | visit service and repository boundary |
 | `internal/store/` | sqlc-generated models and query bindings |
-| `internal/server/` | health endpoint wiring |
-| `db/migrations/` | current schema for users, visits, workouts, ARES, and recommendations |
-| `db/queries/` | checked-in SQL for visit operations |
+| `internal/server/` | health, auth, profile, and session middleware wiring |
+| `db/migrations/` | current schema for users, auth/session state, visits, workouts, ARES, and recommendations |
+| `db/queries/` | checked-in SQL for auth, profile, and visit operations |
 | `docs/` | roadmap, ADRs, runbook, growing pains, and diagrams |
 
 ## Deployment Boundary
@@ -175,6 +189,6 @@ not the homelab substrate.
 
 APOLLO is where the platform starts to look like a product instead of only an
 operations system. Even in its current narrow form, it already shows contract
-discipline, event-driven ingestion, deterministic failure handling, relational
-schema design, and a strong boundary between presence, workouts, and
-matchmaking intent.
+discipline, first-party auth taste, deterministic failure handling, relational
+schema design, event-driven ingestion, and a strong boundary between presence,
+profile state, workouts, and matchmaking intent.
