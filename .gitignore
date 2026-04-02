@@ -3,6 +3,7 @@
 .env.*
 .idea/
 .vscode/
+/apollo
 bin/
 dist/
 coverage.out
