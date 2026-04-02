@@ -32,10 +32,15 @@ Tracer 2 now has a narrow executable slice:
 
 - a Go runtime scaffold exists with `apollo serve` and `/api/v1/health`
 - APOLLO can consume `athena.identified_presence.arrived` and record one visit
+- APOLLO now consumes the shared `ashton-proto` runtime contract instead of a
+  private event struct, and rejects wrong source, type, enum values, and
+  timestamp formats before visit persistence
 - claimed tags map ATHENA identity hashes to member records without pulling auth into the tracer
 - duplicate arrivals, unknown tags, malformed payloads, and anonymous events are handled deterministically
 - workout creation remains separate and is not triggered by visit events
-- this repo is ready for a `v0.1.0` tracer-close tag
+- local manual smoke passed with `apollo serve`, real NATS, real Postgres,
+  `athena presence publish-identified`, and `athena serve` with the publisher worker
+- this repo is ready for a `v0.1.1` tracer-close tag
 
 See:
 

@@ -41,5 +41,8 @@ Tracer 2 now owns the first executable APOLLO slice:
 
 - one visit can be created from an identified ATHENA arrival event
 - the runtime stays narrow: HTTP health, visit persistence, visit readback, and NATS consumption only
+- the consumer now shares one runtime contract surface with ATHENA through
+  `ashton-proto` and uses shared fixture and helper bytes in tests instead of
+  hand-written JSON payloads
 - visit recording is still separate from workout logging, auth, and matchmaking intent
 - visit closing is intentionally deferred until a later tracer adds a real departure flow

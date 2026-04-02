@@ -9,6 +9,8 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - auth is separate from identity linkage
 - visits are separate from workouts
 - presence is separate from matchmaking intent
+- identified-arrival consumers must use the shared `ashton-proto` runtime
+  contract instead of private wire structs
 - `users.preferences` holds flexible member-intent state early
 - duplicate arrival delivery must be idempotent
 - unknown and inactive tags must not create visits
@@ -23,3 +25,5 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - visit creation never creates a workout implicitly
 - duplicate delivery does not create a second visit
 - malformed presence events are rejected clearly
+- producer-consumer compatibility is proven with shared helper or fixture bytes,
+  not hand-written JSON strings copied into APOLLO tests
