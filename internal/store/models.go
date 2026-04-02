@@ -98,14 +98,15 @@ type ApolloUser struct {
 }
 
 type ApolloVisit struct {
-	ID            uuid.UUID
-	UserID        uuid.UUID
-	FacilityKey   string
-	ZoneKey       *string
-	SourceEventID *string
-	ArrivedAt     pgtype.Timestamptz
-	DepartedAt    pgtype.Timestamptz
-	Metadata      []byte
+	ID                     uuid.UUID
+	UserID                 uuid.UUID
+	FacilityKey            string
+	ZoneKey                *string
+	SourceEventID          *string
+	ArrivedAt              pgtype.Timestamptz
+	DepartedAt             pgtype.Timestamptz
+	Metadata               []byte
+	DepartureSourceEventID *string
 }
 
 type ApolloWorkout struct {

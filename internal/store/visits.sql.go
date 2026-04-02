@@ -12,6 +12,50 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const closeVisit = `-- name: CloseVisit :one
+UPDATE apollo.visits
+SET departed_at = $2,
+    departure_source_event_id = $3
+WHERE id = $1
+  AND departed_at IS NULL
+RETURNING id, user_id, facility_key, zone_key, source_event_id, departure_source_event_id, arrived_at, departed_at, metadata
+`
+
+type CloseVisitParams struct {
+	ID                     uuid.UUID
+	DepartedAt             pgtype.Timestamptz
+	DepartureSourceEventID *string
+}
+
+type CloseVisitRow struct {
+	ID                     uuid.UUID
+	UserID                 uuid.UUID
+	FacilityKey            string
+	ZoneKey                *string
+	SourceEventID          *string
+	DepartureSourceEventID *string
+	ArrivedAt              pgtype.Timestamptz
+	DepartedAt             pgtype.Timestamptz
+	Metadata               []byte
+}
+
+func (q *Queries) CloseVisit(ctx context.Context, arg CloseVisitParams) (CloseVisitRow, error) {
+	row := q.db.QueryRow(ctx, closeVisit, arg.ID, arg.DepartedAt, arg.DepartureSourceEventID)
+	var i CloseVisitRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.SourceEventID,
+		&i.DepartureSourceEventID,
+		&i.ArrivedAt,
+		&i.DepartedAt,
+		&i.Metadata,
+	)
+	return i, err
+}
+
 const createVisit = `-- name: CreateVisit :one
 INSERT INTO apollo.visits (
   user_id,
@@ -32,7 +76,18 @@ type CreateVisitParams struct {
 	ArrivedAt     pgtype.Timestamptz
 }
 
-func (q *Queries) CreateVisit(ctx context.Context, arg CreateVisitParams) (ApolloVisit, error) {
+type CreateVisitRow struct {
+	ID            uuid.UUID
+	UserID        uuid.UUID
+	FacilityKey   string
+	ZoneKey       *string
+	SourceEventID *string
+	ArrivedAt     pgtype.Timestamptz
+	DepartedAt    pgtype.Timestamptz
+	Metadata      []byte
+}
+
+func (q *Queries) CreateVisit(ctx context.Context, arg CreateVisitParams) (CreateVisitRow, error) {
 	row := q.db.QueryRow(ctx, createVisit,
 		arg.UserID,
 		arg.FacilityKey,
@@ -40,7 +95,7 @@ func (q *Queries) CreateVisit(ctx context.Context, arg CreateVisitParams) (Apoll
 		arg.SourceEventID,
 		arg.ArrivedAt,
 	)
-	var i ApolloVisit
+	var i CreateVisitRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -79,7 +134,7 @@ func (q *Queries) GetActiveUserByTagHash(ctx context.Context, tagHash string) (A
 }
 
 const getOpenVisitByUserAndFacility = `-- name: GetOpenVisitByUserAndFacility :one
-SELECT v.id, v.user_id, v.facility_key, v.zone_key, v.source_event_id, v.arrived_at, v.departed_at, v.metadata
+SELECT v.id, v.user_id, v.facility_key, v.zone_key, v.source_event_id, v.arrived_at, v.departed_at, v.metadata, v.departure_source_event_id
 FROM apollo.visits AS v
 WHERE user_id = $1
   AND facility_key = $2
@@ -105,12 +160,37 @@ func (q *Queries) GetOpenVisitByUserAndFacility(ctx context.Context, arg GetOpen
 		&i.ArrivedAt,
 		&i.DepartedAt,
 		&i.Metadata,
+		&i.DepartureSourceEventID,
+	)
+	return i, err
+}
+
+const getVisitByDepartureSourceEventID = `-- name: GetVisitByDepartureSourceEventID :one
+SELECT v.id, v.user_id, v.facility_key, v.zone_key, v.source_event_id, v.arrived_at, v.departed_at, v.metadata, v.departure_source_event_id
+FROM apollo.visits AS v
+WHERE departure_source_event_id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetVisitByDepartureSourceEventID(ctx context.Context, departureSourceEventID *string) (ApolloVisit, error) {
+	row := q.db.QueryRow(ctx, getVisitByDepartureSourceEventID, departureSourceEventID)
+	var i ApolloVisit
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.SourceEventID,
+		&i.ArrivedAt,
+		&i.DepartedAt,
+		&i.Metadata,
+		&i.DepartureSourceEventID,
 	)
 	return i, err
 }
 
 const getVisitBySourceEventID = `-- name: GetVisitBySourceEventID :one
-SELECT v.id, v.user_id, v.facility_key, v.zone_key, v.source_event_id, v.arrived_at, v.departed_at, v.metadata
+SELECT v.id, v.user_id, v.facility_key, v.zone_key, v.source_event_id, v.arrived_at, v.departed_at, v.metadata, v.departure_source_event_id
 FROM apollo.visits AS v
 WHERE source_event_id = $1
 LIMIT 1
@@ -128,12 +208,13 @@ func (q *Queries) GetVisitBySourceEventID(ctx context.Context, sourceEventID *st
 		&i.ArrivedAt,
 		&i.DepartedAt,
 		&i.Metadata,
+		&i.DepartureSourceEventID,
 	)
 	return i, err
 }
 
 const listVisitsByStudentID = `-- name: ListVisitsByStudentID :many
-SELECT v.id, v.user_id, v.facility_key, v.zone_key, v.source_event_id, v.arrived_at, v.departed_at, v.metadata
+SELECT v.id, v.user_id, v.facility_key, v.zone_key, v.source_event_id, v.arrived_at, v.departed_at, v.metadata, v.departure_source_event_id
 FROM apollo.visits AS v
 JOIN apollo.users AS u ON u.id = v.user_id
 WHERE u.student_id = $1
@@ -158,6 +239,7 @@ func (q *Queries) ListVisitsByStudentID(ctx context.Context, studentID string) (
 			&i.ArrivedAt,
 			&i.DepartedAt,
 			&i.Metadata,
+			&i.DepartureSourceEventID,
 		); err != nil {
 			return nil, err
 		}
