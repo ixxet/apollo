@@ -23,6 +23,7 @@ import (
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/server"
 	"github.com/ixxet/apollo/internal/visits"
+	"github.com/ixxet/apollo/internal/workouts"
 	protoevents "github.com/ixxet/ashton-proto/events"
 )
 
@@ -152,20 +153,9 @@ func newServeCmd() *cobra.Command {
 				sender = auth.LogEmailSender{}
 			}
 
-			authRepository := auth.NewRepository(pool)
-			authService := auth.NewService(authRepository, cookies, sender, cfg.VerificationTokenTTL, cfg.SessionTTL)
-			profileRepository := profile.NewRepository(pool)
-			profileService := profile.NewService(profileRepository)
-			eligibilityService := eligibility.NewService(profileRepository)
-
 			httpServer := &http.Server{
-				Addr: cfg.HTTPAddr,
-				Handler: server.NewHandler(server.Dependencies{
-					ConsumerEnabled: consumerEnabled,
-					Auth:            authService,
-					Profile:         profileService,
-					Eligibility:     eligibilityService,
-				}),
+				Addr:    cfg.HTTPAddr,
+				Handler: server.NewHandler(buildServerDependencies(pool, consumerEnabled, cookies, sender, cfg)),
 			}
 
 			slog.Info("starting APOLLO server", "addr", cfg.HTTPAddr)
@@ -175,6 +165,23 @@ func newServeCmd() *cobra.Command {
 
 			return nil
 		},
+	}
+}
+
+func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *auth.SessionCookieManager, sender auth.EmailSender, cfg config.Config) server.Dependencies {
+	authRepository := auth.NewRepository(pool)
+	authService := auth.NewService(authRepository, cookies, sender, cfg.VerificationTokenTTL, cfg.SessionTTL)
+	profileRepository := profile.NewRepository(pool)
+	profileService := profile.NewService(profileRepository)
+	eligibilityService := eligibility.NewService(profileRepository)
+	workoutService := workouts.NewService(workouts.NewRepository(pool))
+
+	return server.Dependencies{
+		ConsumerEnabled: consumerEnabled,
+		Auth:            authService,
+		Profile:         profileService,
+		Eligibility:     eligibilityService,
+		Workouts:        workoutService,
 	}
 }
 
