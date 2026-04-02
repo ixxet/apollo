@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/ory/dockertest/v3"
 )
+
+var lookupHost = net.LookupHost
 
 type PostgresEnv struct {
 	pool        *dockertest.Pool
@@ -149,5 +152,9 @@ func dockerHost() string {
 		return host
 	}
 
-	return "host.docker.internal"
+	if _, err := lookupHost("host.docker.internal"); err == nil {
+		return "host.docker.internal"
+	}
+
+	return "127.0.0.1"
 }
