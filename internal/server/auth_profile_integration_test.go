@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,7 +180,7 @@ func TestAuthAndProfileEndpointsRejectTokenAndSessionEdgeCases(t *testing.T) {
 
 	validCookie := sessionCookieFromResponse(t, verifyResponse)
 	tamperedCookie := *validCookie
-	tamperedCookie.Value = validCookie.Value[:len(validCookie.Value)-1] + "A"
+	tamperedCookie.Value = tamperSignedCookieValue(t, validCookie.Value)
 	tamperedCookieResponse := env.doRequest(t, http.MethodGet, "/api/v1/profile", nil, &tamperedCookie)
 	if tamperedCookieResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("tamperedCookieResponse.Code = %d, want %d", tamperedCookieResponse.Code, http.StatusUnauthorized)
@@ -415,4 +417,25 @@ func lookupTagHash(t *testing.T, env *authProfileServerEnv, userID uuid.UUID) st
 func tokenHash(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+func tamperSignedCookieValue(t *testing.T, value string) string {
+	t.Helper()
+
+	parts := strings.Split(value, ".")
+	if len(parts) != 2 {
+		t.Fatalf("cookie format = %q, want two parts", value)
+	}
+
+	signature, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("DecodeString() error = %v", err)
+	}
+	if len(signature) == 0 {
+		t.Fatal("signature length = 0, want non-empty signature")
+	}
+
+	signature[0] ^= 0xFF
+
+	return parts[0] + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
