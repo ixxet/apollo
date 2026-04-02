@@ -3,14 +3,11 @@ package consumer
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/ixxet/apollo/internal/visits"
+	protoevents "github.com/ixxet/ashton-proto/events"
 )
-
-const SubjectIdentifiedPresenceArrived = "athena.identified_presence.arrived"
 
 type ArrivalRecorder interface {
 	RecordArrival(ctx context.Context, input visits.ArrivalInput) (visits.Result, error)
@@ -20,93 +17,72 @@ type IdentifiedPresenceHandler struct {
 	service ArrivalRecorder
 }
 
-type envelope struct {
-	ID        string          `json:"id"`
-	Source    string          `json:"source"`
-	Type      string          `json:"type"`
-	Timestamp string          `json:"timestamp"`
-	Data      json.RawMessage `json:"data"`
-}
-
-type arrivalData struct {
-	FacilityID           *string `json:"facility_id"`
-	ZoneID               *string `json:"zone_id"`
-	ExternalIdentityHash *string `json:"external_identity_hash"`
-	Source               *string `json:"source"`
-	RecordedAt           *string `json:"recorded_at"`
-}
-
 func NewIdentifiedPresenceHandler(service ArrivalRecorder) *IdentifiedPresenceHandler {
 	return &IdentifiedPresenceHandler{service: service}
 }
 
 func (h *IdentifiedPresenceHandler) HandleMessage(ctx context.Context, payload []byte) (visits.Result, error) {
-	var event envelope
-	if err := json.Unmarshal(payload, &event); err != nil {
-		return visits.Result{}, fmt.Errorf("unmarshal envelope: %w", err)
+	if anonymous, err := isAnonymousIdentifiedPresence(payload); err != nil {
+		return visits.Result{}, err
+	} else if anonymous {
+		return visits.Result{Outcome: visits.OutcomeIgnoredAnonymous}, nil
 	}
 
-	if strings.TrimSpace(event.ID) == "" {
-		return visits.Result{}, fmt.Errorf("identified presence event missing id")
-	}
-	if event.Source != "athena" {
-		return visits.Result{}, fmt.Errorf("identified presence event has unexpected source %q", event.Source)
-	}
-	if event.Type != SubjectIdentifiedPresenceArrived {
-		return visits.Result{}, fmt.Errorf("identified presence event has unexpected type %q", event.Type)
-	}
-	if strings.TrimSpace(event.Timestamp) == "" {
-		return visits.Result{}, fmt.Errorf("identified presence event missing timestamp")
-	}
-	if _, err := parseTimestamp(event.Timestamp); err != nil {
-		return visits.Result{}, fmt.Errorf("identified presence event timestamp: %w", err)
-	}
-	if len(event.Data) == 0 {
-		return visits.Result{}, fmt.Errorf("identified presence event missing data")
-	}
-
-	var data arrivalData
-	if err := json.Unmarshal(event.Data, &data); err != nil {
-		return visits.Result{}, fmt.Errorf("unmarshal identified presence data: %w", err)
-	}
-
-	if data.FacilityID == nil || strings.TrimSpace(*data.FacilityID) == "" {
-		return visits.Result{}, fmt.Errorf("identified presence event missing facility_id")
-	}
-	if data.RecordedAt == nil || strings.TrimSpace(*data.RecordedAt) == "" {
-		return visits.Result{}, fmt.Errorf("identified presence event missing recorded_at")
-	}
-	recordedAt, err := parseTimestamp(*data.RecordedAt)
+	event, err := protoevents.ParseIdentifiedPresenceArrived(payload)
 	if err != nil {
-		return visits.Result{}, fmt.Errorf("identified presence event recorded_at: %w", err)
-	}
-	if data.Source == nil || strings.TrimSpace(*data.Source) == "" {
-		return visits.Result{}, fmt.Errorf("identified presence event missing source")
+		return visits.Result{}, err
 	}
 
-	identityHash := ""
-	if data.ExternalIdentityHash != nil {
-		identityHash = strings.TrimSpace(*data.ExternalIdentityHash)
-	}
+	identityHash := strings.TrimSpace(event.Data.GetExternalIdentityHash())
 	if identityHash == "" {
 		return visits.Result{Outcome: visits.OutcomeIgnoredAnonymous}, nil
 	}
 
 	var zoneKey *string
-	if data.ZoneID != nil && strings.TrimSpace(*data.ZoneID) != "" {
-		trimmed := strings.TrimSpace(*data.ZoneID)
+	if trimmed := strings.TrimSpace(event.Data.GetZoneId()); trimmed != "" {
 		zoneKey = &trimmed
 	}
 
 	return h.service.RecordArrival(ctx, visits.ArrivalInput{
 		SourceEventID:        event.ID,
-		FacilityKey:          strings.TrimSpace(*data.FacilityID),
+		FacilityKey:          strings.TrimSpace(event.Data.GetFacilityId()),
 		ZoneKey:              zoneKey,
 		ExternalIdentityHash: identityHash,
-		ArrivedAt:            recordedAt,
+		ArrivedAt:            event.Data.GetRecordedAt().AsTime().UTC(),
 	})
 }
 
-func parseTimestamp(value string) (time.Time, error) {
-	return time.Parse(time.RFC3339Nano, value)
+func isAnonymousIdentifiedPresence(payload []byte) (bool, error) {
+	var envelope map[string]any
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return false, err
+	}
+
+	if strings.TrimSpace(stringValue(envelope["source"])) != protoevents.ServiceAthena {
+		return false, nil
+	}
+	if strings.TrimSpace(stringValue(envelope["type"])) != protoevents.SubjectIdentifiedPresenceArrived {
+		return false, nil
+	}
+
+	data, ok := envelope["data"].(map[string]any)
+	if !ok {
+		return false, nil
+	}
+
+	identity, ok := data["external_identity_hash"]
+	if !ok {
+		return true, nil
+	}
+
+	return strings.TrimSpace(stringValue(identity)) == "", nil
+}
+
+func stringValue(value any) string {
+	stringValue, ok := value.(string)
+	if !ok {
+		return ""
+	}
+
+	return stringValue
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/ixxet/apollo/internal/consumer"
 	"github.com/ixxet/apollo/internal/server"
 	"github.com/ixxet/apollo/internal/visits"
+	protoevents "github.com/ixxet/ashton-proto/events"
 )
 
 func main() {
@@ -68,7 +69,7 @@ func newServeCmd() *cobra.Command {
 				closeNATS = conn.Close
 
 				handler := consumer.NewIdentifiedPresenceHandler(service)
-				if _, err := conn.Subscribe(consumer.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
+				if _, err := conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
 					if _, err := handler.HandleMessage(context.Background(), msg.Data); err != nil {
 						slog.Error("identified presence consumer failed", "error", err)
 					}
@@ -77,7 +78,7 @@ func newServeCmd() *cobra.Command {
 					return err
 				}
 				consumerEnabled = true
-				slog.Info("identified presence consumer enabled", "subject", consumer.SubjectIdentifiedPresenceArrived)
+				slog.Info("identified presence consumer enabled", "subject", protoevents.SubjectIdentifiedPresenceArrived)
 			}
 			if closeNATS != nil {
 				defer closeNATS()
