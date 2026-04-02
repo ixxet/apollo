@@ -153,6 +153,46 @@ func TestWorkoutRuntimeEnforcesOwnershipAndStateConflicts(t *testing.T) {
 	}
 }
 
+func TestWorkoutRuntimeListsNewestWorkoutFirst(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	cookie, _ := createVerifiedSessionViaHTTP(t, env, "student-workout-013", "workout-013@example.com")
+
+	firstCreateResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/workouts", `{"notes":"first"}`, cookie)
+	if firstCreateResponse.Code != http.StatusCreated {
+		t.Fatalf("firstCreateResponse.Code = %d, want %d", firstCreateResponse.Code, http.StatusCreated)
+	}
+	firstWorkout := decodeWorkoutResponse(t, firstCreateResponse)
+
+	firstUpdateResponse := env.doJSONRequest(t, http.MethodPut, "/api/v1/workouts/"+firstWorkout.ID.String(), `{"exercises":[{"name":"bike","sets":5,"reps":60}]}`, cookie)
+	if firstUpdateResponse.Code != http.StatusOK {
+		t.Fatalf("firstUpdateResponse.Code = %d, want %d", firstUpdateResponse.Code, http.StatusOK)
+	}
+	firstFinishResponse := env.doRequest(t, http.MethodPost, "/api/v1/workouts/"+firstWorkout.ID.String()+"/finish", nil, cookie)
+	if firstFinishResponse.Code != http.StatusOK {
+		t.Fatalf("firstFinishResponse.Code = %d, want %d", firstFinishResponse.Code, http.StatusOK)
+	}
+
+	secondCreateResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/workouts", `{"notes":"second"}`, cookie)
+	if secondCreateResponse.Code != http.StatusCreated {
+		t.Fatalf("secondCreateResponse.Code = %d, want %d", secondCreateResponse.Code, http.StatusCreated)
+	}
+	secondWorkout := decodeWorkoutResponse(t, secondCreateResponse)
+
+	listResponse := env.doRequest(t, http.MethodGet, "/api/v1/workouts", nil, cookie)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("listResponse.Code = %d, want %d", listResponse.Code, http.StatusOK)
+	}
+	workoutsList := decodeWorkoutListResponse(t, listResponse)
+	if len(workoutsList) != 2 {
+		t.Fatalf("len(workoutsList) = %d, want 2", len(workoutsList))
+	}
+	if workoutsList[0].ID != secondWorkout.ID || workoutsList[1].ID != firstWorkout.ID {
+		t.Fatalf("workoutsList order = [%s %s], want [%s %s]", workoutsList[0].ID, workoutsList[1].ID, secondWorkout.ID, firstWorkout.ID)
+	}
+}
+
 func decodeWorkoutResponse(t *testing.T, response *httptest.ResponseRecorder) workouts.Workout {
 	t.Helper()
 

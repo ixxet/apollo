@@ -299,6 +299,39 @@ func TestWorkoutEndpointsMapErrorsClearly(t *testing.T) {
 	}
 }
 
+func TestWorkoutEndpointsRejectMalformedBodiesBeforeCallingTheService(t *testing.T) {
+	manager := &stubWorkoutManager{}
+	handler := NewHandler(Dependencies{
+		Auth: stubAuthenticator{
+			cookieName: "apollo_session",
+			principal:  auth.Principal{UserID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")},
+		},
+		Workouts: manager,
+	})
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/workouts", bytes.NewBufferString(`{`))
+	createRequest.AddCookie(&http.Cookie{Name: "apollo_session", Value: "signed"})
+	createRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(createRecorder, createRequest)
+	if createRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("createRecorder.Code = %d, want %d", createRecorder.Code, http.StatusBadRequest)
+	}
+	if manager.createInput.Notes != nil {
+		t.Fatalf("manager.createInput = %#v, want zero value after malformed create body", manager.createInput)
+	}
+
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/v1/workouts/11111111-1111-1111-1111-111111111111", bytes.NewBufferString(`{"notes":"x","unknown":true}`))
+	updateRequest.AddCookie(&http.Cookie{Name: "apollo_session", Value: "signed"})
+	updateRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(updateRecorder, updateRequest)
+	if updateRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("updateRecorder.Code = %d, want %d", updateRecorder.Code, http.StatusBadRequest)
+	}
+	if manager.updateInput.Exercises != nil {
+		t.Fatalf("manager.updateInput = %#v, want zero value after malformed update body", manager.updateInput)
+	}
+}
+
 func stringPtr(value string) *string {
 	return &value
 }
