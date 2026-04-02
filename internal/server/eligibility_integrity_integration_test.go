@@ -22,7 +22,7 @@ func TestLobbyEligibilityEndpointIsSideEffectFreeAcrossVisitsWorkoutsAndClaimedT
 	if _, err := env.db.DB.Exec(context.Background(), "INSERT INTO apollo.visits (user_id, facility_key, source_event_id, arrived_at) VALUES ($1, $2, $3, $4)", user.ID, "ashtonbee", "visit-eligibility-002", time.Date(2026, 4, 2, 15, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("Exec(insert visit) error = %v", err)
 	}
-	if _, err := env.db.DB.Exec(context.Background(), "INSERT INTO apollo.workouts (user_id, logged_at) VALUES ($1, $2)", user.ID, time.Date(2026, 4, 2, 15, 5, 0, 0, time.UTC)); err != nil {
+	if _, err := env.db.DB.Exec(context.Background(), "INSERT INTO apollo.workouts (user_id, started_at, status, finished_at) VALUES ($1, $2, $3, $4)", user.ID, time.Date(2026, 4, 2, 15, 5, 0, 0, time.UTC), "finished", time.Date(2026, 4, 2, 16, 5, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("Exec(insert workout) error = %v", err)
 	}
 

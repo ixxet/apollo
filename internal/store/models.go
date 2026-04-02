@@ -66,6 +66,7 @@ type ApolloExercise struct {
 	WeightKg  pgtype.Numeric
 	Rpe       pgtype.Numeric
 	Notes     *string
+	Position  int32
 }
 
 type ApolloRecommendation struct {
@@ -110,9 +111,11 @@ type ApolloVisit struct {
 }
 
 type ApolloWorkout struct {
-	ID       uuid.UUID
-	UserID   uuid.UUID
-	LoggedAt pgtype.Timestamptz
-	Notes    *string
-	Metadata []byte
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	StartedAt  pgtype.Timestamptz
+	Notes      *string
+	Metadata   []byte
+	Status     string
+	FinishedAt pgtype.Timestamptz
 }

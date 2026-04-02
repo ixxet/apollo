@@ -239,6 +239,7 @@ func newPostgresEnv(t *testing.T, ctx context.Context) *testutil.PostgresEnv {
 		testutil.RepoFilePath("db", "migrations", "002_open_visit_uniqueness.up.sql"),
 		testutil.RepoFilePath("db", "migrations", "003_member_auth_and_sessions.up.sql"),
 		testutil.RepoFilePath("db", "migrations", "004_visit_departure_tracking.up.sql"),
+		testutil.RepoFilePath("db", "migrations", "005_workout_runtime.up.sql"),
 		testutil.RepoFilePath("db", "seeds", "tracer2.sql"),
 	); err != nil {
 		t.Fatalf("ApplySQLFiles() error = %v", err)
