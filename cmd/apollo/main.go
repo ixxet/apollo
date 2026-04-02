@@ -74,17 +74,30 @@ func newServeCmd() *cobra.Command {
 				}
 				closeNATS = conn.Close
 
-				handler := consumer.NewIdentifiedPresenceHandler(service)
+				arrivalHandler := consumer.NewIdentifiedPresenceHandler(service)
 				if _, err := conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
-					if _, err := handler.HandleMessage(context.Background(), msg.Data); err != nil {
-						slog.Error("identified presence consumer failed", "error", err)
+					if _, err := arrivalHandler.HandleMessage(context.Background(), msg.Data); err != nil {
+						slog.Error("identified arrival consumer failed", "error", err)
+					}
+				}); err != nil {
+					closeNATS()
+					return err
+				}
+
+				departureHandler := consumer.NewIdentifiedDepartureHandler(service)
+				if _, err := conn.Subscribe(protoevents.SubjectIdentifiedPresenceDeparted, func(msg *nats.Msg) {
+					if _, err := departureHandler.HandleMessage(context.Background(), msg.Data); err != nil {
+						slog.Error("identified departure consumer failed", "error", err)
 					}
 				}); err != nil {
 					closeNATS()
 					return err
 				}
 				consumerEnabled = true
-				slog.Info("identified presence consumer enabled", "subject", protoevents.SubjectIdentifiedPresenceArrived)
+				slog.Info("identified presence consumer enabled", "subjects", []string{
+					protoevents.SubjectIdentifiedPresenceArrived,
+					protoevents.SubjectIdentifiedPresenceDeparted,
+				})
 			}
 			if closeNATS != nil {
 				defer closeNATS()

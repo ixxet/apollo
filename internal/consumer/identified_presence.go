@@ -24,7 +24,7 @@ func NewIdentifiedPresenceHandler(service ArrivalRecorder) *IdentifiedPresenceHa
 }
 
 func (h *IdentifiedPresenceHandler) HandleMessage(ctx context.Context, payload []byte) (visits.Result, error) {
-	if anonymous, err := isAnonymousIdentifiedPresence(payload); err != nil {
+	if anonymous, err := isAnonymousIdentifiedPresence(payload, protoevents.SubjectIdentifiedPresenceArrived); err != nil {
 		slog.Warn("identified presence rejected", "error", err)
 		return visits.Result{}, fmt.Errorf("inspect identified arrival: %w", err)
 	} else if anonymous {
@@ -65,7 +65,7 @@ func (h *IdentifiedPresenceHandler) HandleMessage(ctx context.Context, payload [
 	return result, nil
 }
 
-func isAnonymousIdentifiedPresence(payload []byte) (bool, error) {
+func isAnonymousIdentifiedPresence(payload []byte, subject string) (bool, error) {
 	var envelope map[string]any
 	if err := json.Unmarshal(payload, &envelope); err != nil {
 		return false, err
@@ -74,7 +74,7 @@ func isAnonymousIdentifiedPresence(payload []byte) (bool, error) {
 	if strings.TrimSpace(stringValue(envelope["source"])) != protoevents.ServiceAthena {
 		return false, nil
 	}
-	if strings.TrimSpace(stringValue(envelope["type"])) != protoevents.SubjectIdentifiedPresenceArrived {
+	if strings.TrimSpace(stringValue(envelope["type"])) != subject {
 		return false, nil
 	}
 
