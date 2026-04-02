@@ -5,6 +5,7 @@ sql:
     schema:
       - "migrations/001_initial.up.sql"
       - "migrations/002_open_visit_uniqueness.up.sql"
+      - "migrations/003_member_auth_and_sessions.up.sql"
     queries: "queries"
     gen:
       go:
