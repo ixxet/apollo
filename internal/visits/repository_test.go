@@ -2,8 +2,6 @@ package visits
 
 import (
 	"context"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -128,9 +126,10 @@ func newPostgresEnv(t *testing.T, ctx context.Context) *testutil.PostgresEnv {
 	if err := testutil.ApplySQLFiles(
 		ctx,
 		env.DB,
-		repoFilePath("db", "migrations", "001_initial.up.sql"),
-		repoFilePath("db", "migrations", "002_open_visit_uniqueness.up.sql"),
-		repoFilePath("db", "seeds", "tracer2.sql"),
+		testutil.RepoFilePath("db", "migrations", "001_initial.up.sql"),
+		testutil.RepoFilePath("db", "migrations", "002_open_visit_uniqueness.up.sql"),
+		testutil.RepoFilePath("db", "migrations", "003_member_auth_and_sessions.up.sql"),
+		testutil.RepoFilePath("db", "seeds", "tracer2.sql"),
 	); err != nil {
 		t.Fatalf("ApplySQLFiles() error = %v", err)
 	}
@@ -171,16 +170,4 @@ func stringPtr(value string) *string {
 
 func timestamptz(value time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: value, Valid: true}
-}
-
-func repoFilePath(parts ...string) string {
-	_, currentFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller() = false")
-	}
-
-	allParts := []string{filepath.Dir(currentFile), "..", ".."}
-	allParts = append(allParts, parts...)
-
-	return filepath.Join(allParts...)
 }
