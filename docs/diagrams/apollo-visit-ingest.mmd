@@ -1,0 +1,14 @@
+flowchart LR
+  athena["athena<br/>identified arrival publish"]
+  nats["NATS<br/>athena.identified_presence.arrived"]
+  consumer["APOLLO consumer<br/>shared contract parse"]
+  service["visit service<br/>dedupe and idempotency"]
+  db["Postgres<br/>users, claimed_tags, visits"]
+  cli["CLI<br/>apollo visit list"]
+  health["HTTP health<br/>/api/v1/health"]
+  future["future APOLLO domains<br/>auth, profile, workouts,<br/>recommendations, ARES"]
+
+  athena --> nats --> consumer --> service --> db
+  db --> cli
+  health --- consumer
+  db -. future expansion .-> future
