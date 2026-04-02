@@ -12,8 +12,10 @@ builds.
 - successful verification issues a signed server-backed session cookie
 - authenticated profile reads and writes persist `visibility_mode` and
   `availability_mode`
+- authenticated lobby eligibility reads derive `eligible` and a machine-readable
+  `reason` from persisted `visibility_mode` and `availability_mode`
 - visit history remains separate from auth and profile state
-- workouts, recommendations, and matchmaking stay deferred
+- workouts, recommendations, lobby membership, and matchmaking stay deferred
 
 ## Boundaries
 
@@ -21,7 +23,8 @@ builds.
 - no workout runtime in this tracer
 - no recommendation engine until workout data exists
 - no automatic lobby entry from tap-in events
-- no matchmaking lobby until user state and activity data are stable
+- no lobby membership persistence or matchmaking until user state and activity
+  data are stable
 
 ## Exit Criteria
 
@@ -29,7 +32,9 @@ builds.
 - one member can verify ownership through a real token lifecycle
 - one member can receive and use a signed session cookie
 - one member can read and update persisted privacy and availability settings
-- visit recording still stays separate from workouts and matchmaking intent
+- one authenticated member can read deterministic lobby eligibility derived from
+  those persisted settings
+- visit recording still stays separate from workouts and lobby intent
 
 ## Tracer Ownership
 
@@ -39,7 +44,7 @@ builds.
 
 ## Current State
 
-Tracer 3 now owns the first real member-account and profile-state slice:
+Tracer 4 now owns the first real APOLLO intent-behavior slice:
 
 - `POST /api/v1/auth/verification/start` creates or reuses the correct member
   record without touching tag linkage
@@ -49,6 +54,11 @@ Tracer 3 now owns the first real member-account and profile-state slice:
   `HTTPOnly`, `Secure`, `SameSite=Strict` session cookie backed by Postgres
 - `GET/PATCH /api/v1/profile` now persists `visibility_mode` and
   `availability_mode` through `users.preferences`
+- `GET /api/v1/lobby/eligibility` now derives open-lobby eligibility from
+  explicit member state only and never from tap-in or visit history
+- Ghost Mode is explicit: `ghost + available_now` remains ineligible for the
+  open lobby
 - visit recording is still separate from auth, profile state, workouts, and
-  matchmaking intent
-- visit closing, workouts, recommendations, and lobby behavior remain deferred
+  lobby or matchmaking intent
+- visit closing, workouts, recommendations, lobby membership, and matchmaking
+  remain deferred

@@ -29,6 +29,12 @@ Model member state with separate concerns:
 - `workout_history`
 
 Tap-in or arrival affects presence, not matchmaking intent.
+Open-lobby eligibility is a derived read on top of persisted member state:
+
+- `discoverable + available_now` is eligible
+- `unavailable` is ineligible
+- `with_team` is ineligible for the open lobby
+- `ghost + available_now` is still ineligible
 
 ## Storage Strategy
 

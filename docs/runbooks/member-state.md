@@ -16,6 +16,9 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - verification tokens must be stored hashed, expired, and single-use
 - session cookies stay signed, `HTTPOnly`, `Secure`, and `SameSite=Strict`
 - session state stays server-side; APOLLO is not JWT-first in this tracer
+- open-lobby eligibility derives from persisted member state, not visits
+- availability is evaluated before visibility so ineligible reasons stay stable
+- `ghost + available_now` remains ineligible for the open lobby
 - duplicate arrival delivery must be idempotent
 - unknown and inactive tags must not create visits
 - anonymous visit events are ignored
@@ -28,7 +31,11 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - tampered, expired, and revoked session cookies are rejected clearly
 - ghost mode does not imply lobby entry
 - unavailable members never join the lobby
+- `with_team` members stay out of the open lobby
+- invalid persisted eligibility enums return deterministic ineligible reasons
 - profile writes only mutate `visibility_mode` and `availability_mode`
+- eligibility reads only observe profile state and must not mutate visits,
+  workouts, or claimed tags
 - profile writes must not mutate visits, workouts, or claimed tags
 - visit creation never creates a workout implicitly
 - duplicate delivery does not create a second visit

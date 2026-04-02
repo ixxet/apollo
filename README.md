@@ -5,14 +5,16 @@ profile state, privacy and availability controls, workout logging,
 recommendations, and the ARES matchmaking subsystem.
 
 > Current real slice: first-party member auth and session-backed profile state,
-> plus `athena.identified_presence.arrived` ingestion for deterministic visit
-> history. APOLLO now proves account ownership, signed session handling, and
-> persisted `visibility_mode` / `availability_mode` without widening into
-> workouts or matchmaking behavior.
+> deterministic visit-history ingest, and derived lobby eligibility from
+> persisted `visibility_mode` / `availability_mode`. APOLLO now proves account
+> ownership, signed session handling, and the first real intent-behavior slice
+> without widening into workouts, matchmaking, or recommendations.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
-schema form or preserved as a future plan.
+schema form or preserved as a future plan. Tracer 4 is specifically about the
+first real APOLLO intent-behavior slice, where explicit member state becomes
+lobby eligibility without allowing physical presence to imply social intent.
 
 ## Architecture
 
@@ -46,6 +48,7 @@ flowchart LR
 | Verification consume | `GET/POST /api/v1/auth/verify` | Real | Consumes a stored token, marks it used, verifies email ownership, and issues a signed session cookie |
 | Profile read | `GET /api/v1/profile` | Real | Requires a valid session cookie and returns persisted member profile state |
 | Profile update | `PATCH /api/v1/profile` | Real | Requires a valid session cookie and updates `visibility_mode` and `availability_mode` only |
+| Lobby eligibility read | `GET /api/v1/lobby/eligibility` | Real | Requires a valid session cookie and derives open-lobby eligibility from stored profile state only |
 | Logout | `POST /api/v1/auth/logout` | Real | Revokes the current server-side session and clears the cookie |
 | Visit readback | `apollo visit list --student-id ... --format text|json` | Real | Lists visit history for a member |
 | Event consumer | `apollo serve` with `APOLLO_NATS_URL` | Real | Consumes `athena.identified_presence.arrived` from NATS |
@@ -58,6 +61,7 @@ flowchart LR
 | APOLLO Owns | APOLLO Does Not Own |
 | --- | --- |
 | member profile and preference state | raw facility presence truth |
+| derived lobby eligibility from explicit member intent | open lobby membership, invites, or match formation |
 | visit history as member-facing context | occupancy counting |
 | workout history | staff operations workflows |
 | recommendation and coaching context | the shared wire contract definitions |
@@ -122,6 +126,9 @@ recommendations, or matchmaking are allowed to widen the repo.
 - verification tokens are generated, stored hashed, expired, invalidated after use, and can be surfaced in local development through explicit token logging
 - successful verification marks the user email as verified and issues a signed `HTTPOnly`, `Secure`, `SameSite=Strict` session cookie
 - authenticated profile reads and writes are real for `visibility_mode` and `availability_mode`
+- authenticated `GET /api/v1/lobby/eligibility` is real and derives
+  `eligible`, `reason`, `visibility_mode`, and `availability_mode` from stored
+  member state only
 - logout revokes the current server-side session and clears the cookie
 - APOLLO can consume `athena.identified_presence.arrived` from NATS
 - the consumer uses the shared `ashton-proto` helper instead of a private event
@@ -136,6 +143,7 @@ recommendations, or matchmaking are allowed to widen the repo.
 
 - the active member-facing write surface is still limited to auth and profile
   settings
+- open-lobby eligibility is derived read-only state, not a join or leave flow
 - visit recording remains separate from auth and profile state
 - workouts, recommendations, and matchmaking are still outside the active
   tracer scope
@@ -149,7 +157,9 @@ recommendations, or matchmaking are allowed to widen the repo.
 ### Deferred on purpose
 
 - tying visit creation to workout logging
-- letting tap-in imply matchmaking intent
+- letting tap-in imply lobby or matchmaking intent
+- adding lobby membership persistence, invites, or match formation before the
+  eligibility boundary is proven
 - adding a frontend before the profile/auth boundary is real
 - adding the recommendation pipeline before workout data exists
 
@@ -159,6 +169,7 @@ recommendations, or matchmaking are allowed to widen the repo.
 | --- | --- |
 | `cmd/apollo/` | CLI entrypoint and serve command |
 | `internal/auth/` | verification token lifecycle, server-side sessions, and signed cookie handling |
+| `internal/eligibility/` | derived open-lobby eligibility from authenticated member state |
 | `internal/consumer/` | NATS consumer and strict event parsing |
 | `internal/profile/` | authenticated profile state read and update over `users.preferences` |
 | `internal/visits/` | visit service and repository boundary |
@@ -191,4 +202,6 @@ APOLLO is where the platform starts to look like a product instead of only an
 operations system. Even in its current narrow form, it already shows contract
 discipline, first-party auth taste, deterministic failure handling, relational
 schema design, event-driven ingestion, and a strong boundary between presence,
-profile state, workouts, and matchmaking intent.
+profile state, workouts, and matchmaking intent. The current tracer proves the
+first real APOLLO intent-behavior slice: explicit member state can become lobby
+eligibility without letting tap-in imply social intent.
