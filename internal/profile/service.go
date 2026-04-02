@@ -110,7 +110,7 @@ func (s *Service) UpdateProfile(ctx context.Context, userID uuid.UUID, input Upd
 }
 
 func buildProfile(user store.ApolloUser) MemberProfile {
-	preferences := decodePreferences(user.Preferences)
+	modes := ReadPreferenceModes(user.Preferences)
 
 	return MemberProfile{
 		UserID:           user.ID,
@@ -118,41 +118,9 @@ func buildProfile(user store.ApolloUser) MemberProfile {
 		DisplayName:      user.DisplayName,
 		Email:            user.Email,
 		EmailVerified:    user.EmailVerifiedAt.Valid,
-		VisibilityMode:   readStringPreference(preferences, "visibility_mode", VisibilityModeGhost, isValidVisibilityMode),
-		AvailabilityMode: readStringPreference(preferences, "availability_mode", AvailabilityModeUnavailable, isValidAvailabilityMode),
+		VisibilityMode:   modes.VisibilityMode,
+		AvailabilityMode: modes.AvailabilityMode,
 	}
-}
-
-func decodePreferences(raw []byte) map[string]any {
-	if len(raw) == 0 {
-		return map[string]any{}
-	}
-
-	var decoded any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return map[string]any{}
-	}
-
-	asMap, ok := decoded.(map[string]any)
-	if !ok {
-		return map[string]any{}
-	}
-
-	return asMap
-}
-
-func readStringPreference(preferences map[string]any, key string, fallback string, valid func(string) bool) string {
-	value, ok := preferences[key]
-	if !ok {
-		return fallback
-	}
-
-	asString, ok := value.(string)
-	if !ok || !valid(asString) {
-		return fallback
-	}
-
-	return asString
 }
 
 func isValidVisibilityMode(value string) bool {
