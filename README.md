@@ -233,6 +233,7 @@ not the homelab substrate.
 - [APOLLO diagram](docs/diagrams/apollo-visit-ingest.mmd)
 - [Roadmap](docs/roadmap.md)
 - [Growing pains](docs/growing-pains.md)
+- [Hardening artifacts](docs/hardening/README.md)
 - [Member state runbook](docs/runbooks/member-state.md)
 - [ADR 001: member state model](docs/adr/001-member-state-model.md)
 - [ADR 002: member auth](docs/adr/002-member-auth.md)
