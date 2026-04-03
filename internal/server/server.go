@@ -16,6 +16,7 @@ import (
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/profile"
+	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/workouts"
 )
 
@@ -38,6 +39,10 @@ type EligibilityReader interface {
 	GetLobbyEligibility(ctx context.Context, userID uuid.UUID) (eligibility.LobbyEligibility, error)
 }
 
+type RecommendationReader interface {
+	GetWorkoutRecommendation(ctx context.Context, userID uuid.UUID) (recommendations.WorkoutRecommendation, error)
+}
+
 type WorkoutManager interface {
 	CreateWorkout(ctx context.Context, userID uuid.UUID, input workouts.CreateInput) (workouts.Workout, error)
 	ListWorkouts(ctx context.Context, userID uuid.UUID) ([]workouts.Workout, error)
@@ -51,6 +56,7 @@ type Dependencies struct {
 	Auth            Authenticator
 	Profile         Profiler
 	Eligibility     EligibilityReader
+	Recommendations RecommendationReader
 	Workouts        WorkoutManager
 }
 
@@ -191,6 +197,21 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, lobbyEligibility)
+		})
+		authenticated.Get("/api/v1/recommendations/workout", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			workoutRecommendation, err := deps.Recommendations.GetWorkoutRecommendation(r.Context(), principal.UserID)
+			if err != nil {
+				switch {
+				case errors.Is(err, recommendations.ErrInvalidFinishedWorkoutState):
+					writeError(w, http.StatusInternalServerError, err)
+				default:
+					writeError(w, http.StatusInternalServerError, err)
+				}
+				return
+			}
+
+			writeJSON(w, http.StatusOK, workoutRecommendation)
 		})
 		authenticated.Post("/api/v1/workouts", func(w http.ResponseWriter, r *http.Request) {
 			var request createWorkoutRequest

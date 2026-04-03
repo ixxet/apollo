@@ -21,6 +21,7 @@ import (
 	"github.com/ixxet/apollo/internal/consumer"
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/profile"
+	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/server"
 	"github.com/ixxet/apollo/internal/visits"
 	"github.com/ixxet/apollo/internal/workouts"
@@ -174,6 +175,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 	profileRepository := profile.NewRepository(pool)
 	profileService := profile.NewService(profileRepository)
 	eligibilityService := eligibility.NewService(profileRepository)
+	recommendationService := recommendations.NewService(recommendations.NewRepository(pool))
 	workoutService := workouts.NewService(workouts.NewRepository(pool))
 
 	return server.Dependencies{
@@ -181,6 +183,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 		Auth:            authService,
 		Profile:         profileService,
 		Eligibility:     eligibilityService,
+		Recommendations: recommendationService,
 		Workouts:        workoutService,
 	}
 }

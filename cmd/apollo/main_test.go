@@ -28,6 +28,9 @@ func TestBuildServerDependenciesIncludesWorkoutRuntime(t *testing.T) {
 	if deps.Eligibility == nil {
 		t.Fatal("deps.Eligibility = nil, want eligibility service")
 	}
+	if deps.Recommendations == nil {
+		t.Fatal("deps.Recommendations = nil, want recommendation service")
+	}
 	if deps.Workouts == nil {
 		t.Fatal("deps.Workouts = nil, want workout service")
 	}
