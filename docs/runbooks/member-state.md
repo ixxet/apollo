@@ -50,6 +50,8 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - profile writes must not mutate visits, workouts, or claimed tags
 - workout create, update, finish, detail, and list all require a valid session
 - workout reads and writes are owner-scoped
+- workout history is ordered by newest workout creation first using
+  `started_at DESC, id DESC`
 - workout finish is rejected when the workout has no exercise rows
 - one member cannot create a second `in_progress` workout
 - visit creation never creates or starts a workout implicitly
@@ -127,6 +129,8 @@ Expected smoke outcomes:
 - workout create returns `status="in_progress"`
 - workout update returns ordered exercise rows
 - workout finish returns `status="finished"` with `finished_at`
-- workout list returns the finished workout
+- workout list returns workouts newest created first
+- the server logs `workout created`, `workout updated`, and `workout finished`
+  with `user_id` and `workout_id`
 - `apollo.visits` remains `0` for the smoke user
 - `users.preferences` stays at the default ghost/unavailable state

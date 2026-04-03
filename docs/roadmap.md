@@ -73,7 +73,8 @@ Tracer 6 now completes APOLLO's first workout-history runtime slice:
   is still mutable
 - `POST /api/v1/workouts/{id}/finish` explicitly finishes a non-empty workout
 - `GET /api/v1/workouts` and `GET /api/v1/workouts/{id}` now serve workout
-  history back through the authenticated runtime
+  history back through the authenticated runtime, with list ordering fixed to
+  newest workout created first
 - one member can own many finished workouts, but only one `in_progress`
   workout at a time
 - workout runtime is still separate from auth, profile state, visits, and

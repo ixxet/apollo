@@ -101,3 +101,15 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: when HTTP dependencies are assembled outside the handler tests, smoke
   the real entrypoint and add a regression around the assembly helper instead
   of assuming integration coverage already proves the live path.
+
+- Symptom: repeated hardening runs could list an older finished workout ahead of
+  a newer `in_progress` workout even though the product rule was supposed to be
+  stable workout history ordering.
+  Cause: the list query compared DB-owned `started_at` to app-owned
+  `finished_at` through `COALESCE(finished_at, started_at)`, so small clock skew
+  between Postgres and the app process could reorder workouts unexpectedly.
+  Fix: make the runtime rule explicit as newest workout created first, order the
+  list on DB-owned `started_at DESC, id DESC`, and add regression coverage for
+  finished-vs-in-progress skew and same-timestamp tie-breakers.
+  Rule: if ordering must stay deterministic, do not compare timestamps written
+  by different clocks unless the product rule explicitly tolerates that skew.

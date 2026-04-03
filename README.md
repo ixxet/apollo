@@ -52,7 +52,7 @@ flowchart LR
 | Profile update | `PATCH /api/v1/profile` | Real | Requires a valid session cookie and updates `visibility_mode` and `availability_mode` only |
 | Lobby eligibility read | `GET /api/v1/lobby/eligibility` | Real | Requires a valid session cookie and derives open-lobby eligibility from stored profile state only |
 | Workout create | `POST /api/v1/workouts` | Real | Requires a valid session cookie and creates one member-owned `in_progress` workout |
-| Workout list | `GET /api/v1/workouts` | Real | Requires a valid session cookie and returns deterministic workout history ordering |
+| Workout list | `GET /api/v1/workouts` | Real | Requires a valid session cookie and returns workout history ordered by newest creation first (`started_at DESC, id DESC`) |
 | Workout detail | `GET /api/v1/workouts/{id}` | Real | Requires a valid session cookie and is owner-scoped |
 | Workout update | `PUT /api/v1/workouts/{id}` | Real | Requires a valid session cookie and replaces draft exercise data while the workout is `in_progress` |
 | Workout finish | `POST /api/v1/workouts/{id}/finish` | Real | Requires a valid session cookie and finishes a non-empty `in_progress` workout |
@@ -139,6 +139,9 @@ exercise, recommendations, or matchmaking.
 - authenticated `POST/GET/PUT /api/v1/workouts` and
   `POST /api/v1/workouts/{id}/finish` are real and keep workout state
   member-owned, explicit, and owner-scoped
+- workout history lists newest created workouts first using DB-owned
+  `started_at DESC, id DESC` ordering instead of mixed app-clock and DB-clock
+  timestamps
 - only one `in_progress` workout is allowed per member at a time
 - finished workouts are immutable through the current runtime surface
 - logout revokes the current server-side session and clears the cookie
