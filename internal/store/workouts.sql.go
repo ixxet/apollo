@@ -273,8 +273,7 @@ const listWorkoutsByUserID = `-- name: ListWorkoutsByUserID :many
 SELECT w.id, w.user_id, w.started_at, w.notes, w.metadata, w.status, w.finished_at
 FROM apollo.workouts AS w
 WHERE w.user_id = $1
-ORDER BY COALESCE(w.finished_at, w.started_at) DESC,
-         w.started_at DESC,
+ORDER BY w.started_at DESC,
          w.id DESC
 `
 

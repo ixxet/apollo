@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/ixxet/apollo/internal/store"
@@ -241,6 +242,85 @@ func TestRepositoryFinishWorkoutTransitionsOnceAndLeavesFinishedRowsReadOnly(t *
 	}
 	if updatedAfterFinish != nil || exercisesAfterFinish != nil {
 		t.Fatalf("ReplaceWorkoutDraft(after finish) = (%#v, %#v), want nils", updatedAfterFinish, exercisesAfterFinish)
+	}
+}
+
+func TestRepositoryListWorkoutsOrdersByNewestStartedAtDespiteFinishedTimestampSkew(t *testing.T) {
+	ctx := context.Background()
+	env := newWorkoutPostgresEnv(t, ctx)
+	defer closeWorkoutPostgresEnv(t, env)
+
+	repository := NewRepository(env.DB)
+	queries := store.New(env.DB)
+	user := createWorkoutUser(t, ctx, queries, "student-workout-007", "workout-007@example.com")
+
+	olderWorkout, err := repository.CreateWorkout(ctx, user.ID, stringPtr("older"))
+	if err != nil {
+		t.Fatalf("CreateWorkout(older) error = %v", err)
+	}
+	futureFinishedAt := time.Date(2035, 4, 2, 19, 45, 0, 0, time.UTC)
+	if _, err := repository.FinishWorkout(ctx, olderWorkout.ID, user.ID, futureFinishedAt); err != nil {
+		t.Fatalf("FinishWorkout(older) error = %v", err)
+	}
+
+	newerWorkout, err := repository.CreateWorkout(ctx, user.ID, stringPtr("newer"))
+	if err != nil {
+		t.Fatalf("CreateWorkout(newer) error = %v", err)
+	}
+
+	for attempt := 0; attempt < 5; attempt++ {
+		workoutsList, err := repository.ListWorkoutsByUserID(ctx, user.ID)
+		if err != nil {
+			t.Fatalf("ListWorkoutsByUserID(attempt %d) error = %v", attempt+1, err)
+		}
+		if len(workoutsList) != 2 {
+			t.Fatalf("len(workoutsList) = %d, want 2", len(workoutsList))
+		}
+		if workoutsList[0].ID != newerWorkout.ID || workoutsList[1].ID != olderWorkout.ID {
+			t.Fatalf("workoutsList(attempt %d) order = [%s %s], want [%s %s]", attempt+1, workoutsList[0].ID, workoutsList[1].ID, newerWorkout.ID, olderWorkout.ID)
+		}
+	}
+}
+
+func TestRepositoryListWorkoutsUsesStableTieBreakerWhenStartedAtMatches(t *testing.T) {
+	ctx := context.Background()
+	env := newWorkoutPostgresEnv(t, ctx)
+	defer closeWorkoutPostgresEnv(t, env)
+
+	repository := NewRepository(env.DB)
+	queries := store.New(env.DB)
+	user := createWorkoutUser(t, ctx, queries, "student-workout-008", "workout-008@example.com")
+	otherUser := createWorkoutUser(t, ctx, queries, "student-workout-009", "workout-009@example.com")
+
+	sameStartedAt := time.Date(2026, 4, 2, 19, 0, 0, 0, time.UTC)
+	earlierID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	laterID := uuid.MustParse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+
+	if _, err := env.DB.Exec(ctx, `
+INSERT INTO apollo.workouts (id, user_id, started_at, status, finished_at, notes, metadata)
+VALUES
+	($1, $2, $3, 'finished', $4, 'lower id', '{}'::jsonb),
+	($5, $2, $3, 'finished', $6, 'higher id', '{}'::jsonb),
+	($7, $8, $9, 'finished', $10, 'other user newer', '{}'::jsonb)
+`,
+		earlierID, user.ID, sameStartedAt, sameStartedAt.Add(time.Minute),
+		laterID, sameStartedAt.Add(2*time.Minute),
+		uuid.MustParse("22222222-2222-2222-2222-222222222222"), otherUser.ID, sameStartedAt.Add(24*time.Hour), sameStartedAt.Add(24*time.Hour).Add(time.Minute),
+	); err != nil {
+		t.Fatalf("Exec(insert workouts) error = %v", err)
+	}
+
+	for attempt := 0; attempt < 5; attempt++ {
+		workoutsList, err := repository.ListWorkoutsByUserID(ctx, user.ID)
+		if err != nil {
+			t.Fatalf("ListWorkoutsByUserID(attempt %d) error = %v", attempt+1, err)
+		}
+		if len(workoutsList) != 2 {
+			t.Fatalf("len(workoutsList) = %d, want 2", len(workoutsList))
+		}
+		if workoutsList[0].ID != laterID || workoutsList[1].ID != earlierID {
+			t.Fatalf("workoutsList(attempt %d) order = [%s %s], want [%s %s]", attempt+1, workoutsList[0].ID, workoutsList[1].ID, laterID, earlierID)
+		}
 	}
 }
 

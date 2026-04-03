@@ -25,8 +25,7 @@ LIMIT 1;
 SELECT w.*
 FROM apollo.workouts AS w
 WHERE w.user_id = $1
-ORDER BY COALESCE(w.finished_at, w.started_at) DESC,
-         w.started_at DESC,
+ORDER BY w.started_at DESC,
          w.id DESC;
 
 -- name: UpdateWorkoutDraft :one
