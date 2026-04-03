@@ -18,13 +18,16 @@ builds.
   remaining separate from auth and profile state
 - authenticated workout create, update, finish, detail, and history reads are
   now real while staying separate from visits and member intent
-- recommendations, lobby membership, and matchmaking stay deferred
+- authenticated workout recommendation reads are now real while staying
+  separate from visits, profile state, and lobby intent
+- recommendation persistence, lobby membership, and matchmaking stay deferred
 
 ## Boundaries
 
 - no full PWA build in this tracer
-- no recommendation engine until workout data exists
+- no LLM recommendation engine or generated plan builder in this tracer
 - no workout inference from arrivals, departures, or visits
+- no recommendation inference from arrivals, departures, or visits
 - no automatic lobby entry from tap-in events
 - no lobby membership persistence or matchmaking until user state and activity
   data are stable
@@ -39,6 +42,8 @@ builds.
   those persisted settings
 - one authenticated member can create, update, finish, read, and list workout
   history without touching visits or profile intent
+- one authenticated member can read one deterministic workout recommendation
+  derived from explicit workout history only
 - visit recording still stays separate from workouts and lobby intent
 
 ## Tracer Ownership
@@ -48,10 +53,11 @@ builds.
 - `Tracer 4`: lobby eligibility from explicit availability, not tap-in
 - `Tracer 5`: close the correct open visit from ATHENA departure truth
 - `Tracer 6`: explicit workout runtime without visit-derived workout inference
+- `Tracer 7`: deterministic workout recommendation read without generated plans
 
 ## Current State
 
-Tracer 6 now completes APOLLO's first workout-history runtime slice:
+Tracer 7 now completes APOLLO's first deterministic recommendation slice:
 
 - `POST /api/v1/auth/verification/start` creates or reuses the correct member
   record without touching tag linkage
@@ -77,6 +83,13 @@ Tracer 6 now completes APOLLO's first workout-history runtime slice:
   newest workout created first
 - one member can own many finished workouts, but only one `in_progress`
   workout at a time
+- `GET /api/v1/recommendations/workout` now returns one deterministic
+  recommendation for the current member from explicit workout state only
+- recommendation precedence is explicit:
+  `resume_in_progress_workout`, `start_first_workout`, `recovery_day` for a
+  workout finished within `24h`, then `repeat_last_finished_workout`
+- recommendation reads do not create, update, or finish workouts and do not
+  mutate visits, profile state, claimed tags, or lobby eligibility
 - workout runtime is still separate from auth, profile state, visits, and
   lobby or matchmaking intent
 - Milestone 1.5 now proves the bounded live deployment can bootstrap APOLLO,
@@ -84,4 +97,5 @@ Tracer 6 now completes APOLLO's first workout-history runtime slice:
   without widening into broader product runtime
 - workout runtime is proven locally; deployed truth is still unchanged from
   Milestone 1.5 and does not claim live in-cluster workout surfaces
-- recommendations, lobby membership, and matchmaking remain deferred
+- recommendation persistence, generated plans, lobby membership, and
+  matchmaking remain deferred

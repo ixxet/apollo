@@ -113,3 +113,14 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   finished-vs-in-progress skew and same-timestamp tie-breakers.
   Rule: if ordering must stay deterministic, do not compare timestamps written
   by different clocks unless the product rule explicitly tolerates that skew.
+
+- Symptom: the repo already had an authored `apollo.recommendations` table,
+  which made the first recommendation tracer look like it needed persistence
+  before there was any trustworthy recommendation runtime.
+  Cause: early schema-first planning preserved future storage, but that storage
+  was broader than the first executable proof actually required.
+  Fix: keep Tracer 7 as a derived read over explicit workout history, leave the
+  authored table unused, and prove deterministic precedence before widening into
+  stored or generated recommendations.
+  Rule: a future-facing table is not a requirement; first recommendation slices
+  should prove deterministic read behavior before they persist outputs.

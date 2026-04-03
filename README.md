@@ -7,16 +7,20 @@ recommendations, and the ARES matchmaking subsystem.
 > Current real slice: first-party member auth and session-backed profile state,
 > deterministic visit-history ingest and close behavior, and derived lobby
 > eligibility from persisted `visibility_mode` / `availability_mode`, plus the
-> first explicit member-owned workout runtime. APOLLO now proves account
-> ownership, signed session handling, the first full visit lifecycle slice, the
-> first real intent-behavior slice, and explicit workout-history create/update/
-> finish behavior without widening into recommendations or matchmaking.
+> first explicit member-owned workout runtime and first deterministic workout
+> recommendation read. APOLLO now proves account ownership, signed session
+> handling, the first full visit lifecycle slice, the first real
+> intent-behavior slice, explicit workout-history create/update/finish
+> behavior, and a narrow coaching recommendation runtime without widening into
+> AI planning or matchmaking.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
-schema form or preserved as a future plan. Tracer 6 completes the first workout
-runtime slice: members explicitly create, update, finish, and read workout
-history without visit events implying exercise activity.
+schema form or preserved as a future plan. Tracer 7 completes the first
+deterministic recommendation slice on top of the Tracer 6 workout runtime:
+members explicitly create, update, finish, and read workout history, then read
+one member-scoped coaching recommendation without visit events implying
+exercise activity or social intent.
 
 ## Architecture
 
@@ -56,10 +60,11 @@ flowchart LR
 | Workout detail | `GET /api/v1/workouts/{id}` | Real | Requires a valid session cookie and is owner-scoped |
 | Workout update | `PUT /api/v1/workouts/{id}` | Real | Requires a valid session cookie and replaces draft exercise data while the workout is `in_progress` |
 | Workout finish | `POST /api/v1/workouts/{id}/finish` | Real | Requires a valid session cookie and finishes a non-empty `in_progress` workout |
+| Workout recommendation | `GET /api/v1/recommendations/workout` | Real | Requires a valid session cookie and returns one deterministic coaching recommendation from explicit workout history |
 | Logout | `POST /api/v1/auth/logout` | Real | Revokes the current server-side session and clears the cookie |
 | Visit readback | `apollo visit list --student-id ... --format text|json` | Real | Lists visit history for a member |
 | Event consumer | `apollo serve` with `APOLLO_NATS_URL` | Real | Consumes `athena.identified_presence.arrived` and `athena.identified_presence.departed` from NATS |
-| Recommendation runtime | - | Planned | Schema exists, pipeline does not |
+| Recommendation storage | `apollo.recommendations` | Schema authored | Tracer 7 does not persist recommendation reads yet |
 | Matchmaking runtime | - | Planned | ARES tables exist, service logic does not |
 
 ## Ownership And Boundaries
@@ -70,7 +75,7 @@ flowchart LR
 | derived lobby eligibility from explicit member intent | open lobby membership, invites, or match formation |
 | visit history as member-facing context | occupancy counting |
 | workout history | staff operations workflows |
-| recommendation and coaching context | the shared wire contract definitions |
+| deterministic recommendation and coaching context | the shared wire contract definitions |
 | explicit matchmaking intent and ARES | tool routing and global approval policy |
 
 APOLLO owns member intent. That is the key boundary. Presence can affect member
@@ -88,7 +93,7 @@ eligibility, or any social state.
 | `apollo.visits` | Real | Stores visit open/close history with deterministic departure idempotency |
 | `apollo.workouts` and `apollo.exercises` | Real | Stores explicit workout draft and finished history with ordered exercise rows |
 | `apollo.ares_*` tables | Schema authored | Matchmaking and skill logic are deferred |
-| `apollo.recommendations` | Schema authored | Recommendation runtime is deferred |
+| `apollo.recommendations` | Schema authored | Tracer 7 recommendation reads are derived at read time; persisted recommendation records remain deferred |
 | `users.preferences` JSONB | Real schema, future-heavy use | Intended home for flexible member-intent state such as `visibility_mode` and `availability_mode` |
 
 ## Technology Stack
@@ -104,6 +109,7 @@ eligibility, or any social state.
 | Shared contract | `ashton-proto` generated packages + runtime helper | Instituted | APOLLO no longer owns a private copy of the event wire format |
 | Auth path | first-party student ID + email verification + signed session cookie | Real | Tokens are stored hashed in Postgres and sessions are server-side rows referenced by a signed cookie |
 | Workout runtime | relational workout model | Real | Authenticated create, update, finish, read, and list behavior is active |
+| Recommendation runtime | deterministic derived read over workouts | Real | Authenticated `GET /api/v1/recommendations/workout` is active without persisting outputs |
 | Recommendation pipeline | LangGraph + vLLM + Mem0 | Deferred | Preserved as future direction, not current runtime truth |
 | ARES rating engine | OpenSkill | Deferred | Schema groundwork exists, service layer does not |
 | Frontend | SvelteKit PWA | Deferred | Not yet present in the repo |
@@ -142,6 +148,13 @@ exercise, recommendations, or matchmaking.
 - workout history lists newest created workouts first using DB-owned
   `started_at DESC, id DESC` ordering instead of mixed app-clock and DB-clock
   timestamps
+- authenticated `GET /api/v1/recommendations/workout` is real and uses explicit
+  precedence: `resume_in_progress_workout`, `start_first_workout`,
+  `recovery_day` for workouts finished inside `24h`, then
+  `repeat_last_finished_workout`
+- recommendation reads are deterministic, member-scoped, and side-effect free:
+  they do not create, update, or finish workouts and they do not mutate visits,
+  profile state, claimed tags, or eligibility state
 - only one `in_progress` workout is allowed per member at a time
 - finished workouts are immutable through the current runtime surface
 - logout revokes the current server-side session and clears the cookie
@@ -167,18 +180,23 @@ exercise, recommendations, or matchmaking.
 - visit recording and visit closing remain separate from auth and profile state
 - the live cluster proof is still only the visit-ingest boundary; it does not
   widen APOLLO into a broader product deployment
-- recommendations and matchmaking are still outside the active tracer scope
+- deterministic recommendation reads are now in the active tracer scope
+- recommendation persistence, generated plans, and matchmaking are still
+  outside the active tracer scope
 
 ### Authored in schema, not yet active in runtime
 
 - ARES rating and match tables
-- recommendation storage
+- persisted recommendation storage
 
 ### Deferred on purpose
 
 - tying visit creation or visit closing to workout logging
 - auto-starting a workout from arrival or auto-finishing a workout from
   departure
+- inferring recommendations from visits, departures, or physical presence
+- storing recommendation reads or expanding into generated plans before the
+  deterministic read path is stable
 - letting tap-in imply lobby or matchmaking intent
 - adding lobby membership persistence, invites, or match formation before the
   eligibility boundary is proven
@@ -196,6 +214,7 @@ exercise, recommendations, or matchmaking.
 | `internal/profile/` | authenticated profile state read and update over `users.preferences` |
 | `internal/visits/` | visit service and repository boundary |
 | `internal/workouts/` | workout repository and service for explicit member-owned workout history |
+| `internal/recommendations/` | deterministic workout recommendation service and repository |
 | `internal/store/` | sqlc-generated models and query bindings |
 | `internal/server/` | health, auth, profile, workout, and session middleware wiring |
 | `db/migrations/` | current schema for users, auth/session state, visits, workouts, ARES, and recommendations |
@@ -225,6 +244,7 @@ APOLLO is where the platform starts to look like a product instead of only an
 operations system. Even in its current narrow form, it already shows contract
 discipline, first-party auth taste, deterministic failure handling, relational
 schema design, event-driven ingestion, and a strong boundary between presence,
-profile state, workout history, and matchmaking intent. The current tracer
-proves the first real workout-history runtime: members explicitly create and
-complete workout records without visit history implying exercise activity.
+profile state, workout history, recommendation logic, and matchmaking intent.
+The current tracer proves the first deterministic recommendation runtime:
+member-owned workout history yields one narrow coaching recommendation without
+visit history implying exercise activity or social intent.
