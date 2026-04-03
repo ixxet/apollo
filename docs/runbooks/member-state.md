@@ -134,3 +134,25 @@ Expected smoke outcomes:
   with `user_id` and `workout_id`
 - `apollo.visits` remains `0` for the smoke user
 - `users.preferences` stays at the default ghost/unavailable state
+
+### Tracer 6 Hardening Commands
+
+Use these exact commands when rerunning the workout-runtime closure checks:
+
+```bash
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+
+go test ./...
+go test -count=2 ./...
+go test -count=5 ./internal/workouts -run '^(TestRepositoryCreateWorkoutRejectsSecondInProgressWorkoutForSameUser|TestRepositoryFinishWorkoutTransitionsOnceAndLeavesFinishedRowsReadOnly|TestRepositoryListWorkoutsOrdersByNewestStartedAtDespiteFinishedTimestampSkew|TestRepositoryListWorkoutsUsesStableTieBreakerWhenStartedAtMatches|TestUpdateWorkoutValidatesExercisePayloadWithTableDrivenCoverage|TestFinishWorkoutRejectsMissingAndFinishedStatesAndUsesClock)$'
+go test -count=10 ./internal/server -run '^TestWorkoutRuntimeListsNewestWorkoutFirst$'
+go test -count=5 ./internal/server -run '^(TestWorkoutRuntimeListsNewestWorkoutFirst|TestWorkoutEndpointsEmitLifecycleLogsOnSuccessPaths|TestWorkoutRuntimeRoundTripThroughAuthenticatedSession|TestWorkoutRuntimeEndpointsStaySideEffectFreeAcrossVisitsEligibilityAndClaimedTags)$'
+go test -count=5 ./internal/consumer -run '^TestIdentifiedPresenceLifecycleDoesNotFinishExistingInProgressWorkout$'
+go build ./cmd/apollo
+```
+
+These reruns are the minimum trustworthy set for Tracer 6 because they prove:
+- workout ordering stays stable under repeated runs and clock-skew regressions
+- workout lifecycle logs are emitted on success paths
+- auth/session-backed workout runtime still works end to end
+- workout runtime stays separate from visit lifecycle and eligibility state
