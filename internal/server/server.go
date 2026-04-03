@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -212,6 +213,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
+			logWorkoutLifecycle("workout created", principal.UserID, workout)
 			writeJSON(w, http.StatusCreated, workout)
 		})
 		authenticated.Get("/api/v1/workouts", func(w http.ResponseWriter, r *http.Request) {
@@ -282,6 +284,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
+			logWorkoutLifecycle("workout updated", principal.UserID, workout)
 			writeJSON(w, http.StatusOK, workout)
 		})
 		authenticated.Post("/api/v1/workouts/{workoutID}/finish", func(w http.ResponseWriter, r *http.Request) {
@@ -307,6 +310,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
+			logWorkoutLifecycle("workout finished", principal.UserID, workout)
 			writeJSON(w, http.StatusOK, workout)
 		})
 		authenticated.Patch("/api/v1/profile", func(w http.ResponseWriter, r *http.Request) {
@@ -388,6 +392,20 @@ func principalFromContext(ctx context.Context) auth.Principal {
 	}
 
 	return principal
+}
+
+func logWorkoutLifecycle(message string, userID uuid.UUID, workout workouts.Workout) {
+	attrs := []any{
+		"user_id", userID,
+		"workout_id", workout.ID,
+		"status", workout.Status,
+		"exercise_count", len(workout.Exercises),
+	}
+	if workout.FinishedAt != nil {
+		attrs = append(attrs, "finished_at", workout.FinishedAt.UTC())
+	}
+
+	slog.Info(message, attrs...)
 }
 
 func decodeJSONBody(r *http.Request, target any) error {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -330,6 +331,139 @@ func TestWorkoutEndpointsRejectMalformedBodiesBeforeCallingTheService(t *testing
 	if manager.updateInput.Exercises != nil {
 		t.Fatalf("manager.updateInput = %#v, want zero value after malformed update body", manager.updateInput)
 	}
+}
+
+func TestWorkoutEndpointsEmitLifecycleLogsOnSuccessPaths(t *testing.T) {
+	workoutID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	userID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	startedAt := time.Date(2026, 4, 2, 20, 0, 0, 0, time.UTC)
+	finishedAt := time.Date(2026, 4, 2, 21, 15, 0, 0, time.UTC)
+	manager := &stubWorkoutManager{
+		createResponse: workouts.Workout{
+			ID:        workoutID,
+			Status:    workouts.StatusInProgress,
+			StartedAt: startedAt,
+		},
+		updateResponse: workouts.Workout{
+			ID:        workoutID,
+			Status:    workouts.StatusInProgress,
+			StartedAt: startedAt,
+			Exercises: []workouts.Exercise{
+				{Position: 1, Name: "front squat", Sets: 4, Reps: 5},
+			},
+		},
+		finishResponse: workouts.Workout{
+			ID:         workoutID,
+			Status:     workouts.StatusFinished,
+			StartedAt:  startedAt,
+			FinishedAt: &finishedAt,
+			Exercises: []workouts.Exercise{
+				{Position: 1, Name: "front squat", Sets: 4, Reps: 5},
+			},
+		},
+	}
+
+	recorder := &recordingHandler{}
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(recorder))
+	defer slog.SetDefault(previousLogger)
+
+	handler := NewHandler(Dependencies{
+		Auth: stubAuthenticator{
+			cookieName: "apollo_session",
+			principal:  auth.Principal{UserID: userID},
+		},
+		Workouts: manager,
+	})
+	cookie := &http.Cookie{Name: "apollo_session", Value: "signed"}
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/workouts", bytes.NewBufferString(`{"notes":"push day"}`))
+	createRequest.AddCookie(cookie)
+	createRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(createRecorder, createRequest)
+	if createRecorder.Code != http.StatusCreated {
+		t.Fatalf("createRecorder.Code = %d, want %d", createRecorder.Code, http.StatusCreated)
+	}
+
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/v1/workouts/"+workoutID.String(), bytes.NewBufferString(`{"exercises":[{"name":"front squat","sets":4,"reps":5}]}`))
+	updateRequest.AddCookie(cookie)
+	updateRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(updateRecorder, updateRequest)
+	if updateRecorder.Code != http.StatusOK {
+		t.Fatalf("updateRecorder.Code = %d, want %d", updateRecorder.Code, http.StatusOK)
+	}
+
+	finishRequest := httptest.NewRequest(http.MethodPost, "/api/v1/workouts/"+workoutID.String()+"/finish", nil)
+	finishRequest.AddCookie(cookie)
+	finishRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(finishRecorder, finishRequest)
+	if finishRecorder.Code != http.StatusOK {
+		t.Fatalf("finishRecorder.Code = %d, want %d", finishRecorder.Code, http.StatusOK)
+	}
+
+	if len(recorder.records) != 3 {
+		t.Fatalf("len(recorder.records) = %d, want 3", len(recorder.records))
+	}
+
+	wantMessages := []string{"workout created", "workout updated", "workout finished"}
+	for index, wantMessage := range wantMessages {
+		if recorder.records[index].Message != wantMessage {
+			t.Fatalf("recorder.records[%d].Message = %q, want %q", index, recorder.records[index].Message, wantMessage)
+		}
+		if gotUserID, ok := recorder.records[index].attrs["user_id"]; !ok || gotUserID != userID.String() {
+			t.Fatalf("recorder.records[%d].attrs[user_id] = %q, want %q", index, gotUserID, userID.String())
+		}
+		if gotWorkoutID, ok := recorder.records[index].attrs["workout_id"]; !ok || gotWorkoutID != workoutID.String() {
+			t.Fatalf("recorder.records[%d].attrs[workout_id] = %q, want %q", index, gotWorkoutID, workoutID.String())
+		}
+	}
+
+	if gotCount := recorder.records[0].attrs["exercise_count"]; gotCount != "0" {
+		t.Fatalf("recorder.records[0].attrs[exercise_count] = %q, want 0", gotCount)
+	}
+	if gotCount := recorder.records[1].attrs["exercise_count"]; gotCount != "1" {
+		t.Fatalf("recorder.records[1].attrs[exercise_count] = %q, want 1", gotCount)
+	}
+	if gotStatus := recorder.records[2].attrs["status"]; gotStatus != workouts.StatusFinished {
+		t.Fatalf("recorder.records[2].attrs[status] = %q, want %q", gotStatus, workouts.StatusFinished)
+	}
+	if _, ok := recorder.records[2].attrs["finished_at"]; !ok {
+		t.Fatal("recorder.records[2].attrs[finished_at] missing")
+	}
+}
+
+type recordedLog struct {
+	Message string
+	attrs   map[string]string
+}
+
+type recordingHandler struct {
+	records []recordedLog
+}
+
+func (h *recordingHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h *recordingHandler) Handle(_ context.Context, record slog.Record) error {
+	entry := recordedLog{
+		Message: record.Message,
+		attrs:   make(map[string]string),
+	}
+	record.Attrs(func(attr slog.Attr) bool {
+		entry.attrs[attr.Key] = attr.Value.String()
+		return true
+	})
+	h.records = append(h.records, entry)
+	return nil
+}
+
+func (h *recordingHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *recordingHandler) WithGroup(string) slog.Handler {
+	return h
 }
 
 func stringPtr(value string) *string {
