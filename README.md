@@ -22,6 +22,14 @@ members explicitly create, update, finish, and read workout history, then read
 one member-scoped coaching recommendation without visit events implying
 exercise activity or social intent.
 
+## Start Here
+
+| Reader | Start With | Why |
+| --- | --- | --- |
+| Recruiter or interviewer | [`Runtime Surfaces`](#runtime-surfaces), [`Current State Block`](#current-state-block), [`Why APOLLO Matters`](#why-apollo-matters) | These sections show the real backend slice quickly |
+| Engineer | [`Architecture`](#architecture), [`Ownership And Boundaries`](#ownership-and-boundaries), [`Known Caveats`](#known-caveats) | These sections explain what APOLLO owns and where the product is still incomplete |
+| Maintainer | [`docs/README.md`](docs/README.md), [`docs/glossary.md`](docs/glossary.md), [`docs/runbooks/member-state.md`](docs/runbooks/member-state.md) | These docs explain the current line, vocabulary, and member-state rules |
+
 ## Architecture
 
 The standalone Mermaid source for this flow lives at
@@ -29,18 +37,27 @@ The standalone Mermaid source for this flow lives at
 
 ```mermaid
 flowchart LR
+  member["member or test client"]
+  health["HTTP health<br/>/api/v1/health"]
+  auth["auth + session boundary"]
+  profile["profile + eligibility"]
+  workouts["workout runtime"]
+  recs["deterministic workout recommendation"]
+  db["Postgres<br/>users, sessions, claimed_tags,<br/>visits, workouts, exercises"]
+  cli["CLI<br/>apollo visit list"]
   athena["athena<br/>identified arrival and departure publish"]
   nats["NATS<br/>athena.identified_presence.arrived<br/>athena.identified_presence.departed"]
-  consumer["APOLLO consumer<br/>shared contract parse"]
-  service["visit service<br/>dedupe, idempotency,<br/>open and close rules"]
-  db["Postgres<br/>users, claimed_tags, visits"]
-  cli["CLI<br/>apollo visit list"]
-  health["HTTP health<br/>/api/v1/health"]
-  future["future APOLLO domains<br/>auth, profile, workouts,<br/>recommendations, ARES"]
+  consumer["visit consumer<br/>shared contract parse"]
+  visits["visit service<br/>dedupe, idempotency,<br/>open and close rules"]
+  future["future APOLLO domains<br/>web shell, lobby membership,<br/>ARES, persisted recommendations"]
 
-  athena --> nats --> consumer --> service --> db
+  member --> auth --> db
+  member --> profile --> db
+  member --> workouts --> db
+  member --> recs --> db
+  health --- auth
+  athena --> nats --> consumer --> visits --> db
   db --> cli
-  health --- consumer
   db -. future expansion .-> future
 ```
 
@@ -98,21 +115,24 @@ eligibility, or any social state.
 
 ## Technology Stack
 
-| Layer | Technology | Status | Notes |
-| --- | --- | --- | --- |
-| Service runtime | Go 1.23 | Instituted | The current executable slice is a Go service |
-| HTTP router | chi | Instituted | Current API surface is intentionally tiny |
-| CLI | Cobra | Instituted | `serve` and `visit list` are real |
-| Database driver | pgx | Instituted | Used for runtime persistence |
-| SQL generation | sqlc | Instituted | Auth, session, profile, and visit queries are generated from checked-in SQL |
-| Eventing | NATS | Instituted | Consumes ATHENA identified arrival and departure events |
-| Shared contract | `ashton-proto` generated packages + runtime helper | Instituted | APOLLO no longer owns a private copy of the event wire format |
-| Auth path | first-party student ID + email verification + signed session cookie | Real | Tokens are stored hashed in Postgres and sessions are server-side rows referenced by a signed cookie |
-| Workout runtime | relational workout model | Real | Authenticated create, update, finish, read, and list behavior is active |
-| Recommendation runtime | deterministic derived read over workouts | Real | Authenticated `GET /api/v1/recommendations/workout` is active without persisting outputs |
-| Recommendation pipeline | LangGraph + vLLM + Mem0 | Deferred | Preserved as future direction, not current runtime truth |
-| ARES rating engine | OpenSkill | Deferred | Schema groundwork exists, service layer does not |
-| Frontend | SvelteKit PWA | Deferred | Not yet present in the repo |
+| Layer | Technology | Status | Line | Notes |
+| --- | --- | --- | --- | --- |
+| Service runtime | Go 1.23 | Instituted | `v0.0.x` -> `v0.6.0` | The current executable slice is a Go service |
+| HTTP router | chi | Instituted | `v0.1.x` -> `v0.6.0` | Current API surface is intentionally narrow and tracer-driven |
+| CLI | Cobra | Instituted | `v0.2.x` -> `v0.6.0` | `serve` and `visit list` are real |
+| Database driver | pgx | Instituted | `v0.0.x` -> `v0.6.0` | Used for runtime persistence |
+| SQL generation | sqlc | Instituted | `v0.1.x` -> `v0.6.0` | Auth, session, profile, and visit queries are generated from checked-in SQL |
+| Eventing | NATS | Instituted | `v0.2.x` -> `v0.6.0` | Consumes ATHENA identified arrival and departure events |
+| Shared contract | `ashton-proto` generated packages + runtime helper | Instituted | `v0.2.x` -> `v0.6.0` | APOLLO no longer owns a private copy of the event wire format |
+| Auth path | first-party student ID + email verification + signed session cookie | Real | `v0.1.x` | Tokens are stored hashed in Postgres and sessions are server-side rows referenced by a signed cookie |
+| Workout runtime | relational workout model | Real | `v0.5.0` | Authenticated create, update, finish, read, and list behavior is active |
+| Recommendation runtime | deterministic derived read over workouts | Real | `v0.6.0` | Authenticated `GET /api/v1/recommendations/workout` is active without persisting outputs |
+| Minimal member web shell | SvelteKit over existing APIs | Planned | `v0.7.0` | Tracer 11 should stay on top of already-real APIs |
+| Lobby membership runtime | explicit member-scoped membership state | Planned | `v0.8.0` | Tracer 12 should stay separate from eligibility and visits |
+| ARES rating engine | OpenSkill | Planned | `v0.9.0` | Schema groundwork exists, service layer does not yet |
+| Recommendation persistence | persisted recommendation records | Planned | `v0.10.0` | Persist outputs only after the deterministic read line is stable |
+| Recommendation pipeline | LangGraph + vLLM + Mem0 | Deferred | `v0.11.0` | Preserved as future direction, not current runtime truth |
+| Frontend widening | SvelteKit PWA + offline sync | Deferred | later than `v0.7.0` | Not yet present in the repo |
 
 ## Current Ingest Path
 
@@ -129,6 +149,15 @@ This flow is intentionally narrower than the future product shape. It proves the
 boundary from physical truth to member history first, then layers explicit
 member-owned auth, intent, and workout runtime without letting visits imply
 exercise, recommendations, or matchmaking.
+
+## Known Caveats
+
+| Area | Current caveat | Why it matters |
+| --- | --- | --- |
+| Verification delivery | The default runtime is still dev-first; verification is easy to test locally but not yet a full production-grade delivery path | APOLLO proves ownership and sessions, but not yet a polished end-user delivery experience |
+| Claimed tags | `apollo.claimed_tags` is real schema and runtime dependency, but there is still no end-user flow to manage tag linkage | Visit ingest is narrower than the eventual member-account model |
+| Product shell | The current line is backend-only in practice | The member-facing web surface is planned, not shipped |
+| ARES and recommendation persistence | Schema groundwork exists, but runtime scope is still deterministic read logic only | Readers should not mistake authored tables for active matchmaking or persisted coaching |
 
 ## Current State Block
 
@@ -191,6 +220,9 @@ exercise, recommendations, or matchmaking.
 
 ### Deferred on purpose
 
+- The planned release lines below are the authoritative widening path. These
+  bullets are only the short boundary reminders.
+
 - tying visit creation or visit closing to workout logging
 - auto-starting a workout from arrival or auto-finishing a workout from
   departure
@@ -202,6 +234,28 @@ exercise, recommendations, or matchmaking.
   eligibility boundary is proven
 - adding a frontend before the profile/auth boundary is real
 - adding the recommendation pipeline before workout data exists
+
+## Release History
+
+| Release line | Exact tags | Status | What became real | What stayed deferred |
+| --- | --- | --- | --- | --- |
+| `v0.0.x` | `v0.0.1` | Shipped | bootstrap baseline, first schema and service shape | auth, eligibility, workouts, and recommendations |
+| `v0.1.x` | `v0.1.0`, `v0.1.1` | Shipped | auth and profile foundation line | explicit lobby, workouts, and recommendations |
+| `v0.2.x` | `v0.2.0`, `v0.2.1` | Shipped | eligibility plus visit-ingest line | visit close, workouts, and recommendations |
+| `v0.4.x` | `v0.4.0`, `v0.4.1` | Shipped | visit close plus bounded live deploy deepening | workout runtime, broader product deploy, and recommendations |
+| `v0.5.0` | `v0.5.0` | Shipped | explicit workout runtime | recommendation persistence, generated planning, and matchmaking |
+| `v0.6.0` | `v0.6.0` | Shipped | deterministic recommendation runtime | web shell, lobby membership, ARES, and generated planning |
+
+## Planned Release Lines
+
+| Planned tag | Intended purpose | Restrictions | What it should not do yet |
+| --- | --- | --- | --- |
+| `v0.6.1` | optional Milestone 1.6 companion line if APOLLO repo truth changes materially | keep the repo change bounded to live departure-close support or deployment-truth alignment only | do not widen into broader product deployment |
+| `v0.7.0` | minimal member web shell for Tracer 11 | stay on top of already-real auth, profile, workout, and recommendation APIs | do not widen into offline sync, generated plans, or matchmaking UI |
+| `v0.8.0` | explicit lobby membership runtime for Tracer 12 | keep membership separate from eligibility and visits | do not imply invites, notifications, or auto-entry from tap-in |
+| `v0.9.0` | first deterministic ARES match preview for Tracer 13 | operate only over explicit lobby members | do not widen into messaging, invites, or autonomous match flows |
+| `v0.10.0` | recommendation persistence | persist recommendation outputs only after the deterministic read line is stable | do not mix persistence with generated coaching |
+| `v0.11.0` | generated planning and coaching runtime | build on stable workout and recommendation foundations | do not let visits, departures, or profile state silently drive coaching logic |
 
 ## Project Structure
 
@@ -230,6 +284,8 @@ not the homelab substrate.
 
 ## Docs Map
 
+- [Docs index](docs/README.md)
+- [Glossary](docs/glossary.md)
 - [APOLLO diagram](docs/diagrams/apollo-visit-ingest.mmd)
 - [Roadmap](docs/roadmap.md)
 - [Growing pains](docs/growing-pains.md)

@@ -2,100 +2,48 @@
 
 ## Objective
 
-Keep APOLLO moving through narrow member-facing tracers instead of broad app
-builds.
+Keep APOLLO moving through narrow member-facing release lines instead of trying
+to jump straight to a broad product.
 
-## Current Narrow Slice
+## Current Line
 
-- member registration and passwordless sign-in start from student ID + email
-- email verification tokens are stored hashed, expired, and single-use
-- successful verification issues a signed server-backed session cookie
-- authenticated profile reads and writes persist `visibility_mode` and
-  `availability_mode`
-- authenticated lobby eligibility reads derive `eligible` and a machine-readable
-  `reason` from persisted `visibility_mode` and `availability_mode`
-- visit history now supports deterministic open and close behavior while
-  remaining separate from auth and profile state
-- authenticated workout create, update, finish, detail, and history reads are
-  now real while staying separate from visits and member intent
-- authenticated workout recommendation reads are now real while staying
-  separate from visits, profile state, and lobby intent
-- recommendation persistence, lobby membership, and matchmaking stay deferred
+Current active line: `v0.6.0`
+
+- first-party auth and session-backed profile state are real
+- visit ingest and close are real
+- derived lobby eligibility is real
+- explicit workout runtime is real
+- deterministic workout recommendation read is real
+- deployment truth is still narrower than the full product surface
+
+## Planned Release Lines
+
+| Planned tag | Intended purpose | Restrictions | What it should not do yet |
+| --- | --- | --- | --- |
+| `v0.6.1` | optional Milestone 1.6 companion line if APOLLO repo truth changes materially | keep the change bounded to live departure-close support or deployment-truth alignment | do not widen into broader product deployment |
+| `v0.7.0` | minimal member web shell for Tracer 11 | stay on top of already-real auth, profile, workout, and recommendation APIs | do not widen into offline sync, generated plans, or matchmaking UI |
+| `v0.8.0` | explicit lobby membership runtime for Tracer 12 | keep membership separate from eligibility and visits | do not imply invites, notifications, or auto-entry from tap-in |
+| `v0.9.0` | first deterministic ARES match preview for Tracer 13 | operate only over explicit lobby members | do not widen into messaging, invites, or autonomous match flows |
+| `v0.10.0` | recommendation persistence | persist recommendation outputs only after the deterministic read line is stable | do not mix persistence with generated coaching |
+| `v0.11.0` | generated planning and coaching runtime | build on stable workout and recommendation foundations | do not let visits, departures, or profile state silently drive coaching logic |
 
 ## Boundaries
 
-- no full PWA build in this tracer
-- no LLM recommendation engine or generated plan builder in this tracer
-- no workout inference from arrivals, departures, or visits
-- no recommendation inference from arrivals, departures, or visits
-- no automatic lobby entry from tap-in events
-- no lobby membership persistence or matchmaking until user state and activity
-  data are stable
+- keep visits, workouts, recommendations, lobby state, and matchmaking as
+  distinct state domains
+- do not infer workouts from arrivals or departures
+- do not infer recommendations from arrivals, departures, or visits
+- do not widen deployment truth unless a bounded deployment workstream proves it
 
-## Exit Criteria
+## Tracer / Workstream Ownership
 
-- one member can start verification with student ID + email
-- one member can verify ownership through a real token lifecycle
-- one member can receive and use a signed session cookie
-- one member can read and update persisted privacy and availability settings
-- one authenticated member can read deterministic lobby eligibility derived from
-  those persisted settings
-- one authenticated member can create, update, finish, read, and list workout
-  history without touching visits or profile intent
-- one authenticated member can read one deterministic workout recommendation
-  derived from explicit workout history only
-- visit recording still stays separate from workouts and lobby intent
-
-## Tracer Ownership
-
-- `Tracer 2`: consume ATHENA-backed presence to create visit records
-- `Tracer 3`: member auth -> profile -> privacy and availability state
-- `Tracer 4`: lobby eligibility from explicit availability, not tap-in
-- `Tracer 5`: close the correct open visit from ATHENA departure truth
-- `Tracer 6`: explicit workout runtime without visit-derived workout inference
-- `Tracer 7`: deterministic workout recommendation read without generated plans
-
-## Current State
-
-Tracer 7 now completes APOLLO's first deterministic recommendation slice:
-
-- `POST /api/v1/auth/verification/start` creates or reuses the correct member
-  record without touching tag linkage
-- verification tokens are persisted hashed in Postgres, expire cleanly, and are
-  rejected after use
-- `GET/POST /api/v1/auth/verify` verifies ownership and issues a signed
-  `HTTPOnly`, `Secure`, `SameSite=Strict` session cookie backed by Postgres
-- `GET/PATCH /api/v1/profile` now persists `visibility_mode` and
-  `availability_mode` through `users.preferences`
-- `GET /api/v1/lobby/eligibility` now derives open-lobby eligibility from
-  explicit member state only and never from tap-in or visit history
-- Ghost Mode is explicit: `ghost + available_now` remains ineligible for the
-  open lobby
-- departures close the matching open visit for the same member and facility
-  without reopening history, creating workouts, or mutating member intent
-- duplicate and no-open departures resolve deterministically
-- `POST /api/v1/workouts` creates one member-owned `in_progress` workout
-- `PUT /api/v1/workouts/{id}` replaces ordered exercise data while the workout
-  is still mutable
-- `POST /api/v1/workouts/{id}/finish` explicitly finishes a non-empty workout
-- `GET /api/v1/workouts` and `GET /api/v1/workouts/{id}` now serve workout
-  history back through the authenticated runtime, with list ordering fixed to
-  newest workout created first
-- one member can own many finished workouts, but only one `in_progress`
-  workout at a time
-- `GET /api/v1/recommendations/workout` now returns one deterministic
-  recommendation for the current member from explicit workout state only
-- recommendation precedence is explicit:
-  `resume_in_progress_workout`, `start_first_workout`, `recovery_day` for a
-  workout finished within `24h`, then `repeat_last_finished_workout`
-- recommendation reads do not create, update, or finish workouts and do not
-  mutate visits, profile state, claimed tags, or lobby eligibility
-- workout runtime is still separate from auth, profile state, visits, and
-  lobby or matchmaking intent
-- Milestone 1.5 now proves the bounded live deployment can bootstrap APOLLO,
-  consume the identified arrival subject in-cluster, and persist the visit
-  without widening into broader product runtime
-- workout runtime is proven locally; deployed truth is still unchanged from
-  Milestone 1.5 and does not claim live in-cluster workout surfaces
-- recommendation persistence, generated plans, lobby membership, and
-  matchmaking remain deferred
+- `Tracer 2`: visit ingest
+- `Tracer 3`: auth and profile state
+- `Tracer 4`: derived lobby eligibility
+- `Tracer 5`: visit close from departure truth
+- `Tracer 6`: explicit workout runtime
+- `Tracer 7`: deterministic recommendation read
+- `Tracer 11`: minimal member web shell
+- `Tracer 12`: explicit lobby membership runtime
+- `Tracer 13`: first deterministic ARES match preview
+- later lines: recommendation persistence and generated coaching
