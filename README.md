@@ -8,19 +8,20 @@ recommendations, and the ARES matchmaking subsystem.
 > deterministic visit-history ingest and close behavior, and derived lobby
 > eligibility from persisted `visibility_mode` / `availability_mode`, plus the
 > first explicit member-owned workout runtime and first deterministic workout
-> recommendation read. APOLLO now proves account ownership, signed session
-> handling, the first full visit lifecycle slice, the first real
-> intent-behavior slice, explicit workout-history create/update/finish
-> behavior, and a narrow coaching recommendation runtime without widening into
-> AI planning or matchmaking.
+> recommendation read, plus the first real member web shell over those
+> existing APIs. APOLLO now proves account ownership, signed session handling,
+> the first full visit lifecycle slice, the first real intent-behavior slice,
+> explicit workout-history create/update/finish behavior, one narrow member
+> shell, and a deterministic coaching recommendation runtime without widening
+> into AI planning or matchmaking.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
-schema form or preserved as a future plan. Tracer 7 completes the first
-deterministic recommendation slice on top of the Tracer 6 workout runtime:
-members explicitly create, update, finish, and read workout history, then read
-one member-scoped coaching recommendation without visit events implying
-exercise activity or social intent.
+schema form or preserved as a future plan. Tracer 11 keeps the frontend claim
+as narrow as the backend proof: members can bootstrap a session, load profile
+summary, read and mutate workouts, finish a workout, and read one deterministic
+recommendation through a minimal embedded web shell without changing the server
+ownership model or widening deployment truth.
 
 ## Start Here
 
@@ -49,7 +50,7 @@ flowchart LR
   nats["NATS<br/>athena.identified_presence.arrived<br/>athena.identified_presence.departed"]
   consumer["visit consumer<br/>shared contract parse"]
   visits["visit service<br/>dedupe, idempotency,<br/>open and close rules"]
-  future["future APOLLO domains<br/>web shell, lobby membership,<br/>ARES, persisted recommendations"]
+  future["future APOLLO domains<br/>lobby membership,<br/>ARES, persisted recommendations"]
 
   member --> auth --> db
   member --> profile --> db
@@ -67,6 +68,9 @@ flowchart LR
 | --- | --- | --- | --- |
 | HTTP health | `GET /api/v1/health` | Real | Indicates service health and whether the NATS consumer is enabled |
 | Serve command | `apollo serve` | Real | Starts the health endpoint and optional NATS consumer |
+| Shell root | `GET /` | Real | Redirects to `/app/login` or `/app` based on whether the session cookie is valid |
+| Member login shell | `GET /app/login` | Real | Public HTML bootstrap for verification start + token verification over the existing auth APIs |
+| Member web shell | `GET /app` | Real | Protected HTML shell that reads profile, workouts, and recommendation state through the existing JSON APIs |
 | Verification start | `POST /api/v1/auth/verification/start` | Real | Starts registration or passwordless sign-in with student ID + email |
 | Verification consume | `GET/POST /api/v1/auth/verify` | Real | Consumes a stored token, marks it used, verifies email ownership, and issues a signed session cookie |
 | Profile read | `GET /api/v1/profile` | Real | Requires a valid session cookie and returns persisted member profile state |
@@ -127,7 +131,7 @@ eligibility, or any social state.
 | Auth path | first-party student ID + email verification + signed session cookie | Real | `v0.1.x` | Tokens are stored hashed in Postgres and sessions are server-side rows referenced by a signed cookie |
 | Workout runtime | relational workout model | Real | `v0.5.0` | Authenticated create, update, finish, read, and list behavior is active |
 | Recommendation runtime | deterministic derived read over workouts | Real | `v0.6.0` | Authenticated `GET /api/v1/recommendations/workout` is active without persisting outputs |
-| Minimal member web shell | SvelteKit over existing APIs | Planned | `v0.7.0` | Tracer 11 should stay on top of already-real APIs |
+| Minimal member web shell | embedded HTML/CSS/JS over existing APIs | Real | `v0.7.0` | Tracer 11 keeps the UI thin and leaves workout state transitions backend-authoritative |
 | Lobby membership runtime | explicit member-scoped membership state | Planned | `v0.8.0` | Tracer 12 should stay separate from eligibility and visits |
 | ARES rating engine | OpenSkill | Planned | `v0.9.0` | Schema groundwork exists, service layer does not yet |
 | Recommendation persistence | persisted recommendation records | Planned | `v0.10.0` | Persist outputs only after the deterministic read line is stable |
@@ -156,7 +160,7 @@ exercise, recommendations, or matchmaking.
 | --- | --- | --- |
 | Verification delivery | The default runtime is still dev-first; verification is easy to test locally but not yet a full production-grade delivery path | APOLLO proves ownership and sessions, but not yet a polished end-user delivery experience |
 | Claimed tags | `apollo.claimed_tags` is real schema and runtime dependency, but there is still no end-user flow to manage tag linkage | Visit ingest is narrower than the eventual member-account model |
-| Product shell | The current line is backend-only in practice | The member-facing web surface is planned, not shipped |
+| Product shell | The current line now has one narrow embedded member shell only | Do not confuse one authenticated shell with a full product frontend, offline support, or broader design-system work |
 | ARES and recommendation persistence | Schema groundwork exists, but runtime scope is still deterministic read logic only | Readers should not mistake authored tables for active matchmaking or persisted coaching |
 
 ## Current State Block
@@ -181,6 +185,12 @@ exercise, recommendations, or matchmaking.
   precedence: `resume_in_progress_workout`, `start_first_workout`,
   `recovery_day` for workouts finished inside `24h`, then
   `repeat_last_finished_workout`
+- `GET /`, `GET /app/login`, and protected `GET /app` are real and provide one
+  minimal member web shell over the already-real auth, profile, workout, and
+  recommendation APIs
+- the web shell stays API-backed and backend-authoritative: it does not invent
+  recommendation state, it does not optimistic-write workout transitions, and
+  it does not bypass session ownership checks
 - recommendation reads are deterministic, member-scoped, and side-effect free:
   they do not create, update, or finish workouts and they do not mutate visits,
   profile state, claimed tags, or eligibility state
@@ -204,7 +214,7 @@ exercise, recommendations, or matchmaking.
 ### Real but intentionally narrow
 
 - the active member-facing write surface is limited to auth, profile settings,
-  and explicit workout history
+  explicit workout history, and the thin web shell over those same APIs
 - open-lobby eligibility is derived read-only state, not a join or leave flow
 - visit recording and visit closing remain separate from auth and profile state
 - the live cluster proof is still only the visit-ingest boundary; it does not
@@ -232,7 +242,6 @@ exercise, recommendations, or matchmaking.
 - letting tap-in imply lobby or matchmaking intent
 - adding lobby membership persistence, invites, or match formation before the
   eligibility boundary is proven
-- adding a frontend before the profile/auth boundary is real
 - adding the recommendation pipeline before workout data exists
 
 ## Release History
@@ -245,13 +254,13 @@ exercise, recommendations, or matchmaking.
 | `v0.4.x` | `v0.4.0`, `v0.4.1` | Shipped | visit close plus bounded live deploy deepening | workout runtime, broader product deploy, and recommendations |
 | `v0.5.0` | `v0.5.0` | Shipped | explicit workout runtime | recommendation persistence, generated planning, and matchmaking |
 | `v0.6.0` | `v0.6.0` | Shipped | deterministic recommendation runtime | web shell, lobby membership, ARES, and generated planning |
+| `v0.7.0` | local Tracer 11 line | Local repo truth | minimal member web shell over existing APIs | deployment truth, lobby membership, ARES, and generated planning |
 
 ## Planned Release Lines
 
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | `v0.6.1` | optional Milestone 1.6 companion line if APOLLO repo truth changes materially | keep the repo change bounded to live departure-close support or deployment-truth alignment only | do not widen into broader product deployment |
-| `v0.7.0` | minimal member web shell for Tracer 11 | stay on top of already-real auth, profile, workout, and recommendation APIs | do not widen into offline sync, generated plans, or matchmaking UI |
 | `v0.8.0` | explicit lobby membership runtime for Tracer 12 | keep membership separate from eligibility and visits | do not imply invites, notifications, or auto-entry from tap-in |
 | `v0.9.0` | first deterministic ARES match preview for Tracer 13 | operate only over explicit lobby members | do not widen into messaging, invites, or autonomous match flows |
 | `v0.10.0` | recommendation persistence | persist recommendation outputs only after the deterministic read line is stable | do not mix persistence with generated coaching |
@@ -269,8 +278,9 @@ exercise, recommendations, or matchmaking.
 | `internal/visits/` | visit service and repository boundary |
 | `internal/workouts/` | workout repository and service for explicit member-owned workout history |
 | `internal/recommendations/` | deterministic workout recommendation service and repository |
+| `internal/server/web/` | embedded member-shell HTML, CSS, JS, and browser-side tests for the thin APOLLO web shell |
 | `internal/store/` | sqlc-generated models and query bindings |
-| `internal/server/` | health, auth, profile, workout, and session middleware wiring |
+| `internal/server/` | health, auth, profile, workout, recommendation, session middleware, and embedded shell wiring |
 | `db/migrations/` | current schema for users, auth/session state, visits, workouts, ARES, and recommendations |
 | `db/queries/` | checked-in SQL for auth, profile, and visit operations |
 | `docs/` | roadmap, ADRs, runbook, growing pains, and diagrams |
@@ -302,6 +312,7 @@ operations system. Even in its current narrow form, it already shows contract
 discipline, first-party auth taste, deterministic failure handling, relational
 schema design, event-driven ingestion, and a strong boundary between presence,
 profile state, workout history, recommendation logic, and matchmaking intent.
-The current tracer proves the first deterministic recommendation runtime:
-member-owned workout history yields one narrow coaching recommendation without
-visit history implying exercise activity or social intent.
+The current tracer proves that members can use a real, minimal web shell over
+the already-real APOLLO runtime: session bootstrap, profile summary, workout
+list/detail/update/finish, and one deterministic recommendation read without
+widening backend scope or deployment truth.

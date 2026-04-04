@@ -124,3 +124,18 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   stored or generated recommendations.
   Rule: a future-facing table is not a requirement; first recommendation slices
   should prove deterministic read behavior before they persist outputs.
+
+## 2026-04-04
+
+- Symptom: the first Tracer 11 UI pass was at risk of turning into a frontend
+  rewrite instead of a proof that members could use already-real APOLLO APIs.
+  Cause: the repo had no existing frontend scaffold, which made it tempting to
+  introduce a framework and new endpoint shapes just to make the shell feel
+  more complete.
+  Fix: keep the shell embedded in the Go server, stay on the existing auth,
+  profile, workout, and recommendation APIs, add browser-side helper tests, and
+  prove the flow with a disposable local APOLLO runtime instead of widening the
+  backend surface.
+  Rule: the first member shell must prove UI-to-runtime integration quality on
+  top of existing APIs before any broader frontend stack or contract changes are
+  justified.

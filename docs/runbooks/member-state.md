@@ -41,6 +41,12 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - workout recommendation reads must not create, update, or finish workouts
 - workout recommendation reads must not mutate visits, claimed tags,
   `users.preferences`, or derived eligibility state
+- the first member web shell is a thin HTML/JS layer over the same
+  authenticated auth, profile, workout, and recommendation APIs
+- the member web shell must not invent state or bypass backend ownership checks
+- workout state transitions remain backend-authoritative even when triggered
+  from the web shell
+- recommendation display remains read-only in the member web shell
 
 ## Required Checks
 
@@ -63,6 +69,10 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - one member cannot create a second `in_progress` workout
 - recommendation reads ignore visit rows and profile state as recommendation
   inputs in the current tracer
+- unauthenticated `/app` requests must redirect to `/app/login`
+- authenticated `/app/login` requests must redirect to `/app`
+- the member web shell must use the existing JSON APIs; it must not depend on
+  hidden profile, workout, or recommendation endpoints
 - visit creation never creates or starts a workout implicitly
 - visit closing never creates a workout implicitly
 - visit closing never finishes an `in_progress` workout
@@ -246,3 +256,97 @@ Expected recommendation smoke outcomes:
   smoke users
 - `apollo.visits` stays empty for the smoke users
 - `apollo.claimed_tags` stays empty for the smoke users
+
+### Verified Tracer 11 Member Web Shell Smoke
+
+```bash
+docker run -d --rm --name tracer11-apollo-smoke \
+  -e POSTGRES_USER=apollo \
+  -e POSTGRES_PASSWORD=apollo \
+  -e POSTGRES_DB=apollo \
+  -p 55442:5432 \
+  postgres:16-alpine
+
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+APOLLO_DATABASE_URL='postgres://apollo:apollo@127.0.0.1:55442/apollo?sslmode=disable' \
+  go run ./cmd/apollo migrate up
+
+APOLLO_DATABASE_URL='postgres://apollo:apollo@127.0.0.1:55442/apollo?sslmode=disable' \
+APOLLO_HTTP_ADDR='127.0.0.1:18095' \
+APOLLO_SESSION_COOKIE_SECRET='0123456789abcdef0123456789abcdef' \
+APOLLO_SESSION_COOKIE_SECURE='true' \
+APOLLO_LOG_VERIFICATION_TOKENS='true' \
+  go run ./cmd/apollo serve
+
+curl -sS -i http://127.0.0.1:18095/api/v1/health
+curl -sS -i http://127.0.0.1:18095/app/login
+curl -sS -i -X POST http://127.0.0.1:18095/api/v1/auth/verification/start \
+  -H 'Content-Type: application/json' \
+  --data '{"student_id":"student-web-smoke-011","email":"web-smoke-011@example.com"}'
+curl -sS -i -c /tmp/tracer11-apollo.cookies \
+  'http://127.0.0.1:18095/api/v1/auth/verify?token=<token from server log>'
+
+curl -sS -i -b /tmp/tracer11-apollo.cookies http://127.0.0.1:18095/
+curl -sS -i -b /tmp/tracer11-apollo.cookies http://127.0.0.1:18095/app/login
+curl -sS -i -b /tmp/tracer11-apollo.cookies http://127.0.0.1:18095/app
+curl -sS -i -b /tmp/tracer11-apollo.cookies http://127.0.0.1:18095/api/v1/profile
+curl -sS -i -b /tmp/tracer11-apollo.cookies http://127.0.0.1:18095/api/v1/recommendations/workout
+
+workout_id=$(curl -sS -b /tmp/tracer11-apollo.cookies \
+  -H 'Content-Type: application/json' \
+  -X POST http://127.0.0.1:18095/api/v1/workouts \
+  --data '{"notes":"smoke workout"}' | jq -r '.id')
+
+curl -sS -i -b /tmp/tracer11-apollo.cookies \
+  -H 'Content-Type: application/json' \
+  -X PUT http://127.0.0.1:18095/api/v1/workouts/"$workout_id" \
+  --data '{"notes":"smoke workout updated","exercises":[{"name":"bench press","sets":3,"reps":8,"weight_kg":84.5,"rpe":8.5},{"name":"row","sets":3,"reps":10}]}'
+curl -sS -i -b /tmp/tracer11-apollo.cookies \
+  http://127.0.0.1:18095/api/v1/workouts/"$workout_id"
+curl -sS -i -b /tmp/tracer11-apollo.cookies \
+  http://127.0.0.1:18095/api/v1/workouts
+curl -sS -i -b /tmp/tracer11-apollo.cookies \
+  -X POST http://127.0.0.1:18095/api/v1/workouts/"$workout_id"/finish
+curl -sS -i -b /tmp/tracer11-apollo.cookies \
+  -X POST http://127.0.0.1:18095/api/v1/workouts/"$workout_id"/finish
+curl -sS -i -b /tmp/tracer11-apollo.cookies \
+  http://127.0.0.1:18095/api/v1/recommendations/workout
+
+docker exec -i tracer11-apollo-smoke psql -U apollo -d apollo -c \
+  "SELECT count(*) AS visits FROM apollo.visits v JOIN apollo.users u ON u.id = v.user_id WHERE u.student_id = 'student-web-smoke-011'; SELECT count(*) AS workouts FROM apollo.workouts w JOIN apollo.users u ON u.id = w.user_id WHERE u.student_id = 'student-web-smoke-011'; SELECT student_id, preferences::text FROM apollo.users WHERE student_id = 'student-web-smoke-011'; SELECT count(*) AS claimed_tags FROM apollo.claimed_tags ct JOIN apollo.users u ON u.id = ct.user_id WHERE u.student_id = 'student-web-smoke-011';"
+```
+
+Expected web-shell smoke outcomes:
+- health returns `200 OK`
+- `/app/login` renders the public verification bootstrap page
+- authenticated `/` and `/app/login` redirect to `/app`
+- authenticated `/app` renders the protected member shell
+- profile read succeeds through the existing API
+- the first recommendation is `start_first_workout`
+- workout create/update/detail/list/finish all succeed through the existing APIs
+- duplicate finish returns `409 Conflict`
+- the post-finish recommendation becomes `recovery_day`
+- `apollo.visits` stays `0` for the smoke user
+- `users.preferences` stay at the default ghost/unavailable state
+- `apollo.claimed_tags` stays `0` for the smoke user
+- server logs emit `workout created`, `workout updated`, and `workout finished`
+
+### Tracer 11 Rerun Commands
+
+Use these exact commands when rerunning the minimal member-shell closure checks:
+
+```bash
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+
+node --test ./internal/server/web/assets/app.test.mjs
+go test ./...
+go test -count=2 ./...
+go test -count=5 ./internal/server -run '^(TestWebUIRoutesRedirectAndRenderAgainstSessionState|TestWebUIAssetsAreServedThroughTheEmbeddedShell|TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift|TestWorkoutRuntimeRoundTripThroughAuthenticatedSession|TestWorkoutRuntimeEnforcesOwnershipAndStateConflicts|TestWorkoutRuntimeListsNewestWorkoutFirst|TestWorkoutRuntimeEndpointsStaySideEffectFreeAcrossVisitsEligibilityAndClaimedTags|TestWorkoutRecommendationRuntimeFollowsDeterministicPrecedence|TestWorkoutRecommendationEndpointStaysSideEffectFreeAcrossVisitsEligibilityAndClaimedTags|TestAuthAndProfileEndpointsRejectTokenAndSessionEdgeCases)$'
+go build ./cmd/apollo
+```
+
+These reruns are the minimum trustworthy set for Tracer 11 because they prove:
+- the embedded shell routes and assets are actually mounted in the real server
+- auth/session-backed redirects behave correctly for `/`, `/app/login`, and `/app`
+- the browser-side helper logic preserves backend ordering and deterministic recommendation display
+- the member shell stays on top of the existing workout and recommendation boundaries without introducing side effects
