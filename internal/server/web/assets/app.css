@@ -1,0 +1,365 @@
+:root {
+  color-scheme: light;
+  --bg: #f4efe4;
+  --panel: rgba(255, 251, 245, 0.94);
+  --panel-strong: #fffdf8;
+  --ink: #1f1b16;
+  --muted: #6d6255;
+  --accent: #b34a1f;
+  --accent-soft: rgba(179, 74, 31, 0.12);
+  --line: rgba(63, 48, 31, 0.14);
+  --success: #2f6b47;
+  --error: #9c2f2f;
+  --shadow: 0 20px 50px rgba(51, 34, 18, 0.12);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(179, 74, 31, 0.16), transparent 28%),
+    radial-gradient(circle at top right, rgba(47, 107, 71, 0.12), transparent 24%),
+    linear-gradient(180deg, #fbf7ef 0%, var(--bg) 100%);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.shell {
+  width: min(1180px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1.5rem 0 3rem;
+}
+
+.shell-login {
+  display: grid;
+  gap: 1rem;
+  max-width: 780px;
+}
+
+.shell-app {
+  display: grid;
+  gap: 1rem;
+}
+
+.hero-card,
+.panel,
+.stack-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+}
+
+.hero-card,
+.stack-card,
+.panel {
+  padding: 1.25rem;
+}
+
+.app-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.hero-copy,
+.section-copy,
+.status-message {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.eyebrow {
+  margin: 0 0 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-top: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: "Iowan Old Style", "Georgia", serif;
+}
+
+.section-header,
+.exercise-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.hero-actions,
+.editor-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.primary-button,
+.secondary-button,
+.ghost-button {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 0.72rem 1rem;
+  transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.primary-button {
+  background: var(--accent);
+  color: #fff8f1;
+  box-shadow: 0 10px 24px rgba(179, 74, 31, 0.24);
+}
+
+.secondary-button {
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-color: rgba(179, 74, 31, 0.2);
+}
+
+.ghost-button {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.primary-button:hover,
+.secondary-button:hover,
+.ghost-button:hover {
+  transform: translateY(-1px);
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.ghost-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.form-grid,
+.editor-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.96rem;
+}
+
+input,
+textarea {
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  color: var(--ink);
+  padding: 0.82rem 0.95rem;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.summary-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.summary-grid div {
+  padding: 0.9rem;
+  background: var(--panel-strong);
+  border-radius: 20px;
+  border: 1px solid var(--line);
+}
+
+.summary-grid dt {
+  margin: 0 0 0.25rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.summary-grid dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.recommendation-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(255, 250, 242, 0.95), rgba(247, 238, 224, 0.95));
+  border: 1px solid var(--line);
+}
+
+.recommendation-card .headline {
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.recommendation-card .meta {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.36rem 0.7rem;
+  font-size: 0.86rem;
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.workout-shell-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.workout-list-panel,
+.workout-detail-panel {
+  min-height: 360px;
+}
+
+.workout-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.workout-list-button {
+  width: 100%;
+  text-align: left;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.workout-list-button.is-selected {
+  border-color: rgba(179, 74, 31, 0.45);
+  box-shadow: 0 12px 24px rgba(179, 74, 31, 0.16);
+}
+
+.workout-list-button .label {
+  font-weight: 700;
+}
+
+.workout-list-button .meta {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.exercise-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.exercise-row {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1.8fr repeat(4, minmax(0, 1fr)) auto;
+  align-items: end;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  border-radius: 22px;
+}
+
+.exercise-row label {
+  font-size: 0.85rem;
+}
+
+.exercise-row button {
+  align-self: center;
+}
+
+.empty-state {
+  padding: 1rem;
+  border-radius: 22px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.status-message {
+  min-height: 1.4rem;
+}
+
+.error-message {
+  color: var(--error);
+}
+
+.success-message {
+  color: var(--success);
+}
+
+@media (max-width: 900px) {
+  .app-hero,
+  .section-header,
+  .exercise-header,
+  .detail-header {
+    flex-direction: column;
+  }
+
+  .workout-shell-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .exercise-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}

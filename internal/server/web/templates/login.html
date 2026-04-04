@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/app/assets/app.css" />
+  </head>
+  <body data-apollo-view="login">
+    <main class="shell shell-login">
+      <section class="hero-card">
+        <p class="eyebrow">APOLLO</p>
+        <h1>Minimal member shell</h1>
+        <p class="hero-copy">
+          Start verification, finish sign-in with a token, then use the existing
+          profile, workout, and recommendation APIs through one bounded web shell.
+        </p>
+      </section>
+
+      <section class="stack-card">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Session bootstrap</p>
+            <h2>Start verification</h2>
+          </div>
+          <p class="section-copy">
+            Local development can read the verification token from APOLLO logs.
+          </p>
+        </header>
+        <form id="start-verification-form" class="form-grid">
+          <label>
+            <span>Student ID</span>
+            <input id="student-id" name="student_id" type="text" autocomplete="username" required />
+          </label>
+          <label>
+            <span>Email</span>
+            <input id="email" name="email" type="email" autocomplete="email" required />
+          </label>
+          <button type="submit" class="primary-button">Start verification</button>
+        </form>
+        <p id="start-verification-message" class="status-message" aria-live="polite"></p>
+      </section>
+
+      <section class="stack-card">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Verification</p>
+            <h2>Finish sign-in</h2>
+          </div>
+          <p class="section-copy">Paste the token exactly as it appears in the verification link.</p>
+        </header>
+        <form id="verify-token-form" class="form-grid">
+          <label>
+            <span>Token</span>
+            <input id="verification-token" name="token" type="text" autocomplete="one-time-code" required />
+          </label>
+          <button type="submit" class="primary-button">Verify token</button>
+        </form>
+        <p id="verify-token-message" class="status-message" aria-live="polite"></p>
+      </section>
+    </main>
+
+    <script type="module" src="/app/assets/app.mjs"></script>
+  </body>
+</html>

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/app/assets/app.css" />
+  </head>
+  <body data-apollo-view="shell">
+    <main class="shell shell-app">
+      <section class="hero-card app-hero">
+        <div>
+          <p class="eyebrow">APOLLO</p>
+          <h1>Member shell</h1>
+          <p class="hero-copy">
+            This shell stays narrow on purpose: profile summary, workout runtime,
+            and the deterministic recommendation read over already-real APIs.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="refresh-shell" class="secondary-button" type="button">Refresh</button>
+          <button id="logout-shell" class="ghost-button" type="button">Logout</button>
+        </div>
+      </section>
+
+      <section class="panel profile-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Profile</p>
+            <h2>Member summary</h2>
+          </div>
+          <p id="profile-status" class="section-copy" aria-live="polite">Loading profile…</p>
+        </header>
+        <dl id="profile-summary" class="summary-grid"></dl>
+      </section>
+
+      <section class="panel recommendation-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Recommendation</p>
+            <h2>Deterministic coaching read</h2>
+          </div>
+          <p id="recommendation-status" class="section-copy" aria-live="polite">Loading recommendation…</p>
+        </header>
+        <article id="recommendation-card" class="recommendation-card"></article>
+      </section>
+
+      <section class="panel workouts-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Workout runtime</p>
+            <h2>Member-owned workouts</h2>
+          </div>
+          <div class="hero-actions">
+            <p id="workouts-status" class="section-copy" aria-live="polite">Loading workouts…</p>
+            <button id="create-workout" class="primary-button" type="button">Start workout</button>
+          </div>
+        </header>
+
+        <div class="workout-shell-grid">
+          <aside class="workout-list-panel">
+            <ol id="workout-list" class="workout-list" aria-live="polite"></ol>
+          </aside>
+
+          <section class="workout-detail-panel">
+            <header class="detail-header">
+              <div>
+                <p class="eyebrow">Detail</p>
+                <h3 id="workout-detail-title">Select a workout</h3>
+              </div>
+              <div class="detail-meta">
+                <span id="workout-detail-state" class="pill">No workout selected</span>
+              </div>
+            </header>
+
+            <form id="workout-editor" class="editor-shell">
+              <label>
+                <span>Notes</span>
+                <textarea id="workout-notes" rows="4" placeholder="Workout notes"></textarea>
+              </label>
+
+              <section class="exercise-section">
+                <div class="exercise-header">
+                  <div>
+                    <p class="eyebrow">Exercises</p>
+                    <h4>Draft rows</h4>
+                  </div>
+                  <button id="add-exercise" class="secondary-button" type="button">Add exercise</button>
+                </div>
+                <div id="exercise-list" class="exercise-list"></div>
+              </section>
+
+              <p id="workout-error" class="status-message error-message" aria-live="polite"></p>
+
+              <div class="editor-actions">
+                <button id="save-workout" class="primary-button" type="submit">Save draft</button>
+                <button id="finish-workout" class="secondary-button" type="button">Finish workout</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/app/assets/app.mjs"></script>
+  </body>
+</html>

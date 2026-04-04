@@ -98,6 +98,7 @@ const principalContextKey contextKey = "session_principal"
 
 func NewHandler(deps Dependencies) http.Handler {
 	router := chi.NewRouter()
+	registerWebUIRoutes(router, deps)
 	router.Get("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, healthResponse{
 			Service:         "apollo",
