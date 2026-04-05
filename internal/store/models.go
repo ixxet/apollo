@@ -69,6 +69,15 @@ type ApolloExercise struct {
 	Position  int32
 }
 
+type ApolloLobbyMembership struct {
+	UserID    uuid.UUID
+	Status    string
+	JoinedAt  pgtype.Timestamptz
+	LeftAt    pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type ApolloRecommendation struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID

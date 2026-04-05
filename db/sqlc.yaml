@@ -8,6 +8,7 @@ sql:
       - "migrations/003_member_auth_and_sessions.up.sql"
       - "migrations/004_visit_departure_tracking.up.sql"
       - "migrations/005_workout_runtime.up.sql"
+      - "migrations/006_lobby_membership_runtime.up.sql"
     queries: "queries"
     gen:
       go:

@@ -15,6 +15,7 @@ import (
 
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/eligibility"
+	"github.com/ixxet/apollo/internal/membership"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/workouts"
@@ -39,6 +40,12 @@ type EligibilityReader interface {
 	GetLobbyEligibility(ctx context.Context, userID uuid.UUID) (eligibility.LobbyEligibility, error)
 }
 
+type MembershipManager interface {
+	GetLobbyMembership(ctx context.Context, userID uuid.UUID) (membership.LobbyMembership, error)
+	JoinLobbyMembership(ctx context.Context, userID uuid.UUID) (membership.LobbyMembership, error)
+	LeaveLobbyMembership(ctx context.Context, userID uuid.UUID) (membership.LobbyMembership, error)
+}
+
 type RecommendationReader interface {
 	GetWorkoutRecommendation(ctx context.Context, userID uuid.UUID) (recommendations.WorkoutRecommendation, error)
 }
@@ -56,6 +63,7 @@ type Dependencies struct {
 	Auth            Authenticator
 	Profile         Profiler
 	Eligibility     EligibilityReader
+	Membership      MembershipManager
 	Recommendations RecommendationReader
 	Workouts        WorkoutManager
 }
@@ -198,6 +206,57 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, lobbyEligibility)
+		})
+		authenticated.Get("/api/v1/lobby/membership", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			lobbyMembership, err := deps.Membership.GetLobbyMembership(r.Context(), principal.UserID)
+			if err != nil {
+				switch {
+				case errors.Is(err, membership.ErrNotFound):
+					writeError(w, http.StatusNotFound, err)
+				default:
+					writeError(w, http.StatusInternalServerError, err)
+				}
+				return
+			}
+
+			writeJSON(w, http.StatusOK, lobbyMembership)
+		})
+		authenticated.Post("/api/v1/lobby/membership/join", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			lobbyMembership, err := deps.Membership.JoinLobbyMembership(r.Context(), principal.UserID)
+			if err != nil {
+				switch {
+				case errors.Is(err, membership.ErrNotFound):
+					writeError(w, http.StatusNotFound, err)
+				case errors.Is(err, membership.ErrAlreadyJoined), errors.Is(err, membership.ErrIneligible):
+					writeError(w, http.StatusConflict, err)
+				default:
+					writeError(w, http.StatusInternalServerError, err)
+				}
+				return
+			}
+
+			logLobbyMembershipTransition("lobby membership joined", principal.UserID, lobbyMembership)
+			writeJSON(w, http.StatusOK, lobbyMembership)
+		})
+		authenticated.Post("/api/v1/lobby/membership/leave", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			lobbyMembership, err := deps.Membership.LeaveLobbyMembership(r.Context(), principal.UserID)
+			if err != nil {
+				switch {
+				case errors.Is(err, membership.ErrNotFound):
+					writeError(w, http.StatusNotFound, err)
+				case errors.Is(err, membership.ErrNotJoined):
+					writeError(w, http.StatusConflict, err)
+				default:
+					writeError(w, http.StatusInternalServerError, err)
+				}
+				return
+			}
+
+			logLobbyMembershipTransition("lobby membership left", principal.UserID, lobbyMembership)
+			writeJSON(w, http.StatusOK, lobbyMembership)
 		})
 		authenticated.Get("/api/v1/recommendations/workout", func(w http.ResponseWriter, r *http.Request) {
 			principal := principalFromContext(r.Context())
@@ -425,6 +484,21 @@ func logWorkoutLifecycle(message string, userID uuid.UUID, workout workouts.Work
 	}
 	if workout.FinishedAt != nil {
 		attrs = append(attrs, "finished_at", workout.FinishedAt.UTC())
+	}
+
+	slog.Info(message, attrs...)
+}
+
+func logLobbyMembershipTransition(message string, userID uuid.UUID, lobbyMembership membership.LobbyMembership) {
+	attrs := []any{
+		"user_id", userID,
+		"status", lobbyMembership.Status,
+	}
+	if lobbyMembership.JoinedAt != nil {
+		attrs = append(attrs, "joined_at", lobbyMembership.JoinedAt.UTC())
+	}
+	if lobbyMembership.LeftAt != nil {
+		attrs = append(attrs, "left_at", lobbyMembership.LeftAt.UTC())
 	}
 
 	slog.Info(message, attrs...)
