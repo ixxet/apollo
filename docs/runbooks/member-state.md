@@ -73,6 +73,9 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - authenticated `/app/login` requests must redirect to `/app`
 - the member web shell must use the existing JSON APIs; it must not depend on
   hidden profile, workout, or recommendation endpoints
+- total shell bootstrap or refresh network failure must replace loading copy
+  with explicit recoverable error text and must not leak an unhandled promise
+  rejection
 - visit creation never creates or starts a workout implicitly
 - visit closing never creates a workout implicitly
 - visit closing never finishes an `in_progress` workout
@@ -338,7 +341,7 @@ Use these exact commands when rerunning the minimal member-shell closure checks:
 ```bash
 cd /Users/zizo/Personal-Projects/ASHTON/apollo
 
-node --test ./internal/server/web/assets/app.test.mjs
+for i in 1 2 3 4 5; do node --test ./internal/server/web/assets/app.test.mjs; done
 go test ./...
 go test -count=2 ./...
 go test -count=5 ./internal/server -run '^(TestWebUIRoutesRedirectAndRenderAgainstSessionState|TestWebUIAssetsAreServedThroughTheEmbeddedShell|TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift|TestWorkoutRuntimeRoundTripThroughAuthenticatedSession|TestWorkoutRuntimeEnforcesOwnershipAndStateConflicts|TestWorkoutRuntimeListsNewestWorkoutFirst|TestWorkoutRuntimeEndpointsStaySideEffectFreeAcrossVisitsEligibilityAndClaimedTags|TestWorkoutRecommendationRuntimeFollowsDeterministicPrecedence|TestWorkoutRecommendationEndpointStaysSideEffectFreeAcrossVisitsEligibilityAndClaimedTags|TestAuthAndProfileEndpointsRejectTokenAndSessionEdgeCases)$'
@@ -350,3 +353,23 @@ These reruns are the minimum trustworthy set for Tracer 11 because they prove:
 - auth/session-backed redirects behave correctly for `/`, `/app/login`, and `/app`
 - the browser-side helper logic preserves backend ordering and deterministic recommendation display
 - the member shell stays on top of the existing workout and recommendation boundaries without introducing side effects
+
+### Tracer 11 Carry-Forward Workstream A Commands
+
+Use these exact commands when proving that the rejected-`fetch()` carry-forward
+debt is closed without widening APOLLO scope:
+
+```bash
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+
+node --test ./internal/server/web/assets/app.test.mjs
+for i in 1 2 3 4 5; do node --test ./internal/server/web/assets/app.test.mjs; done
+go test -count=5 ./internal/server -run '^(TestWebUIRoutesRedirectAndRenderAgainstSessionState|TestWebUIAssetsAreServedThroughTheEmbeddedShell|TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift|TestWorkoutRuntimeRoundTripThroughAuthenticatedSession|TestWorkoutRuntimeEnforcesOwnershipAndStateConflicts|TestWorkoutRuntimeListsNewestWorkoutFirst|TestWorkoutRuntimeEndpointsStaySideEffectFreeAcrossVisitsEligibilityAndClaimedTags|TestWorkoutRecommendationRuntimeFollowsDeterministicPrecedence|TestWorkoutRecommendationEndpointStaysSideEffectFreeAcrossVisitsEligibilityAndClaimedTags|TestWorkoutRecommendationEndpointMapsLookupFailuresClearly|TestWorkoutEndpointsRejectMalformedBodiesBeforeCallingTheService|TestAuthAndProfileEndpointsRejectTokenAndSessionEdgeCases)$'
+go test ./...
+go build ./cmd/apollo
+```
+
+These follow-up reruns are the minimum trustworthy set because they prove:
+- total shell bootstrap and refresh failure now replace loading copy with explicit error status
+- no unhandled promise rejection escapes from the top-level shell load path
+- existing workout and recommendation boundaries still hold after the shell-only fix

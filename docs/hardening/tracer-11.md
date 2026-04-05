@@ -303,3 +303,26 @@ Those gaps are local UI operational debt:
 - network failures are not surfaced cleanly in the shell yet
 - stale-request sequencing is not explicitly hardened yet
 - deployed member-shell truth remains unproven and unclaimed
+
+## Follow-Up Note
+
+Follow-up note recorded on `2026-04-05`:
+
+- Workstream A closed the browser-side network-failure gap that was accepted as
+  non-blocking during Tracer 11 hardening.
+- The historical verdict above remains accurate for the `2026-04-04` audit; the
+  follow-up fix only closes that one accepted shell error-path debt.
+- Stale-request sequencing is still not explicitly hardened, and deployment
+  truth remains unchanged.
+
+Exact follow-up verification commands:
+
+```bash
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+
+node --test ./internal/server/web/assets/app.test.mjs
+for i in 1 2 3 4 5; do node --test ./internal/server/web/assets/app.test.mjs; done
+go test -count=5 ./internal/server -run '^(TestWebUIRoutesRedirectAndRenderAgainstSessionState|TestWebUIAssetsAreServedThroughTheEmbeddedShell|TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift|TestWorkoutRuntimeRoundTripThroughAuthenticatedSession|TestWorkoutRuntimeEnforcesOwnershipAndStateConflicts|TestWorkoutRuntimeListsNewestWorkoutFirst|TestWorkoutRuntimeEndpointsStaySideEffectFreeAcrossVisitsEligibilityAndClaimedTags|TestWorkoutRecommendationRuntimeFollowsDeterministicPrecedence|TestWorkoutRecommendationEndpointStaysSideEffectFreeAcrossVisitsEligibilityAndClaimedTags|TestWorkoutRecommendationEndpointMapsLookupFailuresClearly|TestWorkoutEndpointsRejectMalformedBodiesBeforeCallingTheService|TestAuthAndProfileEndpointsRejectTokenAndSessionEdgeCases)$'
+go test ./...
+go build ./cmd/apollo
+```

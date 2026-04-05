@@ -139,3 +139,18 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: the first member shell must prove UI-to-runtime integration quality on
   top of existing APIs before any broader frontend stack or contract changes are
   justified.
+
+## 2026-04-05
+
+- Symptom: a full browser-side `fetch()` rejection during APOLLO shell bootstrap
+  or refresh left the UI stuck on loading copy and leaked an unhandled promise
+  rejection.
+  Cause: the shell only handled per-request non-2xx API responses; it did not
+  own a shared guard for total request rejection across the top-level refresh
+  path.
+  Fix: route initial shell boot and refresh-triggered reloads through one
+  guarded refresh path, replace loading copy with explicit recoverable error
+  status for profile, workouts, and recommendation, and add browser-side
+  regression coverage for both bootstrap and refresh failure.
+  Rule: thin shells still need one shared top-level failure path; handling only
+  non-2xx JSON responses is not enough when the transport itself can fail.

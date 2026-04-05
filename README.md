@@ -70,7 +70,7 @@ flowchart LR
 | Serve command | `apollo serve` | Real | Starts the health endpoint and optional NATS consumer |
 | Shell root | `GET /` | Real | Redirects to `/app/login` or `/app` based on whether the session cookie is valid |
 | Member login shell | `GET /app/login` | Real | Public HTML bootstrap for verification start + token verification over the existing auth APIs |
-| Member web shell | `GET /app` | Real | Protected HTML shell that reads profile, workouts, and recommendation state through the existing JSON APIs |
+| Member web shell | `GET /app` | Real | Protected HTML shell that reads profile, workouts, and recommendation state through the existing JSON APIs and now replaces total bootstrap or refresh network failure with explicit recoverable error UI |
 | Verification start | `POST /api/v1/auth/verification/start` | Real | Starts registration or passwordless sign-in with student ID + email |
 | Verification consume | `GET/POST /api/v1/auth/verify` | Real | Consumes a stored token, marks it used, verifies email ownership, and issues a signed session cookie |
 | Profile read | `GET /api/v1/profile` | Real | Requires a valid session cookie and returns persisted member profile state |
@@ -131,7 +131,7 @@ eligibility, or any social state.
 | Auth path | first-party student ID + email verification + signed session cookie | Real | `v0.1.x` | Tokens are stored hashed in Postgres and sessions are server-side rows referenced by a signed cookie |
 | Workout runtime | relational workout model | Real | `v0.5.0` | Authenticated create, update, finish, read, and list behavior is active |
 | Recommendation runtime | deterministic derived read over workouts | Real | `v0.6.0` | Authenticated `GET /api/v1/recommendations/workout` is active without persisting outputs |
-| Minimal member web shell | embedded HTML/CSS/JS over existing APIs | Real | `v0.7.0` | Tracer 11 keeps the UI thin and leaves workout state transitions backend-authoritative |
+| Minimal member web shell | embedded HTML/CSS/JS over existing APIs | Real | `v0.7.0` | Tracer 11 keeps the UI thin, leaves workout state transitions backend-authoritative, and now maps total bootstrap or refresh network failure into explicit recoverable error UI |
 | Lobby membership runtime | explicit member-scoped membership state | Planned | `v0.8.0` | Tracer 12 should stay separate from eligibility and visits |
 | ARES rating engine | OpenSkill | Planned | `v0.9.0` | Schema groundwork exists, service layer does not yet |
 | Recommendation persistence | persisted recommendation records | Planned | `v0.10.0` | Persist outputs only after the deterministic read line is stable |
@@ -191,6 +191,9 @@ exercise, recommendations, or matchmaking.
 - the web shell stays API-backed and backend-authoritative: it does not invent
   recommendation state, it does not optimistic-write workout transitions, and
   it does not bypass session ownership checks
+- total shell bootstrap or refresh network failure now replaces loading copy
+  with explicit recoverable error states for profile, workouts, and
+  recommendation reads
 - recommendation reads are deterministic, member-scoped, and side-effect free:
   they do not create, update, or finish workouts and they do not mutate visits,
   profile state, claimed tags, or eligibility state
@@ -254,7 +257,7 @@ exercise, recommendations, or matchmaking.
 | `v0.4.x` | `v0.4.0`, `v0.4.1` | Shipped | visit close plus bounded live deploy deepening | workout runtime, broader product deploy, and recommendations |
 | `v0.5.0` | `v0.5.0` | Shipped | explicit workout runtime | recommendation persistence, generated planning, and matchmaking |
 | `v0.6.0` | `v0.6.0` | Shipped | deterministic recommendation runtime | web shell, lobby membership, ARES, and generated planning |
-| `v0.7.0` | local Tracer 11 line | Local repo truth | minimal member web shell over existing APIs | deployment truth, lobby membership, ARES, and generated planning |
+| `v0.7.0` | `v0.7.0` | Shipped | minimal member web shell over existing APIs | deployment truth, lobby membership, ARES, and generated planning |
 
 ## Planned Release Lines
 
