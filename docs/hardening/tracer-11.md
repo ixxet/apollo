@@ -286,13 +286,15 @@ Real regressions would have been:
 - no broader frontend stack, offline support, or PWA workflow was proven
 - no explicit stale-request cancellation proof was added for rapid list/detail/finish races
 
-## Carry-Forward Gaps
+## Historical Carry-Forward Gaps
 
-- network failures are not mapped cleanly in the shell yet; a rejected `fetch`
-  leaves loading copy in place and produces an unhandled rejection
-- request cancellation or sequencing guards are still absent, so stale
-  list/detail/finish races are not explicitly proven safe yet
-- the shell remains locally proven only; deployment truth is unchanged
+These were the accepted gaps at the time of the `2026-04-04` hardening audit:
+
+- network failures were not mapped cleanly in the shell yet; a rejected
+  `fetch` left loading copy in place and produced an unhandled rejection
+- request cancellation or sequencing guards were still absent, so stale
+  list/detail/finish races were not explicitly proven safe yet
+- the shell remained locally proven only; deployment truth was unchanged
 
 ## Final Verdict
 
@@ -314,6 +316,11 @@ Follow-up note recorded on `2026-04-05`:
   follow-up fix only closes that one accepted shell error-path debt.
 - Stale-request sequencing is still not explicitly hardened, and deployment
   truth remains unchanged.
+
+Current carry-forward state after Workstream A:
+
+- stale-request sequencing is still not explicitly hardened
+- deployed member-shell truth remains unproven and unclaimed
 
 Exact follow-up verification commands:
 

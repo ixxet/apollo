@@ -454,6 +454,13 @@ go test ./...
 go build ./cmd/apollo
 ```
 
+Operator note:
+- `node --test ./internal/server/web/assets/app.test.mjs` is Docker-free and
+  proves the fixed rejected-`fetch()` path directly.
+- `TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift` starts a
+  disposable Postgres container, so the targeted Go rerun requires a reachable
+  local Docker daemon.
+
 These follow-up reruns are the minimum trustworthy set because they prove:
 - total shell bootstrap and refresh failure now replace loading copy with explicit error status
 - no unhandled promise rejection escapes from the top-level shell load path
