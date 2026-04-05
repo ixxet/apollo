@@ -12,6 +12,12 @@ const recommendationReasonCopy = {
   last_finished_outside_recovery_window: "Your latest finished workout is outside the 24-hour recovery window.",
 };
 
+const shellLoadFailureMessages = {
+  profile: "Unable to load profile. Check your connection and refresh.",
+  recommendation: "Unable to load recommendation. Check your connection and refresh.",
+  workouts: "Unable to load workouts. Check your connection and refresh.",
+};
+
 export function formatTimestamp(value) {
   if (!value) {
     return "Unknown time";
@@ -198,7 +204,7 @@ async function initShellView() {
   const finishWorkoutButton = document.querySelector("#finish-workout");
 
   document.querySelector("#refresh-shell").addEventListener("click", () => {
-    void refreshShell();
+    void guardedRefreshShell();
   });
   document.querySelector("#logout-shell").addEventListener("click", async () => {
     await requestJSON("/api/v1/auth/logout", { method: "POST", body: "{}" });
@@ -217,7 +223,7 @@ async function initShellView() {
     }
 
     setStatus(workoutsStatus, "Workout started.", "success");
-    await refreshShell(response.payload.id);
+    await guardedRefreshShell(response.payload.id);
   });
   document.querySelector("#add-exercise").addEventListener("click", () => {
     renderExerciseRows([...(state.selectedWorkout?.exercises ?? []), blankExercise()]);
@@ -243,7 +249,7 @@ async function initShellView() {
     }
 
     setStatus(workoutError, "Workout finished.", "success");
-    await refreshShell(state.selectedWorkoutID);
+    await guardedRefreshShell(state.selectedWorkoutID);
   });
 
   workoutsList.addEventListener("click", (event) => {
@@ -255,7 +261,15 @@ async function initShellView() {
     void loadWorkoutDetail(button.dataset.workoutId);
   });
 
-  await refreshShell();
+  await guardedRefreshShell();
+
+  async function guardedRefreshShell(preferredWorkoutID = state.selectedWorkoutID) {
+    try {
+      await refreshShell(preferredWorkoutID);
+    } catch {
+      renderShellLoadFailure();
+    }
+  }
 
   async function refreshShell(preferredWorkoutID = state.selectedWorkoutID) {
     clearWorkoutError();
@@ -309,6 +323,21 @@ async function initShellView() {
     }
   }
 
+  function renderShellLoadFailure() {
+    state.workouts = [];
+    state.selectedWorkoutID = null;
+    state.selectedWorkout = null;
+
+    profileSummary.innerHTML = "";
+    recommendationCard.innerHTML = `<p class="empty-state">${escapeHTML(shellLoadFailureMessages.recommendation)}</p>`;
+    workoutsList.innerHTML = `<li class="empty-state">${escapeHTML(shellLoadFailureMessages.workouts)}</li>`;
+    renderEmptyWorkoutDetail();
+
+    setStatus(profileStatus, shellLoadFailureMessages.profile, "error");
+    setStatus(recommendationStatus, shellLoadFailureMessages.recommendation, "error");
+    setStatus(workoutsStatus, shellLoadFailureMessages.workouts, "error");
+  }
+
   async function loadWorkoutDetail(workoutID) {
     state.selectedWorkoutID = workoutID;
     renderWorkoutsList(state.workouts, state.selectedWorkoutID);
@@ -356,7 +385,7 @@ async function initShellView() {
     }
 
     setStatus(workoutError, "Workout saved.", "success");
-    await refreshShell(state.selectedWorkoutID);
+    await guardedRefreshShell(state.selectedWorkoutID);
   }
 
   function renderProfile(profile) {
