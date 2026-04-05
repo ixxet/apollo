@@ -64,7 +64,7 @@ func TestWebUIRoutesRedirectAndRenderAgainstSessionState(t *testing.T) {
 			path:       "/app",
 			cookies:    []*http.Cookie{{Name: "apollo_session", Value: "signed"}},
 			wantStatus: http.StatusOK,
-			wantBody:   `data-apollo-view="shell"`,
+			wantBody:   `id="membership-card"`,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

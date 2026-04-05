@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildWorkoutPayload,
   extractErrorMessage,
+  membershipSummary,
   recommendationSummary,
   selectWorkoutID,
   workoutListLabel,
@@ -71,6 +72,17 @@ test("recommendationSummary maps deterministic recommendation types", () => {
   });
 });
 
+test("membershipSummary maps explicit lobby membership states", () => {
+  const joined = membershipSummary({ status: "joined", joined_at: "2026-04-05T12:00:00Z" });
+  assert.equal(joined.headline, "Joined lobby");
+  assert.match(joined.detail, /APOLLO recorded explicit lobby membership at/);
+
+  assert.deepEqual(membershipSummary({ status: "not_joined" }), {
+    headline: "Not joined",
+    detail: "Lobby membership stays explicit. Join only when you intend to be in the lobby.",
+  });
+});
+
 test("extractErrorMessage prefers API error strings and falls back clearly", () => {
   assert.equal(extractErrorMessage({ error: "workout is already finished" }, "fallback"), "workout is already finished");
   assert.equal(extractErrorMessage({}, "fallback"), "fallback");
@@ -98,13 +110,159 @@ test("shell refresh maps total fetch rejection into explicit error UI without le
   await assertShellFailureState({
     fetchImpl: async (path) => {
       requestCount += 1;
-      if (requestCount <= 3) {
+      if (requestCount <= 4) {
         return successResponseForPath(path);
       }
       throw new Error("network down");
     },
     exerciseRefresh: true,
   });
+});
+
+test("shell bootstrap renders explicit lobby membership state", async () => {
+  const { cleanup, elements, loadShellModule } = installShellHarness((path) => successResponseForPath(path));
+
+  try {
+    await loadShellModule();
+
+    assert.equal(elements["#membership-status"].textContent, "Membership loaded.");
+    assert.match(elements["#membership-card"].innerHTML, /Not joined/);
+    assert.equal(elements["#join-lobby"].hidden, false);
+    assert.equal(elements["#leave-lobby"].hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("shell join success updates membership state and actions", async () => {
+  let joined = false;
+  const { cleanup, elements, loadShellModule } = installShellHarness(async (path, options = {}) => {
+    if (path === "/api/v1/lobby/membership/join" && options.method === "POST") {
+      joined = true;
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            status: "joined",
+            joined_at: "2026-04-05T12:30:00Z",
+          };
+        },
+      };
+    }
+
+    return successResponseForPath(path, { membershipStatus: joined ? "joined" : "not_joined" });
+  });
+
+  try {
+    await loadShellModule();
+    await elements["#join-lobby"].trigger("click");
+    await settle();
+
+    assert.equal(elements["#membership-status"].textContent, "Lobby membership joined.");
+    assert.equal(elements["#membership-status"].classNames.has("success-message"), true);
+    assert.match(elements["#membership-card"].innerHTML, /Joined lobby/);
+    assert.equal(elements["#join-lobby"].hidden, true);
+    assert.equal(elements["#leave-lobby"].hidden, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("shell leave success updates membership state and actions", async () => {
+  const { cleanup, elements, loadShellModule } = installShellHarness(async (path, options = {}) => {
+    if (path === "/api/v1/lobby/membership" && (!options.method || options.method === "GET")) {
+      return successResponseForPath(path, { membershipStatus: "joined" });
+    }
+    if (path === "/api/v1/lobby/membership/leave" && options.method === "POST") {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            status: "not_joined",
+            joined_at: "2026-04-05T12:30:00Z",
+            left_at: "2026-04-05T13:00:00Z",
+          };
+        },
+      };
+    }
+
+    return successResponseForPath(path, { membershipStatus: "joined" });
+  });
+
+  try {
+    await loadShellModule();
+    await elements["#leave-lobby"].trigger("click");
+    await settle();
+
+    assert.equal(elements["#membership-status"].textContent, "Lobby membership left.");
+    assert.equal(elements["#membership-status"].classNames.has("success-message"), true);
+    assert.match(elements["#membership-card"].innerHTML, /Not joined/);
+    assert.equal(elements["#join-lobby"].hidden, false);
+    assert.equal(elements["#leave-lobby"].hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("shell join failure maps explicit API error without inventing joined state", async () => {
+  const { cleanup, elements, loadShellModule } = installShellHarness(async (path, options = {}) => {
+    if (path === "/api/v1/lobby/membership/join" && options.method === "POST") {
+      return {
+        ok: false,
+        status: 409,
+        async json() {
+          return { error: "member is not eligible for lobby membership: visibility_ghost" };
+        },
+      };
+    }
+
+    return successResponseForPath(path);
+  });
+
+  try {
+    await loadShellModule();
+    await elements["#join-lobby"].trigger("click");
+    await settle();
+
+    assert.equal(elements["#membership-status"].textContent, "member is not eligible for lobby membership: visibility_ghost");
+    assert.equal(elements["#membership-status"].classNames.has("error-message"), true);
+    assert.match(elements["#membership-card"].innerHTML, /Not joined/);
+    assert.equal(elements["#join-lobby"].hidden, false);
+    assert.equal(elements["#leave-lobby"].hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("shell join network failure maps explicit UI error without leaking rejection", async () => {
+  const { cleanup, elements, loadShellModule } = installShellHarness(async (path, options = {}) => {
+    if (path === "/api/v1/lobby/membership/join" && options.method === "POST") {
+      throw new Error("network down");
+    }
+
+    return successResponseForPath(path);
+  });
+  let unhandled = null;
+  const handleUnhandledRejection = (error) => {
+    unhandled = error;
+  };
+  process.on("unhandledRejection", handleUnhandledRejection);
+
+  try {
+    await loadShellModule();
+    await elements["#join-lobby"].trigger("click");
+    await settle();
+
+    assert.equal(unhandled, null);
+    assert.equal(elements["#membership-status"].textContent, "Unable to update lobby membership. Check your connection and try again.");
+    assert.equal(elements["#membership-status"].classNames.has("error-message"), true);
+    assert.match(elements["#membership-card"].innerHTML, /Unable to update lobby membership/);
+  } finally {
+    process.off("unhandledRejection", handleUnhandledRejection);
+    cleanup();
+  }
 });
 
 async function assertShellFailureState({ fetchImpl, exerciseRefresh }) {
@@ -124,15 +282,19 @@ async function assertShellFailureState({ fetchImpl, exerciseRefresh }) {
 
     assert.equal(unhandled, null);
     assert.equal(elements["#profile-status"].textContent, "Unable to load profile. Check your connection and refresh.");
+    assert.equal(elements["#membership-status"].textContent, "Unable to load lobby membership. Check your connection and refresh.");
     assert.equal(elements["#recommendation-status"].textContent, "Unable to load recommendation. Check your connection and refresh.");
     assert.equal(elements["#workouts-status"].textContent, "Unable to load workouts. Check your connection and refresh.");
     assert.equal(elements["#profile-status"].classNames.has("error-message"), true);
+    assert.equal(elements["#membership-status"].classNames.has("error-message"), true);
     assert.equal(elements["#recommendation-status"].classNames.has("error-message"), true);
     assert.equal(elements["#workouts-status"].classNames.has("error-message"), true);
+    assert.match(elements["#membership-card"].innerHTML, /Unable to load lobby membership/);
     assert.match(elements["#recommendation-card"].innerHTML, /Unable to load recommendation/);
     assert.match(elements["#workout-list"].innerHTML, /Unable to load workouts/);
     assert.equal(elements["#profile-summary"].innerHTML, "");
     assert.notEqual(elements["#profile-status"].textContent, "Loading profile…");
+    assert.notEqual(elements["#membership-status"].textContent, "Loading membership…");
     assert.notEqual(elements["#recommendation-status"].textContent, "Loading recommendation…");
     assert.notEqual(elements["#workouts-status"].textContent, "Loading workouts…");
   } finally {
@@ -149,6 +311,10 @@ function installShellHarness(fetchImpl) {
   const elements = {
     "#profile-summary": new FakeElement(),
     "#profile-status": new FakeElement(),
+    "#membership-card": new FakeElement(),
+    "#membership-status": new FakeElement(),
+    "#join-lobby": new FakeElement(),
+    "#leave-lobby": new FakeElement(),
     "#recommendation-card": new FakeElement(),
     "#recommendation-status": new FakeElement(),
     "#workout-list": new FakeElement(),
@@ -195,7 +361,28 @@ function installShellHarness(fetchImpl) {
   };
 }
 
-function successResponseForPath(path) {
+function successResponseForPath(path, options = {}) {
+  const membershipStatus = options.membershipStatus ?? "not_joined";
+
+  if (path === "/api/v1/lobby/membership") {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        if (membershipStatus === "joined") {
+          return {
+            status: "joined",
+            joined_at: "2026-04-05T12:30:00Z",
+          };
+        }
+
+        return {
+          status: "not_joined",
+        };
+      },
+    };
+  }
+
   if (path === "/api/v1/profile") {
     return {
       ok: true,
@@ -247,6 +434,7 @@ class FakeElement {
     this.textContent = "";
     this.innerHTML = "";
     this.disabled = false;
+    this.hidden = false;
     this.listeners = new Map();
     this.classNames = new Set();
     this.classList = {
