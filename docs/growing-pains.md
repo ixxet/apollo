@@ -154,3 +154,16 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   regression coverage for both bootstrap and refresh failure.
   Rule: thin shells still need one shared top-level failure path; handling only
   non-2xx JSON responses is not enough when the transport itself can fail.
+
+- Symptom: Tracer 12 membership tests passed in the custom server harness, but
+  the real `apollo serve` smoke panicked on `GET /api/v1/lobby/membership` with
+  an empty reply.
+  Cause: the test harness wired the new membership service into
+  `server.Dependencies`, but `cmd/apollo` still built the live dependency graph
+  without `deps.Membership`.
+  Fix: wire the membership service through `buildServerDependencies`, then add a
+  command-layer regression test that fails if the runtime dependency builder
+  ever omits lobby membership again.
+  Rule: when APOLLO gains a new runtime dependency, prove both the handler
+  harness and the real command wiring; custom integration envs are not enough
+  by themselves.

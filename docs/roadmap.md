@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current active line: `v0.7.0`
+Current active line: `v0.8.0`
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -15,6 +15,7 @@ Current active line: `v0.7.0`
 - explicit workout runtime is real
 - deterministic workout recommendation read is real
 - minimal member web shell is real locally
+- explicit lobby membership runtime is real locally
 - deployment truth is still narrower than the full product surface
 
 ## Planned Release Lines
@@ -22,7 +23,6 @@ Current active line: `v0.7.0`
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | `v0.6.1` | optional Milestone 1.6 companion line if APOLLO repo truth changes materially | keep the change bounded to live departure-close support or deployment-truth alignment | do not widen into broader product deployment |
-| `v0.8.0` | explicit lobby membership runtime for Tracer 12 | keep membership separate from eligibility and visits | do not imply invites, notifications, or auto-entry from tap-in |
 | `v0.9.0` | first deterministic ARES match preview for Tracer 13 | operate only over explicit lobby members | do not widen into messaging, invites, or autonomous match flows |
 | `v0.10.0` | recommendation persistence | persist recommendation outputs only after the deterministic read line is stable | do not mix persistence with generated coaching |
 | `v0.11.0` | generated planning and coaching runtime | build on stable workout and recommendation foundations | do not let visits, departures, or profile state silently drive coaching logic |
@@ -31,8 +31,10 @@ Current active line: `v0.7.0`
 
 - keep visits, workouts, recommendations, lobby state, and matchmaking as
   distinct state domains
+- keep eligibility and explicit lobby membership as separate state domains
 - do not infer workouts from arrivals or departures
 - do not infer recommendations from arrivals, departures, or visits
+- do not infer lobby membership from eligibility, visits, or physical presence
 - do not widen deployment truth unless a bounded deployment workstream proves it
 
 ## Tracer / Workstream Ownership

@@ -2,7 +2,8 @@
 
 ## Purpose
 
-Use this runbook when implementing member auth, profile state, visits, workouts, and later lobby eligibility.
+Use this runbook when implementing member auth, profile state, explicit lobby
+membership, visits, workouts, and later matchmaking intent.
 
 ## Rules
 
@@ -17,6 +18,11 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - session cookies stay signed, `HTTPOnly`, `Secure`, and `SameSite=Strict`
 - session state stays server-side; APOLLO is not JWT-first in this tracer
 - open-lobby eligibility derives from persisted member state, not visits
+- explicit lobby membership is separate from eligibility and physical presence
+- lobby membership transitions are authenticated, explicit, and server-owned
+- repeated join and repeated leave must stay deterministic
+- lobby membership writes must not mutate visits, workouts, claimed tags, or
+  recommendation state
 - availability is evaluated before visibility so ineligible reasons stay stable
 - `ghost + available_now` remains ineligible for the open lobby
 - duplicate arrival delivery must be idempotent
@@ -47,6 +53,8 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - workout state transitions remain backend-authoritative even when triggered
   from the web shell
 - recommendation display remains read-only in the member web shell
+- the member web shell may show membership state and explicit `Join` / `Leave`
+  actions, but it must not infer membership from eligibility or visits
 
 ## Required Checks
 
@@ -57,6 +65,12 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - unavailable members never join the lobby
 - `with_team` members stay out of the open lobby
 - invalid persisted eligibility enums return deterministic ineligible reasons
+- membership reads require a valid session and default to explicit
+  `not_joined` when no row exists
+- ineligible members are rejected clearly on join
+- repeated join and repeated leave return deterministic conflict responses
+- membership writes must not mutate visits, workouts, claimed tags, or
+  `users.preferences`
 - profile writes only mutate `visibility_mode` and `availability_mode`
 - eligibility reads only observe profile state and must not mutate visits,
   workouts, or claimed tags
@@ -76,6 +90,8 @@ Use this runbook when implementing member auth, profile state, visits, workouts,
 - total shell bootstrap or refresh network failure must replace loading copy
   with explicit recoverable error text and must not leak an unhandled promise
   rejection
+- shell membership actions must map server and network failures into explicit
+  status text without inventing joined state
 - visit creation never creates or starts a workout implicitly
 - visit closing never creates a workout implicitly
 - visit closing never finishes an `in_progress` workout
@@ -178,6 +194,75 @@ These reruns are the minimum trustworthy set for Tracer 6 because they prove:
 - workout lifecycle logs are emitted on success paths
 - auth/session-backed workout runtime still works end to end
 - workout runtime stays separate from visit lifecycle and eligibility state
+
+### Verified Lobby Membership Runtime Smoke
+
+```bash
+docker run -d --rm --name tracer12-apollo-smoke \
+  -e POSTGRES_USER=apollo \
+  -e POSTGRES_PASSWORD=apollo \
+  -e POSTGRES_DB=apollo \
+  -p 55443:5432 \
+  postgres:16-alpine
+
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+APOLLO_DATABASE_URL='postgres://apollo:apollo@127.0.0.1:55443/apollo?sslmode=disable' \
+  go run ./cmd/apollo migrate up
+
+APOLLO_DATABASE_URL='postgres://apollo:apollo@127.0.0.1:55443/apollo?sslmode=disable' \
+APOLLO_HTTP_ADDR='127.0.0.1:18097' \
+APOLLO_SESSION_COOKIE_SECRET='0123456789abcdef0123456789abcdef' \
+APOLLO_SESSION_COOKIE_SECURE='true' \
+APOLLO_LOG_VERIFICATION_TOKENS='true' \
+  go run ./cmd/apollo serve
+
+curl -sS -i -X POST http://127.0.0.1:18097/api/v1/auth/verification/start \
+  -H 'Content-Type: application/json' \
+  --data '{"student_id":"student-membership-smoke-012b","email":"membership-smoke-012b@example.com"}'
+
+curl -sS -i -c /tmp/tracer12-apollo.cookies \
+  'http://127.0.0.1:18097/api/v1/auth/verify?token=<token from server log>'
+
+curl -sS -i -b /tmp/tracer12-apollo.cookies http://127.0.0.1:18097/app
+curl -sS -i -b /tmp/tracer12-apollo.cookies http://127.0.0.1:18097/api/v1/lobby/membership
+
+curl -sS -i -b /tmp/tracer12-apollo.cookies \
+  -H 'Content-Type: application/json' \
+  -X PATCH http://127.0.0.1:18097/api/v1/profile \
+  --data '{"visibility_mode":"discoverable","availability_mode":"available_now"}'
+
+curl -sS -i -b /tmp/tracer12-apollo.cookies \
+  -X POST http://127.0.0.1:18097/api/v1/lobby/membership/join
+
+curl -sS -i -b /tmp/tracer12-apollo.cookies http://127.0.0.1:18097/api/v1/lobby/membership
+
+curl -sS -i -b /tmp/tracer12-apollo.cookies \
+  -X POST http://127.0.0.1:18097/api/v1/lobby/membership/leave
+
+curl -sS -i -b /tmp/tracer12-apollo.cookies http://127.0.0.1:18097/api/v1/lobby/membership
+
+curl -sS -i -b /tmp/tracer12-apollo.cookies \
+  -X POST http://127.0.0.1:18097/api/v1/lobby/membership/leave
+
+docker exec -i tracer12-apollo-smoke psql -U apollo -d apollo -c \
+  "SELECT student_id, preferences::text FROM apollo.users WHERE student_id = 'student-membership-smoke-012b'; \
+   SELECT count(*) AS visits FROM apollo.visits v JOIN apollo.users u ON u.id = v.user_id WHERE u.student_id = 'student-membership-smoke-012b'; \
+   SELECT count(*) AS workouts FROM apollo.workouts w JOIN apollo.users u ON u.id = w.user_id WHERE u.student_id = 'student-membership-smoke-012b'; \
+   SELECT count(*) AS claimed_tags FROM apollo.claimed_tags ct JOIN apollo.users u ON u.id = ct.user_id WHERE u.student_id = 'student-membership-smoke-012b'; \
+   SELECT status, joined_at, left_at FROM apollo.lobby_memberships lm JOIN apollo.users u ON u.id = lm.user_id WHERE u.student_id = 'student-membership-smoke-012b';"
+```
+
+Expected smoke outcomes:
+- membership starts at `{"status":"not_joined"}`
+- `PATCH /api/v1/profile` can make the user eligible without auto-joining them
+- join returns `status="joined"` with `joined_at`
+- leave returns `status="not_joined"` with the original `joined_at` and a new
+  `left_at`
+- repeated leave returns `409 Conflict`
+- the shell HTML includes the explicit membership panel
+- `apollo.visits`, `apollo.workouts`, and `apollo.claimed_tags` remain `0` for
+  the smoke user
+- the server logs `lobby membership joined` and `lobby membership left`
 
 ### Verified Recommendation Runtime Smoke
 
