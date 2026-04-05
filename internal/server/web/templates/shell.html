@@ -13,8 +13,9 @@
           <p class="eyebrow">APOLLO</p>
           <h1>Member shell</h1>
           <p class="hero-copy">
-            This shell stays narrow on purpose: profile summary, workout runtime,
-            and the deterministic recommendation read over already-real APIs.
+            This shell stays narrow on purpose: profile summary, explicit lobby
+            membership intent, workout runtime, and the deterministic
+            recommendation read over already-real APIs.
           </p>
         </div>
         <div class="hero-actions">
@@ -43,6 +44,23 @@
           <p id="recommendation-status" class="section-copy" aria-live="polite">Loading recommendation…</p>
         </header>
         <article id="recommendation-card" class="recommendation-card"></article>
+      </section>
+
+      <section class="panel membership-panel">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Lobby membership</p>
+            <h2>Explicit member intent</h2>
+          </div>
+          <p id="membership-status" class="section-copy" aria-live="polite">Loading membership…</p>
+        </header>
+        <div class="membership-shell">
+          <article id="membership-card" class="membership-card"></article>
+          <div class="hero-actions membership-actions">
+            <button id="join-lobby" class="primary-button" type="button">Join lobby</button>
+            <button id="leave-lobby" class="secondary-button" type="button" hidden>Leave lobby</button>
+          </div>
+        </div>
       </section>
 
       <section class="panel workouts-panel">

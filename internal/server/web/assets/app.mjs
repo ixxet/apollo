@@ -14,6 +14,7 @@ const recommendationReasonCopy = {
 
 const shellLoadFailureMessages = {
   profile: "Unable to load profile. Check your connection and refresh.",
+  membership: "Unable to load lobby membership. Check your connection and refresh.",
   recommendation: "Unable to load recommendation. Check your connection and refresh.",
   workouts: "Unable to load workouts. Check your connection and refresh.",
 };
@@ -66,6 +67,24 @@ export function recommendationSummary(recommendation) {
   return {
     headline: recommendationHeadlines[recommendation.type] ?? "Recommendation",
     detail: recommendationReasonCopy[recommendation.reason] ?? "APOLLO returned a deterministic recommendation.",
+  };
+}
+
+export function membershipSummary(membership) {
+  if (membership?.status === "joined") {
+    return {
+      headline: "Joined lobby",
+      detail: membership.joined_at
+        ? `APOLLO recorded explicit lobby membership at ${formatTimestamp(membership.joined_at)}.`
+        : "APOLLO recorded explicit lobby membership for this member.",
+    };
+  }
+
+  return {
+    headline: "Not joined",
+    detail: membership?.left_at
+      ? `APOLLO recorded a leave at ${formatTimestamp(membership.left_at)}. Rejoin explicitly if you want lobby membership again.`
+      : "Lobby membership stays explicit. Join only when you intend to be in the lobby.",
   };
 }
 
@@ -191,6 +210,10 @@ async function initShellView() {
 
   const profileSummary = document.querySelector("#profile-summary");
   const profileStatus = document.querySelector("#profile-status");
+  const membershipCard = document.querySelector("#membership-card");
+  const membershipStatus = document.querySelector("#membership-status");
+  const joinLobbyButton = document.querySelector("#join-lobby");
+  const leaveLobbyButton = document.querySelector("#leave-lobby");
   const recommendationCard = document.querySelector("#recommendation-card");
   const recommendationStatus = document.querySelector("#recommendation-status");
   const workoutsList = document.querySelector("#workout-list");
@@ -231,6 +254,12 @@ async function initShellView() {
   document.querySelector("#workout-editor").addEventListener("submit", async (event) => {
     event.preventDefault();
     await saveWorkout();
+  });
+  joinLobbyButton.addEventListener("click", async () => {
+    await updateLobbyMembership("/api/v1/lobby/membership/join", "Lobby membership joined.", "Failed to join lobby.");
+  });
+  leaveLobbyButton.addEventListener("click", async () => {
+    await updateLobbyMembership("/api/v1/lobby/membership/leave", "Lobby membership left.", "Failed to leave lobby.");
   });
   finishWorkoutButton.addEventListener("click", async () => {
     if (!state.selectedWorkoutID) {
@@ -273,19 +302,33 @@ async function initShellView() {
 
   async function refreshShell(preferredWorkoutID = state.selectedWorkoutID) {
     clearWorkoutError();
+    setStatus(membershipStatus, "Loading membership…");
     setStatus(profileStatus, "Loading profile…");
     setStatus(recommendationStatus, "Loading recommendation…");
     setStatus(workoutsStatus, "Loading workouts…");
 
-    const [profileResponse, workoutsResponse, recommendationResponse] = await Promise.all([
+    const [membershipResponse, profileResponse, workoutsResponse, recommendationResponse] = await Promise.all([
+      requestJSON("/api/v1/lobby/membership"),
       requestJSON("/api/v1/profile"),
       requestJSON("/api/v1/workouts"),
       requestJSON("/api/v1/recommendations/workout"),
     ]);
 
-    if (profileResponse.status === 401 || workoutsResponse.status === 401 || recommendationResponse.status === 401) {
+    if (
+      membershipResponse.status === 401 ||
+      profileResponse.status === 401 ||
+      workoutsResponse.status === 401 ||
+      recommendationResponse.status === 401
+    ) {
       window.location.assign("/app/login");
       return;
+    }
+
+    if (membershipResponse.ok) {
+      renderMembership(membershipResponse.payload);
+      setStatus(membershipStatus, "Membership loaded.", "success");
+    } else {
+      renderMembershipFailure(extractErrorMessage(membershipResponse.payload, "Failed to load lobby membership."));
     }
 
     if (profileResponse.ok) {
@@ -329,6 +372,7 @@ async function initShellView() {
     state.selectedWorkout = null;
 
     profileSummary.innerHTML = "";
+    renderMembershipFailure(shellLoadFailureMessages.membership);
     recommendationCard.innerHTML = `<p class="empty-state">${escapeHTML(shellLoadFailureMessages.recommendation)}</p>`;
     workoutsList.innerHTML = `<li class="empty-state">${escapeHTML(shellLoadFailureMessages.workouts)}</li>`;
     renderEmptyWorkoutDetail();
@@ -400,6 +444,36 @@ async function initShellView() {
     profileSummary.innerHTML = entries
       .map(([label, value]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(String(value ?? "—"))}</dd></div>`)
       .join("");
+  }
+
+  function renderMembership(membership) {
+    const summary = membershipSummary(membership);
+    membershipCard.innerHTML = `
+      <p class="headline">${escapeHTML(summary.headline)}</p>
+      <p>${escapeHTML(summary.detail)}</p>
+      <div class="meta">
+        <span class="pill">${escapeHTML(membership.status)}</span>
+        ${membership.joined_at ? `<span class="pill">Joined ${escapeHTML(formatTimestamp(membership.joined_at))}</span>` : ""}
+        ${membership.left_at ? `<span class="pill">Left ${escapeHTML(formatTimestamp(membership.left_at))}</span>` : ""}
+      </div>
+    `;
+
+    if (membership.status === "joined") {
+      joinLobbyButton.hidden = true;
+      leaveLobbyButton.hidden = false;
+    } else {
+      joinLobbyButton.hidden = false;
+      leaveLobbyButton.hidden = true;
+    }
+    toggleMembershipActions(false);
+  }
+
+  function renderMembershipFailure(message) {
+    membershipCard.innerHTML = `<p class="empty-state">${escapeHTML(message)}</p>`;
+    joinLobbyButton.hidden = true;
+    leaveLobbyButton.hidden = true;
+    toggleMembershipActions(false);
+    setStatus(membershipStatus, message, "error");
   }
 
   function renderRecommendation(recommendation) {
@@ -501,6 +575,37 @@ async function initShellView() {
 
   function clearWorkoutError() {
     setStatus(workoutError, "");
+  }
+
+  async function updateLobbyMembership(path, successMessage, failureFallback) {
+    toggleMembershipActions(true);
+    setStatus(membershipStatus, successMessage.replace(/\.$/, "…"));
+
+    try {
+      const response = await requestJSON(path, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      if (response.status === 401) {
+        window.location.assign("/app/login");
+        return;
+      }
+      if (!response.ok) {
+        setStatus(membershipStatus, extractErrorMessage(response.payload, failureFallback), "error");
+        toggleMembershipActions(false);
+        return;
+      }
+
+      renderMembership(response.payload);
+      setStatus(membershipStatus, successMessage, "success");
+    } catch {
+      renderMembershipFailure("Unable to update lobby membership. Check your connection and try again.");
+    }
+  }
+
+  function toggleMembershipActions(disabled) {
+    joinLobbyButton.disabled = disabled;
+    leaveLobbyButton.disabled = disabled;
   }
 
   function toggleWorkoutActions(disabled) {
