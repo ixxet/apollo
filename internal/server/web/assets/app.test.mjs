@@ -83,3 +83,204 @@ test("workoutListLabel uses server timestamps and exercise counts without reorde
   });
   assert.match(label, /2 exercises/);
 });
+
+test("shell bootstrap maps total fetch rejection into explicit error UI without leaking rejections", async () => {
+  await assertShellFailureState({
+    fetchImpl: async () => {
+      throw new Error("network down");
+    },
+    exerciseRefresh: false,
+  });
+});
+
+test("shell refresh maps total fetch rejection into explicit error UI without leaking rejections", async () => {
+  let requestCount = 0;
+  await assertShellFailureState({
+    fetchImpl: async (path) => {
+      requestCount += 1;
+      if (requestCount <= 3) {
+        return successResponseForPath(path);
+      }
+      throw new Error("network down");
+    },
+    exerciseRefresh: true,
+  });
+});
+
+async function assertShellFailureState({ fetchImpl, exerciseRefresh }) {
+  const { cleanup, elements, loadShellModule } = installShellHarness(fetchImpl);
+  let unhandled = null;
+  const handleUnhandledRejection = (error) => {
+    unhandled = error;
+  };
+  process.on("unhandledRejection", handleUnhandledRejection);
+
+  try {
+    await loadShellModule();
+    if (exerciseRefresh) {
+      elements["#refresh-shell"].trigger("click");
+      await settle();
+    }
+
+    assert.equal(unhandled, null);
+    assert.equal(elements["#profile-status"].textContent, "Unable to load profile. Check your connection and refresh.");
+    assert.equal(elements["#recommendation-status"].textContent, "Unable to load recommendation. Check your connection and refresh.");
+    assert.equal(elements["#workouts-status"].textContent, "Unable to load workouts. Check your connection and refresh.");
+    assert.equal(elements["#profile-status"].classNames.has("error-message"), true);
+    assert.equal(elements["#recommendation-status"].classNames.has("error-message"), true);
+    assert.equal(elements["#workouts-status"].classNames.has("error-message"), true);
+    assert.match(elements["#recommendation-card"].innerHTML, /Unable to load recommendation/);
+    assert.match(elements["#workout-list"].innerHTML, /Unable to load workouts/);
+    assert.equal(elements["#profile-summary"].innerHTML, "");
+    assert.notEqual(elements["#profile-status"].textContent, "Loading profile…");
+    assert.notEqual(elements["#recommendation-status"].textContent, "Loading recommendation…");
+    assert.notEqual(elements["#workouts-status"].textContent, "Loading workouts…");
+  } finally {
+    process.off("unhandledRejection", handleUnhandledRejection);
+    cleanup();
+  }
+}
+
+function installShellHarness(fetchImpl) {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const previousFetch = globalThis.fetch;
+
+  const elements = {
+    "#profile-summary": new FakeElement(),
+    "#profile-status": new FakeElement(),
+    "#recommendation-card": new FakeElement(),
+    "#recommendation-status": new FakeElement(),
+    "#workout-list": new FakeElement(),
+    "#workouts-status": new FakeElement(),
+    "#workout-detail-title": new FakeElement(),
+    "#workout-detail-state": new FakeElement(),
+    "#workout-notes": new FakeElement(),
+    "#exercise-list": new FakeElement(),
+    "#workout-error": new FakeElement(),
+    "#save-workout": new FakeElement(),
+    "#finish-workout": new FakeElement(),
+    "#refresh-shell": new FakeElement(),
+    "#logout-shell": new FakeElement(),
+    "#create-workout": new FakeElement(),
+    "#add-exercise": new FakeElement(),
+    "#workout-editor": new FakeElement(),
+  };
+
+  globalThis.document = {
+    body: { dataset: { apolloView: "shell" } },
+    querySelector(selector) {
+      return elements[selector] ?? null;
+    },
+  };
+  globalThis.window = {
+    location: {
+      href: "http://127.0.0.1/app",
+      assign() {},
+    },
+  };
+  globalThis.fetch = fetchImpl;
+
+  return {
+    elements,
+    async loadShellModule() {
+      await import(new URL(`./app.mjs?test=${Date.now()}-${Math.random()}`, import.meta.url));
+      await settle();
+    },
+    cleanup() {
+      globalThis.document = previousDocument;
+      globalThis.window = previousWindow;
+      globalThis.fetch = previousFetch;
+    },
+  };
+}
+
+function successResponseForPath(path) {
+  if (path === "/api/v1/profile") {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          display_name: "member",
+          student_id: "student-011",
+          email: "member@example.com",
+          email_verified: true,
+          visibility_mode: "ghost",
+          availability_mode: "unavailable",
+        };
+      },
+    };
+  }
+
+  if (path === "/api/v1/workouts") {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return [];
+      },
+    };
+  }
+
+  if (path === "/api/v1/recommendations/workout") {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          type: "start_first_workout",
+          reason: "no_finished_workouts",
+          generated_at: "2026-04-05T12:00:00Z",
+          evidence: {},
+        };
+      },
+    };
+  }
+
+  throw new Error(`unexpected path ${path}`);
+}
+
+class FakeElement {
+  constructor(value = "") {
+    this.value = value;
+    this.textContent = "";
+    this.innerHTML = "";
+    this.disabled = false;
+    this.listeners = new Map();
+    this.classNames = new Set();
+    this.classList = {
+      add: (...names) => names.forEach((name) => this.classNames.add(name)),
+      remove: (...names) => names.forEach((name) => this.classNames.delete(name)),
+    };
+  }
+
+  addEventListener(type, handler) {
+    this.listeners.set(type, handler);
+  }
+
+  querySelector() {
+    return null;
+  }
+
+  querySelectorAll() {
+    return [];
+  }
+
+  trigger(type, event = {}) {
+    const handler = this.listeners.get(type);
+    if (!handler) {
+      throw new Error(`missing handler for ${type}`);
+    }
+    return handler({
+      preventDefault() {},
+      target: this,
+      ...event,
+    });
+  }
+}
+
+async function settle() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
