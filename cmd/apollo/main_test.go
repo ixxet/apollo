@@ -8,7 +8,7 @@ import (
 	"github.com/ixxet/apollo/internal/config"
 )
 
-func TestBuildServerDependenciesWiresLobbyMembershipRuntime(t *testing.T) {
+func TestBuildServerDependenciesWiresLobbyMembershipAndMatchPreviewRuntime(t *testing.T) {
 	cookies, err := auth.NewSessionCookieManager("apollo_session", "0123456789abcdef0123456789abcdef", true)
 	if err != nil {
 		t.Fatalf("NewSessionCookieManager() error = %v", err)
@@ -21,5 +21,8 @@ func TestBuildServerDependenciesWiresLobbyMembershipRuntime(t *testing.T) {
 
 	if deps.Membership == nil {
 		t.Fatal("deps.Membership = nil, want lobby membership runtime wired")
+	}
+	if deps.MatchPreview == nil {
+		t.Fatal("deps.MatchPreview = nil, want match preview runtime wired")
 	}
 }

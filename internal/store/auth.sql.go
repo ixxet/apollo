@@ -84,7 +84,7 @@ INSERT INTO apollo.users (
   email
 )
 VALUES ($1, $2, $3)
-RETURNING id, student_id, display_name, email, preferences, created_at, email_verified_at
+RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
 `
 
 type CreateUserParams struct {
@@ -93,9 +93,20 @@ type CreateUserParams struct {
 	Email       string
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (ApolloUser, error) {
+type CreateUserRow struct {
+	ID              uuid.UUID
+	StudentID       string
+	DisplayName     string
+	Email           string
+	Preferences     []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	EmailVerifiedAt pgtype.Timestamptz
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
 	row := q.db.QueryRow(ctx, createUser, arg.StudentID, arg.DisplayName, arg.Email)
-	var i ApolloUser
+	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.StudentID,
@@ -103,6 +114,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (ApolloU
 		&i.Email,
 		&i.Preferences,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EmailVerifiedAt,
 	)
 	return i, err
@@ -162,15 +174,26 @@ func (q *Queries) GetSessionByID(ctx context.Context, id uuid.UUID) (ApolloSessi
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, student_id, display_name, email, preferences, created_at, email_verified_at
+SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE email = $1
 LIMIT 1
 `
 
-func (q *Queries) GetUserByEmail(ctx context.Context, email string) (ApolloUser, error) {
+type GetUserByEmailRow struct {
+	ID              uuid.UUID
+	StudentID       string
+	DisplayName     string
+	Email           string
+	Preferences     []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	EmailVerifiedAt pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
-	var i ApolloUser
+	var i GetUserByEmailRow
 	err := row.Scan(
 		&i.ID,
 		&i.StudentID,
@@ -178,21 +201,33 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (ApolloUser,
 		&i.Email,
 		&i.Preferences,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, student_id, display_name, email, preferences, created_at, email_verified_at
+SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (ApolloUser, error) {
+type GetUserByIDRow struct {
+	ID              uuid.UUID
+	StudentID       string
+	DisplayName     string
+	Email           string
+	Preferences     []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	EmailVerifiedAt pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
-	var i ApolloUser
+	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.StudentID,
@@ -200,21 +235,33 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (ApolloUser, er
 		&i.Email,
 		&i.Preferences,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const getUserByStudentID = `-- name: GetUserByStudentID :one
-SELECT id, student_id, display_name, email, preferences, created_at, email_verified_at
+SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE student_id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetUserByStudentID(ctx context.Context, studentID string) (ApolloUser, error) {
+type GetUserByStudentIDRow struct {
+	ID              uuid.UUID
+	StudentID       string
+	DisplayName     string
+	Email           string
+	Preferences     []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	EmailVerifiedAt pgtype.Timestamptz
+}
+
+func (q *Queries) GetUserByStudentID(ctx context.Context, studentID string) (GetUserByStudentIDRow, error) {
 	row := q.db.QueryRow(ctx, getUserByStudentID, studentID)
-	var i ApolloUser
+	var i GetUserByStudentIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.StudentID,
@@ -222,6 +269,7 @@ func (q *Queries) GetUserByStudentID(ctx context.Context, studentID string) (Apo
 		&i.Email,
 		&i.Preferences,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EmailVerifiedAt,
 	)
 	return i, err
@@ -258,19 +306,31 @@ func (q *Queries) MarkEmailVerificationTokenUsed(ctx context.Context, arg MarkEm
 
 const markUserEmailVerified = `-- name: MarkUserEmailVerified :one
 UPDATE apollo.users
-SET email_verified_at = COALESCE(email_verified_at, $2)
+SET email_verified_at = COALESCE(email_verified_at, $2),
+    updated_at = $2
 WHERE id = $1
-RETURNING id, student_id, display_name, email, preferences, created_at, email_verified_at
+RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
 `
 
 type MarkUserEmailVerifiedParams struct {
+	ID        uuid.UUID
+	UpdatedAt pgtype.Timestamptz
+}
+
+type MarkUserEmailVerifiedRow struct {
 	ID              uuid.UUID
+	StudentID       string
+	DisplayName     string
+	Email           string
+	Preferences     []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 	EmailVerifiedAt pgtype.Timestamptz
 }
 
-func (q *Queries) MarkUserEmailVerified(ctx context.Context, arg MarkUserEmailVerifiedParams) (ApolloUser, error) {
-	row := q.db.QueryRow(ctx, markUserEmailVerified, arg.ID, arg.EmailVerifiedAt)
-	var i ApolloUser
+func (q *Queries) MarkUserEmailVerified(ctx context.Context, arg MarkUserEmailVerifiedParams) (MarkUserEmailVerifiedRow, error) {
+	row := q.db.QueryRow(ctx, markUserEmailVerified, arg.ID, arg.UpdatedAt)
+	var i MarkUserEmailVerifiedRow
 	err := row.Scan(
 		&i.ID,
 		&i.StudentID,
@@ -278,6 +338,7 @@ func (q *Queries) MarkUserEmailVerified(ctx context.Context, arg MarkUserEmailVe
 		&i.Email,
 		&i.Preferences,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EmailVerifiedAt,
 	)
 	return i, err
@@ -302,9 +363,10 @@ func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) er
 
 const updateUserPreferences = `-- name: UpdateUserPreferences :one
 UPDATE apollo.users
-SET preferences = $2
+SET preferences = $2,
+    updated_at = NOW()
 WHERE id = $1
-RETURNING id, student_id, display_name, email, preferences, created_at, email_verified_at
+RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
 `
 
 type UpdateUserPreferencesParams struct {
@@ -312,9 +374,20 @@ type UpdateUserPreferencesParams struct {
 	Preferences []byte
 }
 
-func (q *Queries) UpdateUserPreferences(ctx context.Context, arg UpdateUserPreferencesParams) (ApolloUser, error) {
+type UpdateUserPreferencesRow struct {
+	ID              uuid.UUID
+	StudentID       string
+	DisplayName     string
+	Email           string
+	Preferences     []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	EmailVerifiedAt pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateUserPreferences(ctx context.Context, arg UpdateUserPreferencesParams) (UpdateUserPreferencesRow, error) {
 	row := q.db.QueryRow(ctx, updateUserPreferences, arg.ID, arg.Preferences)
-	var i ApolloUser
+	var i UpdateUserPreferencesRow
 	err := row.Scan(
 		&i.ID,
 		&i.StudentID,
@@ -322,6 +395,7 @@ func (q *Queries) UpdateUserPreferences(ctx context.Context, arg UpdateUserPrefe
 		&i.Email,
 		&i.Preferences,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.EmailVerifiedAt,
 	)
 	return i, err

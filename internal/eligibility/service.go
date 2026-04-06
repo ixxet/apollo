@@ -49,7 +49,10 @@ func (s *Service) GetLobbyEligibility(ctx context.Context, userID uuid.UUID) (Lo
 		return LobbyEligibility{}, ErrNotFound
 	}
 
-	modes := profile.ReadPreferenceModes(user.Preferences)
+	return FromPreferenceModes(profile.ReadPreferenceModes(user.Preferences)), nil
+}
+
+func FromPreferenceModes(modes profile.PreferenceModes) LobbyEligibility {
 	eligibility := LobbyEligibility{
 		Eligible:         false,
 		VisibilityMode:   modes.VisibilityMode,
@@ -72,5 +75,5 @@ func (s *Service) GetLobbyEligibility(ctx context.Context, userID uuid.UUID) (Lo
 		eligibility.Reason = ReasonEligible
 	}
 
-	return eligibility, nil
+	return eligibility
 }

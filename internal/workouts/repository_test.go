@@ -357,7 +357,7 @@ func createWorkoutUser(t *testing.T, ctx context.Context, queries *store.Queries
 		t.Fatalf("CreateUser() error = %v", err)
 	}
 
-	return user
+	return store.ApolloUserFromCreateUserRow(user)
 }
 
 func mustNumeric(t *testing.T, value float64) pgtype.Numeric {

@@ -23,7 +23,7 @@ INSERT INTO apollo.users (
   email
 )
 VALUES ($1, $2, $3)
-RETURNING id, student_id, display_name, email, preferences, created_at, email_verified_at;
+RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at;
 
 -- name: DeletePendingEmailVerificationTokensByUserID :exec
 DELETE FROM apollo.email_verification_tokens
@@ -43,19 +43,19 @@ WHERE id = $1
 LIMIT 1;
 
 -- name: GetUserByEmail :one
-SELECT id, student_id, display_name, email, preferences, created_at, email_verified_at
+SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE email = $1
 LIMIT 1;
 
 -- name: GetUserByID :one
-SELECT id, student_id, display_name, email, preferences, created_at, email_verified_at
+SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE id = $1
 LIMIT 1;
 
 -- name: GetUserByStudentID :one
-SELECT id, student_id, display_name, email, preferences, created_at, email_verified_at
+SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE student_id = $1
 LIMIT 1;
@@ -70,9 +70,10 @@ RETURNING id, user_id, email, token_hash, expires_at, used_at, created_at;
 
 -- name: MarkUserEmailVerified :one
 UPDATE apollo.users
-SET email_verified_at = COALESCE(email_verified_at, $2)
+SET email_verified_at = COALESCE(email_verified_at, $2),
+    updated_at = $2
 WHERE id = $1
-RETURNING id, student_id, display_name, email, preferences, created_at, email_verified_at;
+RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at;
 
 -- name: RevokeSession :exec
 UPDATE apollo.sessions
@@ -82,6 +83,7 @@ WHERE id = $1
 
 -- name: UpdateUserPreferences :one
 UPDATE apollo.users
-SET preferences = $2
+SET preferences = $2,
+    updated_at = NOW()
 WHERE id = $1
-RETURNING id, student_id, display_name, email, preferences, created_at, email_verified_at;
+RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at;

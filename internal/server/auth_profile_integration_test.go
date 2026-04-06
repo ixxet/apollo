@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/membership"
@@ -289,12 +290,13 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	profileService := profile.NewService(profileRepository)
 	eligibilityService := eligibility.NewService(profileRepository)
 	membershipService := membership.NewService(membership.NewRepository(db.DB), eligibilityService)
+	matchPreviewService := ares.NewService(ares.NewRepository(db.DB))
 	recommendationService := recommendations.NewService(recommendations.NewRepository(db.DB))
 	workoutService := workouts.NewService(workouts.NewRepository(db.DB))
 
 	return &authProfileServerEnv{
 		db:      db,
-		handler: NewHandler(Dependencies{Auth: authService, Profile: profileService, Eligibility: eligibilityService, Membership: membershipService, Recommendations: recommendationService, Workouts: workoutService}),
+		handler: NewHandler(Dependencies{Auth: authService, Profile: profileService, Eligibility: eligibilityService, Membership: membershipService, MatchPreview: matchPreviewService, Recommendations: recommendationService, Workouts: workoutService}),
 		sender:  sender,
 		cookies: cookies,
 		queries: store.New(db.DB),
@@ -378,7 +380,7 @@ func createVerifiedSessionViaHTTP(t *testing.T, env *authProfileServerEnv, stude
 		t.Fatalf("GetUserByStudentID() error = %v", err)
 	}
 
-	return sessionCookieFromResponse(t, verifyResponse), user
+	return sessionCookieFromResponse(t, verifyResponse), store.ApolloUserFromGetUserByStudentIDRow(user)
 }
 
 func createVerifiedUser(t *testing.T, env *authProfileServerEnv, studentID string, email string) store.ApolloUser {
@@ -399,7 +401,7 @@ func createVerifiedUser(t *testing.T, env *authProfileServerEnv, studentID strin
 	if err != nil {
 		t.Fatalf("GetUserByID() error = %v", err)
 	}
-	return verifiedUser
+	return store.ApolloUserFromGetUserByIDRow(verifiedUser)
 }
 
 func countRows(t *testing.T, env *authProfileServerEnv, table string, userID uuid.UUID) int {

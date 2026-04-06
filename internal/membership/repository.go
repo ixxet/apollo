@@ -30,7 +30,8 @@ func (r *Repository) GetUserByID(ctx context.Context, userID uuid.UUID) (*store.
 		return nil, err
 	}
 
-	return &user, nil
+	converted := store.ApolloUserFromGetUserByIDRow(user)
+	return &converted, nil
 }
 
 func (r *Repository) GetLobbyMembershipByUserID(ctx context.Context, userID uuid.UUID) (*store.ApolloLobbyMembership, error) {

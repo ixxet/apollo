@@ -105,6 +105,7 @@ type ApolloUser struct {
 	Preferences     []byte
 	CreatedAt       pgtype.Timestamptz
 	EmailVerifiedAt pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
 }
 
 type ApolloVisit struct {

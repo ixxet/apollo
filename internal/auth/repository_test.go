@@ -314,7 +314,7 @@ func createUser(t *testing.T, ctx context.Context, queries *store.Queries, stude
 		t.Fatalf("CreateUser() error = %v", err)
 	}
 
-	return user
+	return store.ApolloUserFromCreateUserRow(user)
 }
 
 func insertToken(t *testing.T, ctx context.Context, db store.DBTX, userID uuid.UUID, email string, tokenHash string, expiresAt time.Time, usedAt *time.Time) {

@@ -44,11 +44,11 @@ func (r *Repository) StartVerification(ctx context.Context, studentID string, em
 	}()
 
 	queries := store.New(tx)
-	studentUser, err := optionalUser(ctx, queries.GetUserByStudentID, studentID)
+	studentUser, err := optionalUserByStudentID(ctx, queries, studentID)
 	if err != nil {
 		return nil, nil, err
 	}
-	emailUser, err := optionalUser(ctx, queries.GetUserByEmail, email)
+	emailUser, err := optionalUserByEmail(ctx, queries, email)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -66,7 +66,8 @@ func (r *Repository) StartVerification(ctx context.Context, studentID string, em
 		if createErr != nil {
 			return nil, nil, createErr
 		}
-		user = &createdUser
+		converted := store.ApolloUserFromCreateUserRow(createdUser)
+		user = &converted
 	}
 
 	if err := queries.DeletePendingEmailVerificationTokensByUserID(ctx, user.ID); err != nil {
@@ -134,8 +135,8 @@ func (r *Repository) VerifyTokenAndCreateSession(ctx context.Context, tokenHash 
 	}
 
 	verifiedUser, err := queries.MarkUserEmailVerified(ctx, store.MarkUserEmailVerifiedParams{
-		ID:              token.UserID,
-		EmailVerifiedAt: timestamptz(now),
+		ID:        token.UserID,
+		UpdatedAt: timestamptz(now),
 	})
 	if err != nil {
 		return nil, nil, err
@@ -153,7 +154,8 @@ func (r *Repository) VerifyTokenAndCreateSession(ctx context.Context, tokenHash 
 		return nil, nil, err
 	}
 
-	return &verifiedUser, &session, nil
+	convertedUser := store.ApolloUserFromMarkUserEmailVerifiedRow(verifiedUser)
+	return &convertedUser, &session, nil
 }
 
 func (r *Repository) LookupSession(ctx context.Context, sessionID uuid.UUID, now time.Time) (*store.ApolloSession, error) {
@@ -198,15 +200,28 @@ func resolveRegistrationUser(studentID string, email string, studentUser *store.
 	}
 }
 
-func optionalUser(ctx context.Context, lookup func(context.Context, string) (store.ApolloUser, error), value string) (*store.ApolloUser, error) {
-	user, err := lookup(ctx, value)
+func optionalUserByEmail(ctx context.Context, queries *store.Queries, email string) (*store.ApolloUser, error) {
+	user, err := queries.GetUserByEmail(ctx, email)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &user, nil
+	converted := store.ApolloUserFromGetUserByEmailRow(user)
+	return &converted, nil
+}
+
+func optionalUserByStudentID(ctx context.Context, queries *store.Queries, studentID string) (*store.ApolloUser, error) {
+	user, err := queries.GetUserByStudentID(ctx, studentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	converted := store.ApolloUserFromGetUserByStudentIDRow(user)
+	return &converted, nil
 }
 
 func optionalVerificationToken(ctx context.Context, lookup func(context.Context, string) (store.ApolloEmailVerificationToken, error), tokenHash string) (*store.ApolloEmailVerificationToken, error) {
@@ -228,7 +243,8 @@ func optionalUserByID(ctx context.Context, queries *store.Queries, userID uuid.U
 	if err != nil {
 		return nil, err
 	}
-	return &user, nil
+	converted := store.ApolloUserFromGetUserByIDRow(user)
+	return &converted, nil
 }
 
 func timestamptz(value time.Time) pgtype.Timestamptz {

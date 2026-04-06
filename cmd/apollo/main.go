@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	dbmigrations "github.com/ixxet/apollo/db/migrations"
+	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/config"
 	"github.com/ixxet/apollo/internal/consumer"
@@ -177,6 +178,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 	profileService := profile.NewService(profileRepository)
 	eligibilityService := eligibility.NewService(profileRepository)
 	membershipService := membership.NewService(membership.NewRepository(pool), eligibilityService)
+	matchPreviewService := ares.NewService(ares.NewRepository(pool))
 	recommendationService := recommendations.NewService(recommendations.NewRepository(pool))
 	workoutService := workouts.NewService(workouts.NewRepository(pool))
 
@@ -186,6 +188,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 		Profile:         profileService,
 		Eligibility:     eligibilityService,
 		Membership:      membershipService,
+		MatchPreview:    matchPreviewService,
 		Recommendations: recommendationService,
 		Workouts:        workoutService,
 	}

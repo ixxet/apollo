@@ -1,0 +1,2 @@
+ALTER TABLE apollo.users
+    ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();

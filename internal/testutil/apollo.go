@@ -30,5 +30,6 @@ func ApplyApolloSchema(ctx context.Context, db *pgxpool.Pool) error {
 		RepoFilePath("db", "migrations", "004_visit_departure_tracking.up.sql"),
 		RepoFilePath("db", "migrations", "005_workout_runtime.up.sql"),
 		RepoFilePath("db", "migrations", "006_lobby_membership_runtime.up.sql"),
+		RepoFilePath("db", "migrations", "007_match_preview_runtime.up.sql"),
 	)
 }

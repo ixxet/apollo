@@ -110,7 +110,7 @@ func (q *Queries) CreateVisit(ctx context.Context, arg CreateVisitParams) (Creat
 }
 
 const getActiveUserByTagHash = `-- name: GetActiveUserByTagHash :one
-SELECT u.id, u.student_id, u.display_name, u.email, u.preferences, u.created_at, u.email_verified_at
+SELECT u.id, u.student_id, u.display_name, u.email, u.preferences, u.created_at, u.email_verified_at, u.updated_at
 FROM apollo.claimed_tags AS ct
 JOIN apollo.users AS u ON u.id = ct.user_id
 WHERE ct.tag_hash = $1
@@ -129,6 +129,7 @@ func (q *Queries) GetActiveUserByTagHash(ctx context.Context, tagHash string) (A
 		&i.Preferences,
 		&i.CreatedAt,
 		&i.EmailVerifiedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

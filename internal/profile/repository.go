@@ -29,7 +29,8 @@ func (r *Repository) GetUserByID(ctx context.Context, userID uuid.UUID) (*store.
 		return nil, err
 	}
 
-	return &user, nil
+	converted := store.ApolloUserFromGetUserByIDRow(user)
+	return &converted, nil
 }
 
 func (r *Repository) UpdatePreferences(ctx context.Context, userID uuid.UUID, preferences []byte) (*store.ApolloUser, error) {
@@ -41,5 +42,6 @@ func (r *Repository) UpdatePreferences(ctx context.Context, userID uuid.UUID, pr
 		return nil, err
 	}
 
-	return &user, nil
+	converted := store.ApolloUserFromUpdateUserPreferencesRow(user)
+	return &converted, nil
 }

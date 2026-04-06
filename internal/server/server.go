@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/membership"
@@ -46,6 +47,10 @@ type MembershipManager interface {
 	LeaveLobbyMembership(ctx context.Context, userID uuid.UUID) (membership.LobbyMembership, error)
 }
 
+type MatchPreviewReader interface {
+	GetLobbyMatchPreview(ctx context.Context) (ares.MatchPreview, error)
+}
+
 type RecommendationReader interface {
 	GetWorkoutRecommendation(ctx context.Context, userID uuid.UUID) (recommendations.WorkoutRecommendation, error)
 }
@@ -64,6 +69,7 @@ type Dependencies struct {
 	Profile         Profiler
 	Eligibility     EligibilityReader
 	Membership      MembershipManager
+	MatchPreview    MatchPreviewReader
 	Recommendations RecommendationReader
 	Workouts        WorkoutManager
 }
@@ -221,6 +227,15 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, lobbyMembership)
+		})
+		authenticated.Get("/api/v1/lobby/match-preview", func(w http.ResponseWriter, r *http.Request) {
+			matchPreview, err := deps.MatchPreview.GetLobbyMatchPreview(r.Context())
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, matchPreview)
 		})
 		authenticated.Post("/api/v1/lobby/membership/join", func(w http.ResponseWriter, r *http.Request) {
 			principal := principalFromContext(r.Context())
