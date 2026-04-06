@@ -15,6 +15,7 @@ const recommendationReasonCopy = {
 const shellLoadFailureMessages = {
   profile: "Unable to load profile. Check your connection and refresh.",
   membership: "Unable to load lobby membership. Check your connection and refresh.",
+  matchPreview: "Unable to load match preview. Check your connection and refresh.",
   recommendation: "Unable to load recommendation. Check your connection and refresh.",
   workouts: "Unable to load workouts. Check your connection and refresh.",
 };
@@ -214,6 +215,8 @@ async function initShellView() {
   const membershipStatus = document.querySelector("#membership-status");
   const joinLobbyButton = document.querySelector("#join-lobby");
   const leaveLobbyButton = document.querySelector("#leave-lobby");
+  const matchPreviewCard = document.querySelector("#match-preview-card");
+  const matchPreviewStatus = document.querySelector("#match-preview-status");
   const recommendationCard = document.querySelector("#recommendation-card");
   const recommendationStatus = document.querySelector("#recommendation-status");
   const workoutsList = document.querySelector("#workout-list");
@@ -303,12 +306,14 @@ async function initShellView() {
   async function refreshShell(preferredWorkoutID = state.selectedWorkoutID) {
     clearWorkoutError();
     setStatus(membershipStatus, "Loading membership…");
+    setStatus(matchPreviewStatus, "Loading match preview…");
     setStatus(profileStatus, "Loading profile…");
     setStatus(recommendationStatus, "Loading recommendation…");
     setStatus(workoutsStatus, "Loading workouts…");
 
-    const [membershipResponse, profileResponse, workoutsResponse, recommendationResponse] = await Promise.all([
+    const [membershipResponse, matchPreviewResponse, profileResponse, workoutsResponse, recommendationResponse] = await Promise.all([
       requestJSON("/api/v1/lobby/membership"),
+      requestJSON("/api/v1/lobby/match-preview"),
       requestJSON("/api/v1/profile"),
       requestJSON("/api/v1/workouts"),
       requestJSON("/api/v1/recommendations/workout"),
@@ -316,6 +321,7 @@ async function initShellView() {
 
     if (
       membershipResponse.status === 401 ||
+      matchPreviewResponse.status === 401 ||
       profileResponse.status === 401 ||
       workoutsResponse.status === 401 ||
       recommendationResponse.status === 401
@@ -329,6 +335,13 @@ async function initShellView() {
       setStatus(membershipStatus, "Membership loaded.", "success");
     } else {
       renderMembershipFailure(extractErrorMessage(membershipResponse.payload, "Failed to load lobby membership."));
+    }
+
+    if (matchPreviewResponse.ok) {
+      renderMatchPreview(matchPreviewResponse.payload);
+      setStatus(matchPreviewStatus, "Match preview loaded.", "success");
+    } else {
+      renderMatchPreviewFailure(extractErrorMessage(matchPreviewResponse.payload, "Failed to load match preview."));
     }
 
     if (profileResponse.ok) {
@@ -373,11 +386,13 @@ async function initShellView() {
 
     profileSummary.innerHTML = "";
     renderMembershipFailure(shellLoadFailureMessages.membership);
+    renderMatchPreviewFailure(shellLoadFailureMessages.matchPreview);
     recommendationCard.innerHTML = `<p class="empty-state">${escapeHTML(shellLoadFailureMessages.recommendation)}</p>`;
     workoutsList.innerHTML = `<li class="empty-state">${escapeHTML(shellLoadFailureMessages.workouts)}</li>`;
     renderEmptyWorkoutDetail();
 
     setStatus(profileStatus, shellLoadFailureMessages.profile, "error");
+    setStatus(matchPreviewStatus, shellLoadFailureMessages.matchPreview, "error");
     setStatus(recommendationStatus, shellLoadFailureMessages.recommendation, "error");
     setStatus(workoutsStatus, shellLoadFailureMessages.workouts, "error");
   }
@@ -474,6 +489,76 @@ async function initShellView() {
     leaveLobbyButton.hidden = true;
     toggleMembershipActions(false);
     setStatus(membershipStatus, message, "error");
+  }
+
+  function renderMatchPreview(preview) {
+    const matches = Array.isArray(preview?.matches) ? preview.matches : [];
+    const unmatchedMemberIDs = Array.isArray(preview?.unmatched_member_ids) ? preview.unmatched_member_ids : [];
+    const unmatchedLabels = Array.isArray(preview?.unmatched_labels) ? preview.unmatched_labels : [];
+    const summary = `
+      <section class="match-preview-summary">
+        <p class="headline">Read-only preview</p>
+        <p>This preview uses explicit joined membership only and excludes members who no longer satisfy open-lobby eligibility.</p>
+        <div class="meta">
+          <span class="pill">${escapeHTML(String(preview?.preview_version ?? "unknown"))}</span>
+          <span class="pill">${escapeHTML(String(preview?.candidate_count ?? 0))} candidates</span>
+          ${
+            preview?.generated_at
+              ? `<span class="pill">Generated ${escapeHTML(formatTimestamp(preview.generated_at))}</span>`
+              : '<span class="pill">No candidates yet</span>'
+          }
+        </div>
+      </section>
+    `;
+
+    if (matches.length === 0 && unmatchedMemberIDs.length === 0) {
+      matchPreviewCard.innerHTML = `${summary}<p class="empty-state">No eligible joined members are available for a deterministic preview yet.</p>`;
+      return;
+    }
+
+    const matchMarkup = matches.length === 0
+      ? ""
+      : `<ol class="match-preview-list">${matches.map((match, index) => {
+          const memberIDs = Array.isArray(match?.member_ids) ? match.member_ids : [];
+          const memberLabels = Array.isArray(match?.member_labels) && match.member_labels.length === memberIDs.length
+            ? match.member_labels
+            : memberIDs.map(shortMemberID);
+          const reasons = Array.isArray(match?.reasons) ? match.reasons : [];
+          return `
+            <li class="match-preview-entry">
+              <div>
+                <p class="headline">Match ${index + 1}</p>
+                <p>${escapeHTML(memberLabels.join(" · "))}</p>
+              </div>
+              <div class="meta">
+                <span class="pill">Score ${escapeHTML(String(match?.score ?? 0))}</span>
+                ${memberIDs.map((memberID) => `<span class="pill">${escapeHTML(shortMemberID(memberID))}</span>`).join("")}
+              </div>
+              <ul class="reason-list">${reasons.map((reason) => `<li>${escapeHTML(formatReason(reason))}</li>`).join("")}</ul>
+            </li>
+          `;
+        }).join("")}</ol>`;
+
+    const unmatchedMarkup = unmatchedMemberIDs.length === 0
+      ? ""
+      : `
+        <section class="match-preview-entry">
+          <div>
+            <p class="headline">Unmatched</p>
+            <p>${escapeHTML((unmatchedLabels.length === unmatchedMemberIDs.length ? unmatchedLabels : unmatchedMemberIDs.map(shortMemberID)).join(" · "))}</p>
+          </div>
+          <div class="meta">
+            ${unmatchedMemberIDs.map((memberID) => `<span class="pill">${escapeHTML(shortMemberID(memberID))}</span>`).join("")}
+          </div>
+        </section>
+      `;
+
+    matchPreviewCard.innerHTML = `${summary}${matchMarkup}${unmatchedMarkup}`;
+  }
+
+  function renderMatchPreviewFailure(message) {
+    matchPreviewCard.innerHTML = `<p class="empty-state">${escapeHTML(message)}</p>`;
+    setStatus(matchPreviewStatus, message, "error");
   }
 
   function renderRecommendation(recommendation) {
@@ -633,6 +718,16 @@ function blankExercise() {
     rpe: "",
     notes: "",
   };
+}
+
+function shortMemberID(value) {
+  return String(value ?? "").slice(0, 8);
+}
+
+function formatReason(reason) {
+  const code = typeof reason?.code === "string" ? reason.code : "unknown_reason";
+  const value = typeof reason?.value === "string" && reason.value.length > 0 ? `: ${reason.value}` : "";
+  return `${code}${value}`;
 }
 
 function escapeHTML(value) {

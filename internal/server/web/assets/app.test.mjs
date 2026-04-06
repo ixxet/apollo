@@ -110,7 +110,7 @@ test("shell refresh maps total fetch rejection into explicit error UI without le
   await assertShellFailureState({
     fetchImpl: async (path) => {
       requestCount += 1;
-      if (requestCount <= 4) {
+      if (requestCount <= 5) {
         return successResponseForPath(path);
       }
       throw new Error("network down");
@@ -126,7 +126,9 @@ test("shell bootstrap renders explicit lobby membership state", async () => {
     await loadShellModule();
 
     assert.equal(elements["#membership-status"].textContent, "Membership loaded.");
+    assert.equal(elements["#match-preview-status"].textContent, "Match preview loaded.");
     assert.match(elements["#membership-card"].innerHTML, /Not joined/);
+    assert.match(elements["#match-preview-card"].innerHTML, /No eligible joined members are available/);
     assert.equal(elements["#join-lobby"].hidden, false);
     assert.equal(elements["#leave-lobby"].hidden, true);
   } finally {
@@ -201,6 +203,83 @@ test("shell leave success updates membership state and actions", async () => {
     assert.match(elements["#membership-card"].innerHTML, /Not joined/);
     assert.equal(elements["#join-lobby"].hidden, false);
     assert.equal(elements["#leave-lobby"].hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("shell renders deterministic match preview groups and unmatched members", async () => {
+  const { cleanup, elements, loadShellModule } = installShellHarness(async (path) => {
+    if (path === "/api/v1/lobby/match-preview") {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            generated_at: "2026-04-06T12:00:00Z",
+            candidate_count: 3,
+            preview_version: "v1",
+            matches: [
+              {
+                member_ids: [
+                  "11111111-1111-1111-1111-111111111111",
+                  "22222222-2222-2222-2222-222222222222",
+                ],
+                member_labels: ["11111111", "22222222"],
+                score: 2,
+                reasons: [
+                  { code: "explicit_joined_membership" },
+                  { code: "compatible_visibility_mode", value: "discoverable" },
+                  { code: "compatible_availability_mode", value: "available_now" },
+                  { code: "stable_pair_order", value: "user_id_asc" },
+                ],
+              },
+            ],
+            unmatched_member_ids: ["33333333-3333-3333-3333-333333333333"],
+            unmatched_labels: ["33333333"],
+          };
+        },
+      };
+    }
+
+    return successResponseForPath(path);
+  });
+
+  try {
+    await loadShellModule();
+
+    assert.equal(elements["#match-preview-status"].textContent, "Match preview loaded.");
+    assert.match(elements["#match-preview-card"].innerHTML, /Match 1/);
+    assert.match(elements["#match-preview-card"].innerHTML, /11111111 · 22222222/);
+    assert.match(elements["#match-preview-card"].innerHTML, /explicit_joined_membership/);
+    assert.match(elements["#match-preview-card"].innerHTML, /Unmatched/);
+    assert.equal(elements["#match-preview-card"].innerHTML.includes("<button"), false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("shell match preview failure renders explicit error state", async () => {
+  const { cleanup, elements, loadShellModule } = installShellHarness(async (path) => {
+    if (path === "/api/v1/lobby/match-preview") {
+      return {
+        ok: false,
+        status: 500,
+        async json() {
+          return { error: "preview failed" };
+        },
+      };
+    }
+
+    return successResponseForPath(path);
+  });
+
+  try {
+    await loadShellModule();
+
+    assert.equal(elements["#match-preview-status"].textContent, "preview failed");
+    assert.equal(elements["#match-preview-status"].classNames.has("error-message"), true);
+    assert.match(elements["#match-preview-card"].innerHTML, /preview failed/);
   } finally {
     cleanup();
   }
@@ -283,18 +362,22 @@ async function assertShellFailureState({ fetchImpl, exerciseRefresh }) {
     assert.equal(unhandled, null);
     assert.equal(elements["#profile-status"].textContent, "Unable to load profile. Check your connection and refresh.");
     assert.equal(elements["#membership-status"].textContent, "Unable to load lobby membership. Check your connection and refresh.");
+    assert.equal(elements["#match-preview-status"].textContent, "Unable to load match preview. Check your connection and refresh.");
     assert.equal(elements["#recommendation-status"].textContent, "Unable to load recommendation. Check your connection and refresh.");
     assert.equal(elements["#workouts-status"].textContent, "Unable to load workouts. Check your connection and refresh.");
     assert.equal(elements["#profile-status"].classNames.has("error-message"), true);
     assert.equal(elements["#membership-status"].classNames.has("error-message"), true);
+    assert.equal(elements["#match-preview-status"].classNames.has("error-message"), true);
     assert.equal(elements["#recommendation-status"].classNames.has("error-message"), true);
     assert.equal(elements["#workouts-status"].classNames.has("error-message"), true);
     assert.match(elements["#membership-card"].innerHTML, /Unable to load lobby membership/);
+    assert.match(elements["#match-preview-card"].innerHTML, /Unable to load match preview/);
     assert.match(elements["#recommendation-card"].innerHTML, /Unable to load recommendation/);
     assert.match(elements["#workout-list"].innerHTML, /Unable to load workouts/);
     assert.equal(elements["#profile-summary"].innerHTML, "");
     assert.notEqual(elements["#profile-status"].textContent, "Loading profile…");
     assert.notEqual(elements["#membership-status"].textContent, "Loading membership…");
+    assert.notEqual(elements["#match-preview-status"].textContent, "Loading match preview…");
     assert.notEqual(elements["#recommendation-status"].textContent, "Loading recommendation…");
     assert.notEqual(elements["#workouts-status"].textContent, "Loading workouts…");
   } finally {
@@ -315,6 +398,8 @@ function installShellHarness(fetchImpl) {
     "#membership-status": new FakeElement(),
     "#join-lobby": new FakeElement(),
     "#leave-lobby": new FakeElement(),
+    "#match-preview-card": new FakeElement(),
+    "#match-preview-status": new FakeElement(),
     "#recommendation-card": new FakeElement(),
     "#recommendation-status": new FakeElement(),
     "#workout-list": new FakeElement(),
@@ -395,6 +480,23 @@ function successResponseForPath(path, options = {}) {
           email_verified: true,
           visibility_mode: "ghost",
           availability_mode: "unavailable",
+        };
+      },
+    };
+  }
+
+  if (path === "/api/v1/lobby/match-preview") {
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          generated_at: null,
+          candidate_count: 0,
+          preview_version: "v1",
+          matches: [],
+          unmatched_member_ids: [],
+          unmatched_labels: [],
         };
       },
     };
