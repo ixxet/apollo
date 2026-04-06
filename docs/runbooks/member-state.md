@@ -55,6 +55,17 @@ membership, visits, workouts, and later matchmaking intent.
 - recommendation display remains read-only in the member web shell
 - the member web shell may show membership state and explicit `Join` / `Leave`
   actions, but it must not infer membership from eligibility or visits
+- match preview reads must use explicit joined lobby membership as the only
+  candidate source
+- ineligible joined members may be excluded from preview candidacy, but
+  eligibility alone must not create candidates
+- match preview reads must stay deterministic under unchanged membership and
+  profile inputs
+- match preview reads must not mutate membership, visits, workouts,
+  recommendations, claimed tags, or ARES tables
+- match preview reads must not depend on visit changes or physical presence
+- the member web shell may show one read-only match preview panel, but it must
+  not add assignment, invite, or notification actions
 
 ## Required Checks
 
@@ -92,6 +103,17 @@ membership, visits, workouts, and later matchmaking intent.
   rejection
 - shell membership actions must map server and network failures into explicit
   status text without inventing joined state
+- match preview reads require a valid session and return empty, even, odd, and
+  tie cases deterministically
+- match preview reads only use explicit joined members as candidates
+- ineligible joined members are excluded from preview candidacy explicitly
+- repeated match preview reads stay stable when profile and membership state do
+  not change
+- match preview reads do not mutate visits, workouts, recommendations, claimed
+  tags, membership rows, or ARES tables
+- visit changes do not alter match preview output in the current tracer
+- the shell match preview panel remains read-only and has no hidden mutation
+  buttons
 - visit creation never creates or starts a workout implicitly
 - visit closing never creates a workout implicitly
 - visit closing never finishes an `in_progress` workout
@@ -106,7 +128,8 @@ membership, visits, workouts, and later matchmaking intent.
 - `APOLLO_LOG_VERIFICATION_TOKENS=true` is the intended local dev path for
   observing verification tokens without adding a public inspection API
 - the current verified local smoke path on this machine uses a curl cookie jar
-  against `127.0.0.1` successfully even with `Secure` cookies enabled
+  against `127.0.0.1` with `APOLLO_SESSION_COOKIE_SECURE=false`; do not assume
+  plain HTTP curl will replay a `Secure` cookie
 
 ### Verified Workout Runtime Smoke
 
@@ -258,6 +281,66 @@ Expected smoke outcomes:
 - join returns `status="joined"` with `joined_at`
 - leave returns `status="not_joined"` with the original `joined_at` and a new
   `left_at`
+
+### Verified Match Preview Runtime Smoke
+
+```bash
+docker run -d --rm --name tracer13-apollo-smoke \
+  -e POSTGRES_USER=apollo \
+  -e POSTGRES_PASSWORD=apollo \
+  -e POSTGRES_DB=apollo \
+  -p 55444:5432 \
+  postgres:16-alpine
+
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+APOLLO_DATABASE_URL='postgres://apollo:apollo@127.0.0.1:55444/apollo?sslmode=disable' \
+  go run ./cmd/apollo migrate up
+
+APOLLO_DATABASE_URL='postgres://apollo:apollo@127.0.0.1:55444/apollo?sslmode=disable' \
+APOLLO_HTTP_ADDR='127.0.0.1:18098' \
+APOLLO_SESSION_COOKIE_SECRET='0123456789abcdef0123456789abcdef' \
+APOLLO_SESSION_COOKIE_SECURE='false' \
+APOLLO_LOG_VERIFICATION_TOKENS='true' \
+  go run ./cmd/apollo serve
+
+curl -sS -X POST http://127.0.0.1:18098/api/v1/auth/verification/start \
+  -H 'Content-Type: application/json' \
+  --data '{"student_id":"student-smoke-001","email":"smoke-001@example.com"}'
+
+curl -sS -c /tmp/tracer13-member-001.cookies \
+  'http://127.0.0.1:18098/api/v1/auth/verify?token=<token from server log>'
+
+curl -sS -b /tmp/tracer13-member-001.cookies \
+  -H 'Content-Type: application/json' \
+  -X PATCH http://127.0.0.1:18098/api/v1/profile \
+  --data '{"visibility_mode":"discoverable","availability_mode":"available_now"}'
+
+curl -sS -b /tmp/tracer13-member-001.cookies \
+  -X POST http://127.0.0.1:18098/api/v1/lobby/membership/join
+
+# Repeat the same verify -> patch -> join flow for two more members, then:
+curl -sS -b /tmp/tracer13-member-001.cookies \
+  http://127.0.0.1:18098/api/v1/lobby/match-preview | jq -S .
+
+curl -sS -b /tmp/tracer13-member-001.cookies \
+  http://127.0.0.1:18098/api/v1/lobby/match-preview | jq -S .
+
+docker exec -i tracer13-apollo-smoke psql -U apollo -d apollo -c \
+  "SELECT user_id, status, joined_at, left_at, updated_at FROM apollo.lobby_memberships ORDER BY user_id; \
+   SELECT count(*) AS visits FROM apollo.visits; \
+   SELECT count(*) AS workouts FROM apollo.workouts;"
+```
+
+Expected smoke outcomes:
+- the preview returns `candidate_count=3`, one deterministic pair, and one
+  unmatched member for the three-member smoke set
+- repeated `GET /api/v1/lobby/match-preview` reads return byte-stable output
+  while membership and profile inputs are unchanged
+- preview reasons stay structured and explicit:
+  `explicit_joined_membership`, `compatible_visibility_mode`,
+  `compatible_availability_mode`, and `stable_pair_order`
+- the membership snapshot is unchanged before and after repeated preview reads
+- `apollo.visits` and `apollo.workouts` remain unchanged at `0`
 - repeated leave returns `409 Conflict`
 - the shell HTML includes the explicit membership panel
 - `apollo.visits`, `apollo.workouts`, and `apollo.claimed_tags` remain `0` for

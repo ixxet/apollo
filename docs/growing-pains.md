@@ -167,3 +167,17 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: when APOLLO gains a new runtime dependency, prove both the handler
   harness and the real command wiring; custom integration envs are not enough
   by themselves.
+
+## 2026-04-06
+
+- Symptom: the first Tracer 13 pass added `users.updated_at` so match preview
+  inputs could produce a stable `generated_at`, but older visit-repository
+  tests started failing with `column u.updated_at does not exist`.
+  Cause: most APOLLO integration tests used the shared full-schema helper, but
+  `internal/visits/repository_test.go` still booted a hand-picked migration
+  subset that stopped before the new user column.
+  Fix: keep the deterministic preview watermark on persisted input state, then
+  extend the custom visit test schema bootstrapping to include the current
+  migration stack so generated queries and temporary databases stay aligned.
+  Rule: if a repo keeps any hand-curated integration schema list, it must be
+  updated every time the generated SQL surface depends on a new migration.
