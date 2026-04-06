@@ -235,6 +235,13 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
+			slog.Info(
+				"lobby match preview read",
+				"candidate_count", matchPreview.CandidateCount,
+				"match_count", len(matchPreview.Matches),
+				"unmatched_count", len(matchPreview.UnmatchedMemberIDs),
+				"preview_version", matchPreview.PreviewVersion,
+			)
 			writeJSON(w, http.StatusOK, matchPreview)
 		})
 		authenticated.Post("/api/v1/lobby/membership/join", func(w http.ResponseWriter, r *http.Request) {

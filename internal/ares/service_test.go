@@ -122,6 +122,25 @@ func TestBuildPreviewExcludesIneligibleJoinedMembersPerPolicy(t *testing.T) {
 	}
 }
 
+func TestBuildPreviewIgnoresIneligibleJoinedMembersWhenComputingGeneratedAt(t *testing.T) {
+	rows := []JoinedLobbyCandidate{
+		joinedCandidate(uuid.MustParse("11111111-1111-1111-1111-111111111111"), time.Date(2026, 4, 6, 11, 0, 0, 0, time.UTC)),
+		joinedCandidate(uuid.MustParse("33333333-3333-3333-3333-333333333333"), time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)),
+		joinedCandidateWithPreferences(
+			uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+			time.Date(2026, 4, 6, 14, 0, 0, 0, time.UTC),
+			`{"visibility_mode":"ghost","availability_mode":"available_now"}`,
+		),
+	}
+
+	preview := buildPreview(rows)
+
+	if preview.GeneratedAt == nil || !preview.GeneratedAt.Equal(time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("preview.GeneratedAt = %#v, want latest eligible candidate timestamp", preview.GeneratedAt)
+	}
+	assertMatchMembers(t, preview.Matches[0], "11111111-1111-1111-1111-111111111111", "33333333-3333-3333-3333-333333333333")
+}
+
 func TestBuildPreviewResolvesTieSituationsDeterministicallyByUserID(t *testing.T) {
 	rows := []JoinedLobbyCandidate{
 		joinedCandidate(uuid.MustParse("99999999-9999-9999-9999-999999999999"), time.Date(2026, 4, 6, 11, 0, 0, 0, time.UTC)),

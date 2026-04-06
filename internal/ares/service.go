@@ -64,7 +64,6 @@ func (s *Service) GetLobbyMatchPreview(ctx context.Context) (MatchPreview, error
 }
 
 func buildPreview(rows []JoinedLobbyCandidate) MatchPreview {
-	generatedAt := latestInputTime(rows)
 	candidates := selectEligibleCandidates(rows)
 	slices.SortFunc(candidates, func(left, right candidate) int {
 		if cmp := slices.Compare(left.UserID[:], right.UserID[:]); cmp != 0 {
@@ -74,7 +73,7 @@ func buildPreview(rows []JoinedLobbyCandidate) MatchPreview {
 	})
 
 	preview := MatchPreview{
-		GeneratedAt:    generatedAt,
+		GeneratedAt:    latestCandidateTime(candidates),
 		CandidateCount: len(candidates),
 		PreviewVersion: PreviewVersion,
 		Matches:        make([]Match, 0, len(candidates)/2),
@@ -109,6 +108,7 @@ type candidate struct {
 	UserID           uuid.UUID
 	VisibilityMode   string
 	AvailabilityMode string
+	Watermark        time.Time
 }
 
 func selectEligibleCandidates(rows []JoinedLobbyCandidate) []candidate {
@@ -124,20 +124,18 @@ func selectEligibleCandidates(rows []JoinedLobbyCandidate) []candidate {
 			UserID:           row.UserID,
 			VisibilityMode:   lobbyEligibility.VisibilityMode,
 			AvailabilityMode: lobbyEligibility.AvailabilityMode,
+			Watermark:        latestRowTime(row),
 		})
 	}
 
 	return candidates
 }
 
-func latestInputTime(rows []JoinedLobbyCandidate) *time.Time {
+func latestCandidateTime(candidates []candidate) *time.Time {
 	var latest time.Time
-	for _, row := range rows {
-		if row.UserUpdatedAt.After(latest) {
-			latest = row.UserUpdatedAt.UTC()
-		}
-		if row.MembershipUpdatedAt.After(latest) {
-			latest = row.MembershipUpdatedAt.UTC()
+	for _, candidate := range candidates {
+		if candidate.Watermark.After(latest) {
+			latest = candidate.Watermark.UTC()
 		}
 	}
 
@@ -146,6 +144,15 @@ func latestInputTime(rows []JoinedLobbyCandidate) *time.Time {
 	}
 
 	return &latest
+}
+
+func latestRowTime(row JoinedLobbyCandidate) time.Time {
+	latest := row.UserUpdatedAt.UTC()
+	if row.MembershipUpdatedAt.After(latest) {
+		latest = row.MembershipUpdatedAt.UTC()
+	}
+
+	return latest
 }
 
 func memberLabel(userID uuid.UUID) string {

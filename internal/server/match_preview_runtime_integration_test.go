@@ -148,6 +148,75 @@ func TestLobbyMatchPreviewRuntimeHandlesEmptyAndOddPoolsCleanly(t *testing.T) {
 	}
 }
 
+func TestLobbyMatchPreviewRuntimeIgnoresIneligibleJoinedWatermarkChanges(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	viewerCookie, viewer := createVerifiedSessionViaHTTP(t, env, "student-preview-watermark-001", "preview-watermark-001@example.com")
+	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-preview-watermark-002", "preview-watermark-002@example.com")
+	ineligibleJoinedCookie, ineligibleJoined := createVerifiedSessionViaHTTP(t, env, "student-preview-watermark-003", "preview-watermark-003@example.com")
+
+	for _, cookie := range []*http.Cookie{viewerCookie, memberTwoCookie, ineligibleJoinedCookie} {
+		makeEligibleForLobby(t, env, cookie)
+		joinLobbyMembership(t, env, cookie)
+	}
+
+	firstIneligiblePatch := env.doJSONRequest(t, http.MethodPatch, "/api/v1/profile", `{"visibility_mode":"ghost"}`, ineligibleJoinedCookie)
+	if firstIneligiblePatch.Code != http.StatusOK {
+		t.Fatalf("firstIneligiblePatch.Code = %d, want %d", firstIneligiblePatch.Code, http.StatusOK)
+	}
+
+	firstResponse := env.doRequest(t, http.MethodGet, "/api/v1/lobby/match-preview", nil, viewerCookie)
+	if firstResponse.Code != http.StatusOK {
+		t.Fatalf("firstResponse.Code = %d, want %d", firstResponse.Code, http.StatusOK)
+	}
+	firstPreview := decodeMatchPreviewResponse(t, firstResponse.Body.Bytes())
+	if firstPreview.GeneratedAt == nil {
+		t.Fatal("firstPreview.GeneratedAt = nil, want eligible candidate watermark")
+	}
+
+	expectedCandidates := []uuid.UUID{viewer.ID, memberTwo.ID}
+	slices.SortFunc(expectedCandidates, compareUUID)
+	if got := previewMemberIDs(firstPreview); !slices.Equal(got, expectedCandidates) {
+		t.Fatalf("previewMemberIDs(firstPreview) = %v, want %v", got, expectedCandidates)
+	}
+	if slices.Contains(previewMemberIDs(firstPreview), ineligibleJoined.ID) {
+		t.Fatalf("preview included ineligible joined member %s", ineligibleJoined.ID)
+	}
+
+	secondIneligiblePatch := env.doJSONRequest(t, http.MethodPatch, "/api/v1/profile", `{"visibility_mode":"ghost","availability_mode":"unavailable"}`, ineligibleJoinedCookie)
+	if secondIneligiblePatch.Code != http.StatusOK {
+		t.Fatalf("secondIneligiblePatch.Code = %d, want %d", secondIneligiblePatch.Code, http.StatusOK)
+	}
+
+	secondResponse := env.doRequest(t, http.MethodGet, "/api/v1/lobby/match-preview", nil, viewerCookie)
+	if secondResponse.Code != http.StatusOK {
+		t.Fatalf("secondResponse.Code = %d, want %d", secondResponse.Code, http.StatusOK)
+	}
+	secondPreview := decodeMatchPreviewResponse(t, secondResponse.Body.Bytes())
+
+	if !slices.EqualFunc(firstPreview.Matches, secondPreview.Matches, func(left, right ares.Match) bool {
+		return slices.Equal(left.MemberIDs, right.MemberIDs) &&
+			slices.Equal(left.MemberLabels, right.MemberLabels) &&
+			left.Score == right.Score &&
+			slices.Equal(left.Reasons, right.Reasons)
+	}) {
+		t.Fatalf("preview matches changed after ineligible joined watermark update: first=%#v second=%#v", firstPreview.Matches, secondPreview.Matches)
+	}
+	if !slices.Equal(firstPreview.UnmatchedMemberIDs, secondPreview.UnmatchedMemberIDs) {
+		t.Fatalf("preview unmatched ids changed after ineligible joined watermark update: first=%v second=%v", firstPreview.UnmatchedMemberIDs, secondPreview.UnmatchedMemberIDs)
+	}
+	if !slices.Equal(firstPreview.UnmatchedLabels, secondPreview.UnmatchedLabels) {
+		t.Fatalf("preview unmatched labels changed after ineligible joined watermark update: first=%v second=%v", firstPreview.UnmatchedLabels, secondPreview.UnmatchedLabels)
+	}
+	if !equalOptionalTime(firstPreview.GeneratedAt, secondPreview.GeneratedAt) {
+		t.Fatalf("preview generated_at changed after ineligible joined watermark update: first=%v second=%v", firstPreview.GeneratedAt, secondPreview.GeneratedAt)
+	}
+	if string(firstResponse.Body.Bytes()) != string(secondResponse.Body.Bytes()) {
+		t.Fatalf("preview response body changed after ineligible joined watermark update\nfirst=%s\nsecond=%s", firstResponse.Body.Bytes(), secondResponse.Body.Bytes())
+	}
+}
+
 func makeEligibleForLobby(t *testing.T, env *authProfileServerEnv, cookie *http.Cookie) {
 	t.Helper()
 
