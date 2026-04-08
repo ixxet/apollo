@@ -23,7 +23,9 @@ schema form or preserved as a future plan. Tracer 11 keeps the frontend claim
 as narrow as the backend proof: members can bootstrap a session, load profile
 summary, read and mutate workouts, finish a workout, and read one deterministic
 recommendation through a minimal embedded web shell without changing the server
-ownership model or widening deployment truth.
+ownership model or widening deployment truth. Phase 2 keeps that posture:
+backend and API/CLI truth may keep growing, but meaningful frontend widening
+stays deferred until after `Tracer 25`.
 
 ## Start Here
 
@@ -142,10 +144,14 @@ eligibility, or any social state.
 | Lobby membership runtime | explicit member-scoped membership state | Real | `v0.8.0` | Tracer 12 keeps membership server-authoritative, durable, and separate from eligibility and visits |
 | ARES match preview runtime | deterministic read-only preview over explicit lobby membership | Real | `v0.9.0` | Tracer 13 keeps candidate selection explicit, excludes ineligible joined members, and stays read-only |
 | ARES rating engine | OpenSkill | Planned | later than `v0.9.0` | Schema groundwork exists, but the rating and recorded match layer is still deferred |
-| Workout planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Planned | `v0.10.0` | Next investor-visible APOLLO widening should stay deterministic and product-legible |
-| Deterministic fitness coaching | conservative deterministic recommendation engine plus calorie / macro ranges and low-friction meal logging | Planned | `v0.11.0` | Keep the engine deterministic and explainable before any later optional explanation layer |
-| Recommendation persistence and later explanation layer | persisted recommendation records plus optional explanation/summarization helpers | Deferred | later than `v0.11.0` | Preserve as future direction only after planner and deterministic coaching lines are stable |
-| Frontend widening | SvelteKit PWA + offline sync | Deferred | later than `v0.7.0` | Not yet present in the repo |
+| Sport and facility-sport registry | sport catalog, facility-sport capability mapping, and basic sport rules/config for at least two sports | Planned | `v0.10.0` | Competition substrate now comes before planner/coaching in the Phase 2 ladder |
+| Team / session substrate | team, roster, session, and match container primitives | Planned | `v0.11.0` | Gives later matchmaking and result lines a real container model |
+| Matchmaking lifecycle | queue, assignment, and session lifecycle truth | Planned | `v0.12.0` | Keep it deterministic and bounded before any rivalry or badge logic |
+| Results, ratings, and member stats | result capture, ratings, rudimentary standings, and member profile stats | Planned | `v0.13.0` | Competition truth should exist before public or social surfaces |
+| Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Planned | `v0.14.0` | Lands after the operations/competition base and stays backend/CLI-first |
+| Deterministic fitness coaching | conservative deterministic recommendation engine plus calorie / macro ranges and low-friction meal logging | Planned | `v0.15.0` | Keep the engine deterministic and explainable before any later helper layer |
+| Explanation and agent-facing helpers | explanation/summarization helpers over deterministic core logic | Deferred | `v0.16.0` | Preserve as future direction without making the helper layer the decision engine |
+| Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.16.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
 
@@ -169,7 +175,7 @@ exercise, recommendations, or matchmaking.
 | --- | --- | --- |
 | Verification delivery | The default runtime is still dev-first; verification is easy to test locally but not yet a full production-grade delivery path | APOLLO proves ownership and sessions, but not yet a polished end-user delivery experience |
 | Claimed tags | `apollo.claimed_tags` is real schema and runtime dependency, but there is still no end-user flow to manage tag linkage | Visit ingest is narrower than the eventual member-account model |
-| Product shell | The current line now has one narrow embedded member shell only | Do not confuse one authenticated shell with a full product frontend, offline support, or broader design-system work |
+| Product shell | The current line now has one narrow embedded member shell only and Phase 2 keeps it that way | Do not confuse one authenticated shell with a full product frontend, offline support, or broader design-system work |
 | ARES and recommendation persistence | Runtime scope now includes a deterministic match preview read, but historical ARES writes and recommendation persistence are still deferred | Readers should not mistake the preview runtime for assignment, invitations, notifications, or stored coaching |
 
 ## Current State Block
@@ -273,6 +279,7 @@ exercise, recommendations, or matchmaking.
 - letting tap-in imply lobby or matchmaking intent
 - adding invites or match formation before explicit lobby membership is stable
 - adding the recommendation pipeline before workout data exists
+- meaningful frontend widening before the Phase 2 ladder closes cleanly
 
 ## Release History
 
@@ -293,8 +300,13 @@ exercise, recommendations, or matchmaking.
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch if repo-local APOLLO truth ever needed backfilled closeout | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
-| `v0.10.0` | workout planner, exercise library, templates / loadouts, and richer profile inputs | keep the line deterministic, product-legible, and bounded | do not widen into medical claims or LLM-first logic |
-| `v0.11.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
+| `v0.10.0` | sport registry, facility-sport capability mapping, and basic sport rules/config for at least two sports | keep the line backend-first and bounded | do not widen into matchmaking runtime yet |
+| `v0.11.0` | team, roster, session, and match container primitives | give later matchmaking and result work a real container model | do not widen into public standings |
+| `v0.12.0` | matchmaking / queue / assignment flow and session lifecycle | keep the line deterministic and bounded | do not widen into rivalry or badge logic |
+| `v0.13.0` | result capture, ratings, rudimentary standings, and member profile stats | make competition truth real before any public/social surface | do not widen into a broad public social layer |
+| `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work |
+| `v0.15.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
+| `v0.16.0` | explanation, summarization, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
 
 ## Versioning Discipline
 

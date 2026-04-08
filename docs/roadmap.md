@@ -24,8 +24,13 @@ Current active line: `v0.9.0`
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch only if repo-local closure ever needs a backfill | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
-| `v0.10.0` | workout planner, exercise library, templates / loadouts, and richer profile inputs | keep the line deterministic, product-legible, and bounded | do not widen into medical claims or LLM-first logic |
-| `v0.11.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
+| `v0.10.0` | sport registry, facility-sport capability mapping, and basic sport rules/config for at least two sports | keep the line backend-first and bounded | do not widen into matchmaking runtime yet |
+| `v0.11.0` | team, roster, session, and match container primitives | give later matchmaking and result work a real container model | do not widen into public standings |
+| `v0.12.0` | matchmaking / queue / assignment flow and session lifecycle | keep the line deterministic and bounded | do not widen into rivalry or badge logic |
+| `v0.13.0` | result capture, ratings, rudimentary standings, and member profile stats | make competition truth real before any public/social surface | do not widen into a broad public social layer |
+| `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work |
+| `v0.15.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
+| `v0.16.0` | explanation, summarization, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
 
 ## Versioning Discipline
 
@@ -61,5 +66,10 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 - `Tracer 11`: minimal member web shell
 - `Tracer 12`: explicit lobby membership runtime
 - `Tracer 13`: first deterministic ARES match preview
-- later lines: planner/profile widening, then deterministic coaching, then any
-  later persistence or explanation-layer widening
+- `Tracer 19`: sport registry and facility-sport capability mapping
+- `Tracer 20`: team, roster, session, and match container primitives
+- `Tracer 21`: matchmaking / queue / assignment lifecycle
+- `Tracer 22`: result capture, ratings, rudimentary standings, and member stats
+- `Tracer 23`: planner/profile widening as backend/CLI-first truth
+- `Tracer 24`: deterministic coaching and conservative nutrition guidance
+- `Tracer 25`: explanation and thin agent-facing helper surfaces
