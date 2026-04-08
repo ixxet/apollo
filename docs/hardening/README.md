@@ -12,3 +12,4 @@ verified versus unverified truth, carry-forward gaps, and a clear verdict.
 - [Tracer 7](tracer-7.md)
 - [Tracer 11](tracer-11.md)
 - [Tracer 12](tracer-12.md)
+- [Tracer 13](tracer-13.md)

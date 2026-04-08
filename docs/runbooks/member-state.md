@@ -341,11 +341,8 @@ Expected smoke outcomes:
   `compatible_availability_mode`, and `stable_pair_order`
 - the membership snapshot is unchanged before and after repeated preview reads
 - `apollo.visits` and `apollo.workouts` remain unchanged at `0`
-- repeated leave returns `409 Conflict`
-- the shell HTML includes the explicit membership panel
-- `apollo.visits`, `apollo.workouts`, and `apollo.claimed_tags` remain `0` for
-  the smoke user
-- the server logs `lobby membership joined` and `lobby membership left`
+- the smoke does not create invites, assignments, notifications, or any other
+  ARES write state
 
 ### Verified Recommendation Runtime Smoke
 

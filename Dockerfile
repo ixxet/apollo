@@ -18,3 +18,4 @@ COPY --from=build /out/apollo /usr/local/bin/apollo
 EXPOSE 8081
 
 ENTRYPOINT ["/usr/local/bin/apollo"]
+CMD ["serve"]

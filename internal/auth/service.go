@@ -175,6 +175,9 @@ func (s *Service) LogoutSession(ctx context.Context, cookieValue string) error {
 	if err != nil {
 		return ErrInvalidSessionCookie
 	}
+	if _, err := s.repository.LookupSession(ctx, sessionID, s.now().UTC()); err != nil {
+		return err
+	}
 
 	return s.repository.RevokeSession(ctx, sessionID, s.now().UTC())
 }

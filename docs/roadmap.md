@@ -23,9 +23,19 @@ Current active line: `v0.9.0`
 
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
-| `v0.6.1` | optional Milestone 1.6 companion line if APOLLO repo truth changes materially | keep the change bounded to live departure-close support or deployment-truth alignment | do not widen into broader product deployment |
-| `v0.10.0` | recommendation persistence | persist recommendation outputs only after the deterministic read line is stable | do not mix persistence with generated coaching |
-| `v0.11.0` | generated planning and coaching runtime | build on stable workout and recommendation foundations | do not let visits, departures, or profile state silently drive coaching logic |
+| historical `v0.6.1` note | Milestone 1.6 companion patch only if repo-local closure ever needs a backfill | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
+| `v0.10.0` | workout planner, exercise library, templates / loadouts, and richer profile inputs | keep the line deterministic, product-legible, and bounded | do not widen into medical claims or LLM-first logic |
+| `v0.11.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
+
+## Versioning Discipline
+
+APOLLO now follows formal pre-`1.0.0` semantic versioning.
+
+- `PATCH` releases cover hardening, docs sync, deployment closeout,
+  observability, and bounded non-widening fixes
+- `MINOR` releases cover new bounded member capabilities or intentional
+  contract changes
+- pre-`1.0.0` breaking changes still require a `MINOR`, never a `PATCH`
 
 ## Boundaries
 
@@ -51,4 +61,5 @@ Current active line: `v0.9.0`
 - `Tracer 11`: minimal member web shell
 - `Tracer 12`: explicit lobby membership runtime
 - `Tracer 13`: first deterministic ARES match preview
-- later lines: recommendation persistence and generated coaching
+- later lines: planner/profile widening, then deterministic coaching, then any
+  later persistence or explanation-layer widening

@@ -142,8 +142,9 @@ eligibility, or any social state.
 | Lobby membership runtime | explicit member-scoped membership state | Real | `v0.8.0` | Tracer 12 keeps membership server-authoritative, durable, and separate from eligibility and visits |
 | ARES match preview runtime | deterministic read-only preview over explicit lobby membership | Real | `v0.9.0` | Tracer 13 keeps candidate selection explicit, excludes ineligible joined members, and stays read-only |
 | ARES rating engine | OpenSkill | Planned | later than `v0.9.0` | Schema groundwork exists, but the rating and recorded match layer is still deferred |
-| Recommendation persistence | persisted recommendation records | Planned | `v0.10.0` | Persist outputs only after the deterministic read line is stable |
-| Recommendation pipeline | LangGraph + vLLM + Mem0 | Deferred | `v0.11.0` | Preserved as future direction, not current runtime truth |
+| Workout planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Planned | `v0.10.0` | Next investor-visible APOLLO widening should stay deterministic and product-legible |
+| Deterministic fitness coaching | conservative deterministic recommendation engine plus calorie / macro ranges and low-friction meal logging | Planned | `v0.11.0` | Keep the engine deterministic and explainable before any later optional explanation layer |
+| Recommendation persistence and later explanation layer | persisted recommendation records plus optional explanation/summarization helpers | Deferred | later than `v0.11.0` | Preserve as future direction only after planner and deterministic coaching lines are stable |
 | Frontend widening | SvelteKit PWA + offline sync | Deferred | later than `v0.7.0` | Not yet present in the repo |
 
 ## Current Ingest Path
@@ -236,8 +237,8 @@ exercise, recommendations, or matchmaking.
   resolve deterministically
 - `apollo visit list` reads back recorded visit history for a specific student
 - the bounded live cluster deployment now proves APOLLO can boot its schema,
-  connect to in-cluster NATS, and persist the live ATHENA identified-arrival
-  path into Postgres
+  connect to in-cluster NATS, and persist the live ATHENA identified
+  arrival/departure-close boundary into Postgres
 
 ### Real but intentionally narrow
 
@@ -267,8 +268,8 @@ exercise, recommendations, or matchmaking.
 - auto-starting a workout from arrival or auto-finishing a workout from
   departure
 - inferring recommendations from visits, departures, or physical presence
-- storing recommendation reads or expanding into generated plans before the
-  deterministic read path is stable
+- storing recommendation reads or widening into generated explanation layers
+  before the planner and deterministic coaching lines are stable
 - letting tap-in imply lobby or matchmaking intent
 - adding invites or match formation before explicit lobby membership is stable
 - adding the recommendation pipeline before workout data exists
@@ -291,9 +292,19 @@ exercise, recommendations, or matchmaking.
 
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
-| `v0.6.1` | optional Milestone 1.6 companion line if APOLLO repo truth changes materially | keep the repo change bounded to live departure-close support or deployment-truth alignment only | do not widen into broader product deployment |
-| `v0.10.0` | recommendation persistence | persist recommendation outputs only after the deterministic read line is stable | do not mix persistence with generated coaching |
-| `v0.11.0` | generated planning and coaching runtime | build on stable workout and recommendation foundations | do not let visits, departures, or profile state silently drive coaching logic |
+| historical `v0.6.1` note | Milestone 1.6 companion patch if repo-local APOLLO truth ever needed backfilled closeout | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
+| `v0.10.0` | workout planner, exercise library, templates / loadouts, and richer profile inputs | keep the line deterministic, product-legible, and bounded | do not widen into medical claims or LLM-first logic |
+| `v0.11.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
+
+## Versioning Discipline
+
+APOLLO now follows formal pre-`1.0.0` semantic versioning.
+
+- `PATCH` releases cover hardening, docs sync, deployment closeout,
+  observability, and bounded non-widening fixes
+- `MINOR` releases cover new bounded member capabilities or intentional
+  contract changes
+- pre-`1.0.0` breaking changes still require a `MINOR`, never a `PATCH`
 
 ## Project Structure
 
@@ -320,8 +331,11 @@ exercise, recommendations, or matchmaking.
 
 APOLLO owns its runtime, schema, and consumer logic. Infrastructure, GitOps,
 and cluster policy still live outside this repo in the Prometheus/Talos layer.
-This README is documenting APOLLO's internal system logic and product boundary,
-not the homelab substrate.
+Milestone 1.6 already proved one bounded live APOLLO departure-close path; the
+broader auth, eligibility, membership, workout, recommendation, and member-shell
+surfaces remain repo-local/runtime truth unless a future deployment workstream
+proves them live. This README is documenting APOLLO's internal system logic and
+product boundary, not the homelab substrate.
 
 ## Docs Map
 

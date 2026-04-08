@@ -209,6 +209,14 @@ func TestAuthAndProfileEndpointsRejectTokenAndSessionEdgeCases(t *testing.T) {
 	if logoutResponse.Code != http.StatusNoContent {
 		t.Fatalf("logoutResponse.Code = %d, want %d", logoutResponse.Code, http.StatusNoContent)
 	}
+	repeatedLogoutResponse := env.doRequest(t, http.MethodPost, "/api/v1/auth/logout", nil, validCookie)
+	if repeatedLogoutResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("repeatedLogoutResponse.Code = %d, want %d", repeatedLogoutResponse.Code, http.StatusUnauthorized)
+	}
+	expiredLogoutResponse := env.doRequest(t, http.MethodPost, "/api/v1/auth/logout", nil, expiredCookie)
+	if expiredLogoutResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expiredLogoutResponse.Code = %d, want %d", expiredLogoutResponse.Code, http.StatusUnauthorized)
+	}
 	postLogoutResponse := env.doRequest(t, http.MethodGet, "/api/v1/profile", nil, validCookie)
 	if postLogoutResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("postLogoutResponse.Code = %d, want %d", postLogoutResponse.Code, http.StatusUnauthorized)
