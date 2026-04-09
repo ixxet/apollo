@@ -10,6 +10,7 @@ sql:
       - "migrations/005_workout_runtime.up.sql"
       - "migrations/006_lobby_membership_runtime.up.sql"
       - "migrations/007_match_preview_runtime.up.sql"
+      - "migrations/008_sport_substrate_runtime.up.sql"
     queries: "queries"
     gen:
       go:

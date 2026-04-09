@@ -69,6 +69,15 @@ type ApolloExercise struct {
 	Position  int32
 }
 
+type ApolloFacilityCatalogRef struct {
+	FacilityKey string
+}
+
+type ApolloFacilityZoneRef struct {
+	FacilityKey string
+	ZoneKey     string
+}
+
 type ApolloLobbyMembership struct {
 	UserID    uuid.UUID
 	Status    string
@@ -95,6 +104,30 @@ type ApolloSession struct {
 	ExpiresAt pgtype.Timestamptz
 	RevokedAt pgtype.Timestamptz
 	CreatedAt pgtype.Timestamptz
+}
+
+type ApolloSport struct {
+	SportKey                    string
+	DisplayName                 string
+	Description                 string
+	CompetitionMode             string
+	SidesPerMatch               int32
+	ParticipantsPerSideMin      int32
+	ParticipantsPerSideMax      int32
+	ScoringModel                string
+	DefaultMatchDurationMinutes int32
+	RulesSummary                string
+}
+
+type ApolloSportFacilityCapability struct {
+	SportKey    string
+	FacilityKey string
+}
+
+type ApolloSportFacilityCapabilityZone struct {
+	SportKey    string
+	FacilityKey string
+	ZoneKey     string
 }
 
 type ApolloUser struct {

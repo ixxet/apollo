@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current active line: `v0.9.0`
+Current active line: `v0.10.0`
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -17,6 +17,8 @@ Current active line: `v0.9.0`
 - minimal member web shell is real locally
 - explicit lobby membership runtime is real locally
 - deterministic read-only ARES match preview is real locally
+- APOLLO-owned sport registry, facility-sport capability mapping, and static
+  sport rules/config are real locally through CLI reads
 - deployment truth is still narrower than the full product surface
 
 ## Planned Release Lines
@@ -24,7 +26,6 @@ Current active line: `v0.9.0`
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch only if repo-local closure ever needs a backfill | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
-| `v0.10.0` | sport registry, facility-sport capability mapping, and basic sport rules/config for at least two sports | keep the line backend-first and bounded | do not widen into matchmaking runtime yet |
 | `v0.11.0` | team, roster, session, and match container primitives | give later matchmaking and result work a real container model | do not widen into public standings |
 | `v0.12.0` | matchmaking / queue / assignment flow and session lifecycle | keep the line deterministic and bounded | do not widen into rivalry or badge logic |
 | `v0.13.0` | result capture, ratings, rudimentary standings, and member profile stats | make competition truth real before any public/social surface | do not widen into a broad public social layer |
@@ -53,6 +54,8 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 - do not let match preview reads mutate membership, visits, workouts,
   recommendations, or ARES tables
 - do not let visit changes silently affect match preview output
+- do not let sport registry reads widen into team/session, scheduling,
+  matchmaking, results, ratings, or public standings
 - do not widen deployment truth unless a bounded deployment workstream proves it
 
 ## Tracer / Workstream Ownership
@@ -66,7 +69,7 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 - `Tracer 11`: minimal member web shell
 - `Tracer 12`: explicit lobby membership runtime
 - `Tracer 13`: first deterministic ARES match preview
-- `Tracer 19`: sport registry and facility-sport capability mapping
+- `Tracer 19`: sport registry, facility-sport capability mapping, and basic sport rules/config
 - `Tracer 20`: team, roster, session, and match container primitives
 - `Tracer 21`: matchmaking / queue / assignment lifecycle
 - `Tracer 22`: result capture, ratings, rudimentary standings, and member stats

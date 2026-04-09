@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -25,6 +26,7 @@ import (
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/server"
+	"github.com/ixxet/apollo/internal/sports"
 	"github.com/ixxet/apollo/internal/visits"
 	"github.com/ixxet/apollo/internal/workouts"
 	protoevents "github.com/ixxet/ashton-proto/events"
@@ -47,6 +49,7 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(newServeCmd())
 	rootCmd.AddCommand(newMigrateCmd())
+	rootCmd.AddCommand(newSportCmd())
 	rootCmd.AddCommand(newVisitCmd())
 
 	return rootCmd
@@ -265,6 +268,128 @@ func newVisitCmd() *cobra.Command {
 	return visitCmd
 }
 
+func newSportCmd() *cobra.Command {
+	sportCmd := &cobra.Command{
+		Use:   "sport",
+		Short: "Read APOLLO sport substrate truth.",
+	}
+
+	var listFormat string
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List APOLLO sport definitions.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openSportsService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			entries, err := service.ListSports(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			switch listFormat {
+			case "json":
+				return writeJSONOutput(cmd, entries)
+			case "text":
+				return writeSportListText(cmd, entries)
+			default:
+				return fmt.Errorf("unsupported format %q", listFormat)
+			}
+		},
+	}
+	listCmd.Flags().StringVar(&listFormat, "format", "text", "output format: text or json")
+
+	var showSportKey string
+	var showFormat string
+	showCmd := &cobra.Command{
+		Use:   "show",
+		Short: "Show one APOLLO sport definition and its facility capabilities.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openSportsService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			entry, err := service.GetSport(cmd.Context(), showSportKey)
+			if err != nil {
+				if errors.Is(err, sports.ErrSportNotFound) {
+					return fmt.Errorf("sport %q not found", strings.TrimSpace(showSportKey))
+				}
+				return err
+			}
+
+			switch showFormat {
+			case "json":
+				return writeJSONOutput(cmd, entry)
+			case "text":
+				return writeSportDetailText(cmd, entry)
+			default:
+				return fmt.Errorf("unsupported format %q", showFormat)
+			}
+		},
+	}
+	showCmd.Flags().StringVar(&showSportKey, "sport-key", "", "sport key to show")
+	showCmd.Flags().StringVar(&showFormat, "format", "text", "output format: text or json")
+	_ = showCmd.MarkFlagRequired("sport-key")
+
+	capabilityCmd := &cobra.Command{
+		Use:   "capability",
+		Short: "Read APOLLO facility-sport capability mappings.",
+	}
+
+	var capabilitySportKey string
+	var capabilityFacilityKey string
+	var capabilityFormat string
+	capabilityListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List facility-sport capability mappings.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openSportsService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			entries, err := service.ListFacilityCapabilities(cmd.Context(), sports.CapabilityFilter{
+				SportKey:    capabilitySportKey,
+				FacilityKey: capabilityFacilityKey,
+			})
+			if err != nil {
+				if errors.Is(err, sports.ErrSportNotFound) {
+					return fmt.Errorf("sport %q not found", strings.TrimSpace(capabilitySportKey))
+				}
+				if errors.Is(err, sports.ErrFacilityNotFound) {
+					return fmt.Errorf("facility %q not found", strings.TrimSpace(capabilityFacilityKey))
+				}
+				return err
+			}
+
+			switch capabilityFormat {
+			case "json":
+				return writeJSONOutput(cmd, entries)
+			case "text":
+				return writeSportCapabilityListText(cmd, entries)
+			default:
+				return fmt.Errorf("unsupported format %q", capabilityFormat)
+			}
+		},
+	}
+	capabilityListCmd.Flags().StringVar(&capabilitySportKey, "sport-key", "", "filter by sport key")
+	capabilityListCmd.Flags().StringVar(&capabilityFacilityKey, "facility-key", "", "filter by facility key")
+	capabilityListCmd.Flags().StringVar(&capabilityFormat, "format", "text", "output format: text or json")
+
+	capabilityCmd.AddCommand(capabilityListCmd)
+	sportCmd.AddCommand(listCmd)
+	sportCmd.AddCommand(showCmd)
+	sportCmd.AddCommand(capabilityCmd)
+
+	return sportCmd
+}
+
 func openPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	if databaseURL == "" {
 		return nil, fmt.Errorf("APOLLO_DATABASE_URL is required")
@@ -283,10 +408,107 @@ func openPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+func openSportsService(ctx context.Context) (*sports.Service, *pgxpool.Pool, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pool, err := openPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return sports.NewService(sports.NewRepository(pool)), pool, nil
+}
+
+func writeJSONOutput(cmd *cobra.Command, value any) error {
+	encoder := json.NewEncoder(cmd.OutOrStdout())
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
+}
+
+func writeSportListText(cmd *cobra.Command, sportsList []sports.Sport) error {
+	for _, entry := range sportsList {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"key=%s name=%q mode=%s sides=%d participants_per_side=%s scoring=%s default_duration_minutes=%d\n",
+			entry.SportKey,
+			entry.DisplayName,
+			entry.CompetitionMode,
+			entry.SidesPerMatch,
+			formatParticipantRange(entry.ParticipantsPerSideMin, entry.ParticipantsPerSideMax),
+			entry.ScoringModel,
+			entry.DefaultMatchDurationMinutes,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeSportDetailText(cmd *cobra.Command, entry sports.SportDetail) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"key=%s name=%q description=%q mode=%s sides=%d participants_per_side=%s scoring=%s default_duration_minutes=%d rules=%q\n",
+		entry.SportKey,
+		entry.DisplayName,
+		entry.Description,
+		entry.CompetitionMode,
+		entry.SidesPerMatch,
+		formatParticipantRange(entry.ParticipantsPerSideMin, entry.ParticipantsPerSideMax),
+		entry.ScoringModel,
+		entry.DefaultMatchDurationMinutes,
+		entry.RulesSummary,
+	); err != nil {
+		return err
+	}
+
+	if len(entry.FacilityCapabilities) == 0 {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "facility_capabilities=none")
+		return err
+	}
+
+	return writeSportCapabilityListText(cmd, entry.FacilityCapabilities)
+}
+
+func writeSportCapabilityListText(cmd *cobra.Command, capabilities []sports.FacilityCapability) error {
+	for _, entry := range capabilities {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"sport=%s facility=%s zones=%s\n",
+			entry.SportKey,
+			entry.FacilityKey,
+			formatZoneKeys(entry.ZoneKeys),
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func formatTimestamp(value pgtype.Timestamptz) string {
 	if !value.Valid {
 		return ""
 	}
 
 	return value.Time.Format(time.RFC3339)
+}
+
+func formatParticipantRange(minimum int, maximum int) string {
+	if minimum == maximum {
+		return fmt.Sprintf("%d", minimum)
+	}
+
+	return fmt.Sprintf("%d-%d", minimum, maximum)
+}
+
+func formatZoneKeys(zoneKeys []string) string {
+	if len(zoneKeys) == 0 {
+		return "-"
+	}
+
+	return strings.Join(zoneKeys, ",")
 }

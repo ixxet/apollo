@@ -85,4 +85,36 @@ WHERE table_schema = 'apollo'
 	if exercisePositionColumnCount != 1 {
 		t.Fatalf("position column count = %d, want 1", exercisePositionColumnCount)
 	}
+
+	var sportsTableCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.tables
+WHERE table_schema = 'apollo'
+  AND table_name = 'sports'
+`).Scan(&sportsTableCount); err != nil {
+		t.Fatalf("count sports table error = %v", err)
+	}
+
+	if sportsTableCount != 1 {
+		t.Fatalf("sports table count = %d, want 1", sportsTableCount)
+	}
+
+	var seededSportsCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `SELECT count(*) FROM apollo.sports`).Scan(&seededSportsCount); err != nil {
+		t.Fatalf("count seeded sports error = %v", err)
+	}
+
+	if seededSportsCount != 2 {
+		t.Fatalf("seeded sports count = %d, want 2", seededSportsCount)
+	}
+
+	var seededCapabilityCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `SELECT count(*) FROM apollo.sport_facility_capabilities`).Scan(&seededCapabilityCount); err != nil {
+		t.Fatalf("count seeded sport facility capabilities error = %v", err)
+	}
+
+	if seededCapabilityCount != 2 {
+		t.Fatalf("seeded sport facility capability count = %d, want 2", seededCapabilityCount)
+	}
 }
