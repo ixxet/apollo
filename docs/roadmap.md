@@ -18,7 +18,7 @@ Current active line: `v0.10.0`
 - explicit lobby membership runtime is real locally
 - deterministic read-only ARES match preview is real locally
 - APOLLO-owned sport registry, facility-sport capability mapping, and static
-  sport rules/config are real locally through CLI reads
+  sport rules/config are shipped through CLI reads
 - deployment truth is still narrower than the full product surface
 
 ## Planned Release Lines

@@ -84,5 +84,5 @@ Intentional deferred items remain:
 
 ## Final Verdict
 
-Tracer 19 sport substrate is real locally, bounded, and backend-first with
+Tracer 19 sport substrate is shipped, bounded, and backend-first with
 deployment proof still deferred.

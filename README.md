@@ -154,7 +154,7 @@ eligibility, or any social state.
 | Lobby membership runtime | explicit member-scoped membership state | Real | `v0.8.0` | Tracer 12 keeps membership server-authoritative, durable, and separate from eligibility and visits |
 | ARES match preview runtime | deterministic read-only preview over explicit lobby membership | Real | `v0.9.0` | Tracer 13 keeps candidate selection explicit, excludes ineligible joined members, and stays read-only |
 | ARES rating engine | OpenSkill | Planned | later than `v0.9.0` | Schema groundwork exists, but the rating and recorded match layer is still deferred |
-| Sport and facility-sport registry | sport catalog, facility-sport capability mapping, and basic sport rules/config for at least two sports | Real locally | `v0.10.0` | CLI-only substrate read over seeded registry tables; deployment truth and public surfaces remain deferred |
+| Sport and facility-sport registry | sport catalog, facility-sport capability mapping, and basic sport rules/config for at least two sports | Shipped | `v0.10.0` | CLI-only substrate read over seeded registry tables; deployment truth and public surfaces remain deferred |
 | Team / session substrate | team, roster, session, and match container primitives | Planned | `v0.11.0` | Gives later matchmaking and result lines a real container model |
 | Matchmaking lifecycle | queue, assignment, and session lifecycle truth | Planned | `v0.12.0` | Keep it deterministic and bounded before any rivalry or badge logic |
 | Results, ratings, and member stats | result capture, ratings, rudimentary standings, and member profile stats | Planned | `v0.13.0` | Competition truth should exist before public or social surfaces |
