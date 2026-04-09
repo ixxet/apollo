@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current active repo/runtime line: Tracer 21 release line `v0.12.0`
+Latest tagged repo/runtime line: Tracer 21 `v0.12.0`
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -22,7 +22,7 @@ Current active repo/runtime line: Tracer 21 release line `v0.12.0`
 - authenticated internal HTTP competition session, team, roster, and match
   container primitives are shipped
 - authenticated internal HTTP competition queue state, deterministic
-  assignment, and explicit session lifecycle transitions are real locally
+  assignment, and explicit session lifecycle transitions are shipped
 - deployment truth is still narrower than the full product surface
 
 ## Planned Release Lines

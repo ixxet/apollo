@@ -94,5 +94,5 @@ Intentional deferred items remain:
 ## Final Verdict
 
 Tracer 21 execution runtime is bounded, deterministic, backend-first, and
-local/runtime only with deployment truth, results/history truth, and tag
-decisions still deferred.
+release-real at tagged line `v0.12.0`; deployed truth and results/history
+truth remain deferred.

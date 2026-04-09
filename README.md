@@ -168,7 +168,7 @@ eligibility, or any social state.
 | ARES rating engine | OpenSkill | Planned | later than `v0.9.0` | Schema groundwork exists, but the rating and recorded match layer is still deferred |
 | Sport and facility-sport registry | sport catalog, facility-sport capability mapping, and basic sport rules/config for at least two sports | Shipped | `v0.10.0` | CLI-only substrate read over seeded registry tables; deployment truth and public surfaces remain deferred |
 | Team / session substrate | session-rooted team, roster, session, and match container primitives | Shipped | `v0.11.0` | Tracer 20 settled the bounded competition container model before execution widening |
-| Matchmaking lifecycle | queue, assignment, and session lifecycle truth | Real locally | `v0.12.0` | Current repo/runtime line adds authenticated internal HTTP execution truth without widening into results, rivalry, badges, or public reads |
+| Matchmaking lifecycle | queue, assignment, and session lifecycle truth | Shipped | `v0.12.0` | Tagged Tracer 21 release line adds authenticated internal HTTP execution truth without widening into results, rivalry, badges, or public reads |
 | Results, ratings, and member stats | result capture, ratings, rudimentary standings, and member profile stats | Planned | `v0.13.0` | Competition truth should exist before public or social surfaces |
 | Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Planned | `v0.14.0` | Lands after the operations/competition base and stays backend/CLI-first |
 | Deterministic fitness coaching | conservative deterministic recommendation engine plus calorie / macro ranges and low-friction meal logging | Planned | `v0.15.0` | Keep the engine deterministic and explainable before any later helper layer |
@@ -345,7 +345,7 @@ exercise, recommendations, or matchmaking.
 | `v0.9.0` | `v0.9.0` | Shipped | first deterministic ARES match preview over explicit lobby membership | assignment, invites, notifications, and live match execution |
 | `v0.10.0` | `v0.10.0` | Shipped | sport registry, facility-sport capability mapping, and static sport rules/config | team/session containers, matchmaking, results, and standings |
 | `v0.11.0` | `v0.11.0` | Shipped | session-rooted team, roster, session, and match container primitives over authenticated internal HTTP | queueing, assignment, results, ratings, standings, public competition reads, and deployment widening |
-| `v0.12.0` | - | Current release line | authenticated internal HTTP queue state, deterministic assignment, and explicit session lifecycle transitions | results, ratings, standings, rivalry/badge logic, public competition reads, and deployment widening |
+| `v0.12.0` | `v0.12.0` | Shipped | authenticated internal HTTP queue state, deterministic assignment, and explicit session lifecycle transitions | results, ratings, standings, rivalry/badge logic, public competition reads, and deployment widening |
 
 ## Planned Release Lines
 
