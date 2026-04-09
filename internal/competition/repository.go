@@ -34,6 +34,18 @@ func (r *Repository) GetUserByID(ctx context.Context, userID uuid.UUID) (*store.
 	return &user, nil
 }
 
+func (r *Repository) GetLobbyMembershipByUserID(ctx context.Context, userID uuid.UUID) (*store.ApolloLobbyMembership, error) {
+	row, err := store.New(r.db).GetLobbyMembershipByUserID(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &row, nil
+}
+
 func (r *Repository) GetSportConfig(ctx context.Context, sportKey string) (*SportConfig, error) {
 	row, err := store.New(r.db).GetSportByKey(ctx, sportKey)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -87,7 +99,20 @@ func (r *Repository) ListSessionsByOwner(ctx context.Context, ownerUserID uuid.U
 
 	sessions := make([]sessionRecord, 0, len(rows))
 	for _, row := range rows {
-		sessions = append(sessions, buildSessionRecord(row))
+		sessions = append(sessions, buildSessionRecordValues(
+			row.ID,
+			row.OwnerUserID,
+			row.DisplayName,
+			row.SportKey,
+			row.FacilityKey,
+			row.ZoneKey,
+			row.ParticipantsPerSide,
+			row.QueueVersion,
+			row.Status,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.ArchivedAt,
+		))
 	}
 
 	return sessions, nil
@@ -105,7 +130,20 @@ func (r *Repository) GetSessionByIDForOwner(ctx context.Context, sessionID uuid.
 		return nil, err
 	}
 
-	record := buildSessionRecord(row)
+	record := buildSessionRecordValues(
+		row.ID,
+		row.OwnerUserID,
+		row.DisplayName,
+		row.SportKey,
+		row.FacilityKey,
+		row.ZoneKey,
+		row.ParticipantsPerSide,
+		row.QueueVersion,
+		row.Status,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.ArchivedAt,
+	)
 	return &record, nil
 }
 
@@ -122,24 +160,243 @@ func (r *Repository) CreateSession(ctx context.Context, ownerUserID uuid.UUID, i
 		return sessionRecord{}, err
 	}
 
-	return buildSessionRecord(row), nil
+	return buildSessionRecordValues(
+		row.ID,
+		row.OwnerUserID,
+		row.DisplayName,
+		row.SportKey,
+		row.FacilityKey,
+		row.ZoneKey,
+		row.ParticipantsPerSide,
+		row.QueueVersion,
+		row.Status,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.ArchivedAt,
+	), nil
 }
 
-func (r *Repository) ArchiveSession(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, archivedAt time.Time) (sessionRecord, error) {
-	row, err := store.New(r.db).ArchiveCompetitionSession(ctx, store.ArchiveCompetitionSessionParams{
+func (r *Repository) OpenQueue(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, updatedAt time.Time) (sessionRecord, error) {
+	row, err := store.New(r.db).OpenCompetitionSessionQueue(ctx, store.OpenCompetitionSessionQueueParams{
 		ID:          sessionID,
 		OwnerUserID: ownerUserID,
-		ArchivedAt:  pgtype.Timestamptz{Time: archivedAt.UTC(), Valid: true},
+		UpdatedAt:   timestamptz(updatedAt),
 	})
 	if err != nil {
 		return sessionRecord{}, err
 	}
 
-	return buildSessionRecord(row), nil
+	return buildSessionRecordValues(
+		row.ID,
+		row.OwnerUserID,
+		row.DisplayName,
+		row.SportKey,
+		row.FacilityKey,
+		row.ZoneKey,
+		row.ParticipantsPerSide,
+		row.QueueVersion,
+		row.Status,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.ArchivedAt,
+	), nil
+}
+
+func (r *Repository) UpdateSessionStatus(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (sessionRecord, error) {
+	row, err := store.New(r.db).UpdateCompetitionSessionStatus(ctx, store.UpdateCompetitionSessionStatusParams{
+		ID:          sessionID,
+		OwnerUserID: ownerUserID,
+		Status:      toStatus,
+		UpdatedAt:   timestamptz(updatedAt),
+		Status_2:    fromStatus,
+	})
+	if err != nil {
+		return sessionRecord{}, err
+	}
+
+	return buildSessionRecordValues(
+		row.ID,
+		row.OwnerUserID,
+		row.DisplayName,
+		row.SportKey,
+		row.FacilityKey,
+		row.ZoneKey,
+		row.ParticipantsPerSide,
+		row.QueueVersion,
+		row.Status,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.ArchivedAt,
+	), nil
+}
+
+func (r *Repository) AddQueueMember(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, joinedAt time.Time) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	queries := store.New(tx)
+	if _, err := queries.CreateCompetitionSessionQueueMember(ctx, store.CreateCompetitionSessionQueueMemberParams{
+		CompetitionSessionID: sessionID,
+		UserID:               userID,
+		JoinedAt:             timestamptz(joinedAt),
+	}); err != nil {
+		return err
+	}
+
+	if _, err := queries.BumpCompetitionSessionQueueVersion(ctx, store.BumpCompetitionSessionQueueVersionParams{
+		ID:          sessionID,
+		OwnerUserID: ownerUserID,
+		UpdatedAt:   timestamptz(joinedAt),
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) RemoveQueueMember(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, updatedAt time.Time) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	queries := store.New(tx)
+	deleted, err := queries.DeleteCompetitionSessionQueueMember(ctx, store.DeleteCompetitionSessionQueueMemberParams{
+		CompetitionSessionID: sessionID,
+		UserID:               userID,
+	})
+	if err != nil {
+		return err
+	}
+	if deleted == 0 {
+		return pgx.ErrNoRows
+	}
+
+	if _, err := queries.BumpCompetitionSessionQueueVersion(ctx, store.BumpCompetitionSessionQueueVersionParams{
+		ID:          sessionID,
+		OwnerUserID: ownerUserID,
+		UpdatedAt:   timestamptz(updatedAt),
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) AssignQueue(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return sessionRecord{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	queries := store.New(tx)
+	sideSlots := make([]MatchSideInput, 0, sport.SidesPerMatch)
+	queueIndex := 0
+
+	for sideIndex := 1; sideIndex <= sport.SidesPerMatch; sideIndex++ {
+		team, err := queries.CreateCompetitionSessionTeam(ctx, store.CreateCompetitionSessionTeamParams{
+			CompetitionSessionID: session.ID,
+			SideIndex:            int32(sideIndex),
+		})
+		if err != nil {
+			return sessionRecord{}, err
+		}
+
+		sideSlots = append(sideSlots, MatchSideInput{
+			TeamID:    team.ID,
+			SideIndex: sideIndex,
+		})
+
+		for slotIndex := 1; slotIndex <= session.ParticipantsPerSide; slotIndex++ {
+			member := queueMembers[queueIndex]
+			queueIndex++
+
+			if _, err := queries.CreateCompetitionTeamRosterMember(ctx, store.CreateCompetitionTeamRosterMemberParams{
+				CompetitionSessionID:     session.ID,
+				CompetitionSessionTeamID: team.ID,
+				UserID:                   member.UserID,
+				SlotIndex:                int32(slotIndex),
+			}); err != nil {
+				return sessionRecord{}, err
+			}
+		}
+	}
+
+	if _, err := createCompetitionMatchWithSideSlotsTx(ctx, queries, session.ID, 1, MatchStatusAssigned, sideSlots); err != nil {
+		return sessionRecord{}, err
+	}
+
+	if _, err := queries.DeleteCompetitionSessionQueueMembersBySessionID(ctx, session.ID); err != nil {
+		return sessionRecord{}, err
+	}
+
+	row, err := queries.AssignCompetitionSessionFromQueue(ctx, store.AssignCompetitionSessionFromQueueParams{
+		ID:           session.ID,
+		OwnerUserID:  ownerUserID,
+		QueueVersion: int32(input.ExpectedQueueVersion),
+		UpdatedAt:    timestamptz(assignedAt),
+	})
+	if err != nil {
+		return sessionRecord{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return sessionRecord{}, err
+	}
+
+	return buildSessionRecordValues(
+		row.ID,
+		row.OwnerUserID,
+		row.DisplayName,
+		row.SportKey,
+		row.FacilityKey,
+		row.ZoneKey,
+		row.ParticipantsPerSide,
+		row.QueueVersion,
+		row.Status,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.ArchivedAt,
+	), nil
 }
 
 func (r *Repository) CountDraftMatchesBySessionID(ctx context.Context, sessionID uuid.UUID) (int64, error) {
 	return store.New(r.db).CountDraftCompetitionMatchesBySessionID(ctx, sessionID)
+}
+
+func (r *Repository) CountQueueMembersBySessionID(ctx context.Context, sessionID uuid.UUID) (int64, error) {
+	return store.New(r.db).CountCompetitionSessionQueueMembersBySessionID(ctx, sessionID)
+}
+
+func (r *Repository) ListQueueMembersBySessionID(ctx context.Context, sessionID uuid.UUID) ([]queueRecord, error) {
+	rows, err := store.New(r.db).ListCompetitionSessionQueueMembersBySessionID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]queueRecord, 0, len(rows))
+	for _, row := range rows {
+		members = append(members, queueRecord{
+			UserID:                row.UserID,
+			DisplayName:           row.DisplayName,
+			Preferences:           row.Preferences,
+			LobbyMembershipStatus: row.LobbyMembershipStatus,
+			JoinedAt:              row.JoinedAt.Time.UTC(),
+		})
+	}
+
+	return members, nil
 }
 
 func (r *Repository) ListTeamsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]teamRecord, error) {
@@ -282,42 +539,37 @@ func (r *Repository) CreateMatchWithSideSlots(ctx context.Context, sessionID uui
 		_ = tx.Rollback(ctx)
 	}()
 
-	queries := store.New(tx)
-	match, err := queries.CreateCompetitionMatch(ctx, store.CreateCompetitionMatchParams{
-		CompetitionSessionID: sessionID,
-		MatchIndex:           int32(matchIndex),
-	})
+	match, err := createCompetitionMatchWithSideSlotsTx(ctx, store.New(tx), sessionID, matchIndex, MatchStatusDraft, sideSlots)
 	if err != nil {
 		return matchRecord{}, err
-	}
-
-	for _, sideSlot := range sideSlots {
-		if _, err := queries.CreateCompetitionMatchSideSlot(ctx, store.CreateCompetitionMatchSideSlotParams{
-			CompetitionMatchID:       match.ID,
-			CompetitionSessionTeamID: sideSlot.TeamID,
-			SideIndex:                int32(sideSlot.SideIndex),
-		}); err != nil {
-			return matchRecord{}, err
-		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return matchRecord{}, err
 	}
 
-	return buildMatchRecord(match), nil
+	return match, nil
 }
 
 func (r *Repository) ArchiveMatch(ctx context.Context, matchID uuid.UUID, archivedAt time.Time) (matchRecord, error) {
 	row, err := store.New(r.db).ArchiveCompetitionMatch(ctx, store.ArchiveCompetitionMatchParams{
 		ID:         matchID,
-		ArchivedAt: pgtype.Timestamptz{Time: archivedAt.UTC(), Valid: true},
+		ArchivedAt: timestamptz(archivedAt),
 	})
 	if err != nil {
 		return matchRecord{}, err
 	}
 
 	return buildMatchRecord(row), nil
+}
+
+func (r *Repository) UpdateMatchStatusesBySessionID(ctx context.Context, sessionID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (int64, error) {
+	return store.New(r.db).UpdateCompetitionMatchStatusBySessionID(ctx, store.UpdateCompetitionMatchStatusBySessionIDParams{
+		CompetitionSessionID: sessionID,
+		Status:               toStatus,
+		Status_2:             fromStatus,
+		UpdatedAt:            timestamptz(updatedAt),
+	})
 }
 
 func (r *Repository) ListMatchSideSlotsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchSideSlotRecord, error) {
@@ -339,19 +591,43 @@ func (r *Repository) ListMatchSideSlotsBySessionID(ctx context.Context, sessionI
 	return slots, nil
 }
 
-func buildSessionRecord(row store.ApolloCompetitionSession) sessionRecord {
+func createCompetitionMatchWithSideSlotsTx(ctx context.Context, queries *store.Queries, sessionID uuid.UUID, matchIndex int, status string, sideSlots []MatchSideInput) (matchRecord, error) {
+	match, err := queries.CreateCompetitionMatch(ctx, store.CreateCompetitionMatchParams{
+		CompetitionSessionID: sessionID,
+		MatchIndex:           int32(matchIndex),
+		Status:               status,
+	})
+	if err != nil {
+		return matchRecord{}, err
+	}
+
+	for _, sideSlot := range sideSlots {
+		if _, err := queries.CreateCompetitionMatchSideSlot(ctx, store.CreateCompetitionMatchSideSlotParams{
+			CompetitionMatchID:       match.ID,
+			CompetitionSessionTeamID: sideSlot.TeamID,
+			SideIndex:                int32(sideSlot.SideIndex),
+		}); err != nil {
+			return matchRecord{}, err
+		}
+	}
+
+	return buildMatchRecord(match), nil
+}
+
+func buildSessionRecordValues(id uuid.UUID, ownerUserID uuid.UUID, displayName string, sportKey string, facilityKey string, zoneKey *string, participantsPerSide int32, queueVersion int32, status string, createdAt pgtype.Timestamptz, updatedAt pgtype.Timestamptz, archivedAt pgtype.Timestamptz) sessionRecord {
 	return sessionRecord{
-		ID:                  row.ID,
-		OwnerUserID:         row.OwnerUserID,
-		DisplayName:         row.DisplayName,
-		SportKey:            row.SportKey,
-		FacilityKey:         row.FacilityKey,
-		ZoneKey:             row.ZoneKey,
-		ParticipantsPerSide: int(row.ParticipantsPerSide),
-		Status:              row.Status,
-		CreatedAt:           row.CreatedAt.Time.UTC(),
-		UpdatedAt:           row.UpdatedAt.Time.UTC(),
-		ArchivedAt:          timePtr(row.ArchivedAt),
+		ID:                  id,
+		OwnerUserID:         ownerUserID,
+		DisplayName:         displayName,
+		SportKey:            sportKey,
+		FacilityKey:         facilityKey,
+		ZoneKey:             zoneKey,
+		ParticipantsPerSide: int(participantsPerSide),
+		QueueVersion:        int(queueVersion),
+		Status:              status,
+		CreatedAt:           createdAt.Time.UTC(),
+		UpdatedAt:           updatedAt.Time.UTC(),
+		ArchivedAt:          timePtr(archivedAt),
 	}
 }
 
@@ -374,6 +650,10 @@ func buildMatchRecord(row store.ApolloCompetitionMatch) matchRecord {
 		UpdatedAt:  row.UpdatedAt.Time.UTC(),
 		ArchivedAt: timePtr(row.ArchivedAt),
 	}
+}
+
+func timestamptz(value time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: value.UTC(), Valid: true}
 }
 
 func timePtr(value pgtype.Timestamptz) *time.Time {

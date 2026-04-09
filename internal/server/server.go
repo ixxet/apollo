@@ -42,6 +42,11 @@ type CompetitionManager interface {
 	ListSessions(ctx context.Context, ownerUserID uuid.UUID) ([]competition.SessionSummary, error)
 	GetSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
 	CreateSession(ctx context.Context, ownerUserID uuid.UUID, input competition.CreateSessionInput) (competition.Session, error)
+	OpenQueue(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
+	AddQueueMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.QueueMemberInput) (competition.Session, error)
+	RemoveQueueMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, userID uuid.UUID) (competition.Session, error)
+	AssignQueue(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.AssignSessionInput) (competition.Session, error)
+	StartSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
 	ArchiveSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
 	CreateTeam(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.CreateTeamInput) (competition.Team, error)
 	RemoveTeam(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID) error
@@ -124,9 +129,17 @@ type createCompetitionTeamRequest struct {
 	SideIndex int `json:"side_index"`
 }
 
+type addCompetitionQueueMemberRequest struct {
+	UserID uuid.UUID `json:"user_id"`
+}
+
 type addCompetitionRosterMemberRequest struct {
 	UserID    uuid.UUID `json:"user_id"`
 	SlotIndex int       `json:"slot_index"`
+}
+
+type assignCompetitionSessionRequest struct {
+	ExpectedQueueVersion int `json:"expected_queue_version"`
 }
 
 type createCompetitionMatchRequest struct {
@@ -322,6 +335,107 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			principal := principalFromContext(r.Context())
 			session, err := deps.Competition.GetSession(r.Context(), principal.UserID, sessionID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/queue/open", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			session, err := deps.Competition.OpenQueue(r.Context(), principal.UserID, sessionID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/queue/members", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request addCompetitionQueueMemberRequest
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			session, err := deps.Competition.AddQueueMember(r.Context(), principal.UserID, sessionID, competition.QueueMemberInput{
+				UserID: request.UserID,
+			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/queue/members/{userID}/remove", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			userID, err := parseUUIDParam(r, "userID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			session, err := deps.Competition.RemoveQueueMember(r.Context(), principal.UserID, sessionID, userID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/assignment", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request assignCompetitionSessionRequest
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			session, err := deps.Competition.AssignQueue(r.Context(), principal.UserID, sessionID, competition.AssignSessionInput{
+				ExpectedQueueVersion: request.ExpectedQueueVersion,
+			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/start", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			session, err := deps.Competition.StartSession(r.Context(), principal.UserID, sessionID)
 			if err != nil {
 				writeCompetitionError(w, err)
 				return
@@ -854,11 +968,23 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrTeamSideIndexInvalid),
 		errors.Is(err, competition.ErrRosterSlotIndexInvalid),
 		errors.Is(err, competition.ErrRosterSlotOutOfRange),
+		errors.Is(err, competition.ErrQueueVersionRequired),
 		errors.Is(err, competition.ErrMatchIndexInvalid),
 		errors.Is(err, competition.ErrMatchSideCountMismatch),
 		errors.Is(err, competition.ErrMatchSideIndexInvalid):
 		writeError(w, http.StatusBadRequest, err)
 	case errors.Is(err, competition.ErrSessionArchived),
+		errors.Is(err, competition.ErrQueueClosed),
+		errors.Is(err, competition.ErrQueueMemberAlreadyJoined),
+		errors.Is(err, competition.ErrQueueMemberNotFound),
+		errors.Is(err, competition.ErrQueueMemberNotJoined),
+		errors.Is(err, competition.ErrQueueMemberIneligible),
+		errors.Is(err, competition.ErrQueueCapacityReached),
+		errors.Is(err, competition.ErrQueueStateStale),
+		errors.Is(err, competition.ErrQueueNotReady),
+		errors.Is(err, competition.ErrQueueNotEmpty),
+		errors.Is(err, competition.ErrExecutionAlreadySeeded),
+		errors.Is(err, competition.ErrInvalidSessionTransition),
 		errors.Is(err, competition.ErrDuplicateSession),
 		errors.Is(err, competition.ErrDuplicateTeam),
 		errors.Is(err, competition.ErrRosterConflict),

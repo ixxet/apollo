@@ -74,6 +74,92 @@ VALUES ($1, $2, $3, $4)
 	}
 }
 
+func TestCompetitionExecutionSchemaSupportsQueueUniquenessAndLifecycleStates(t *testing.T) {
+	ctx := context.Background()
+
+	postgresEnv, err := testutil.StartPostgres(ctx)
+	if err != nil {
+		t.Fatalf("StartPostgres() error = %v", err)
+	}
+	defer func() {
+		if closeErr := postgresEnv.Close(); closeErr != nil {
+			t.Fatalf("Close() error = %v", closeErr)
+		}
+	}()
+
+	if err := testutil.ApplyApolloSchema(ctx, postgresEnv.DB); err != nil {
+		t.Fatalf("ApplyApolloSchema() error = %v", err)
+	}
+
+	ownerUserID := insertCompetitionUser(t, ctx, postgresEnv, "competition-owner-021", "Competition Owner", "competition-owner-021@example.com")
+	memberUserID := insertCompetitionUser(t, ctx, postgresEnv, "competition-member-021", "Competition Member", "competition-member-021@example.com")
+
+	sessionID := insertCompetitionSession(t, ctx, postgresEnv, ownerUserID, "Tracer 21 Queue Session")
+	if _, err := postgresEnv.DB.Exec(ctx, `
+UPDATE apollo.competition_sessions
+SET status = 'queue_open',
+    queue_version = 1
+WHERE id = $1
+`, sessionID); err != nil {
+		t.Fatalf("Exec(update queue_open session) error = %v", err)
+	}
+
+	if _, err := postgresEnv.DB.Exec(ctx, `
+INSERT INTO apollo.competition_session_queue_members (
+    competition_session_id,
+    user_id
+)
+VALUES ($1, $2)
+`, sessionID, memberUserID); err != nil {
+		t.Fatalf("Exec(insert queue member) error = %v", err)
+	}
+
+	_, err = postgresEnv.DB.Exec(ctx, `
+INSERT INTO apollo.competition_session_queue_members (
+    competition_session_id,
+    user_id
+)
+VALUES ($1, $2)
+`, sessionID, memberUserID)
+	if err == nil {
+		t.Fatal("Exec(duplicate queue member) error = nil, want unique violation")
+	}
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("duplicate queue member error = %v, want pg error", err)
+	}
+	if pgErr.ConstraintName != "competition_session_queue_members_pkey" {
+		t.Fatalf("duplicate queue member constraint = %q, want competition_session_queue_members_pkey", pgErr.ConstraintName)
+	}
+
+	if _, err := postgresEnv.DB.Exec(ctx, `
+UPDATE apollo.competition_sessions
+SET status = 'assigned'
+WHERE id = $1
+`, sessionID); err != nil {
+		t.Fatalf("Exec(update assigned session) error = %v", err)
+	}
+	if _, err := postgresEnv.DB.Exec(ctx, `
+UPDATE apollo.competition_sessions
+SET status = 'in_progress'
+WHERE id = $1
+`, sessionID); err != nil {
+		t.Fatalf("Exec(update in_progress session) error = %v", err)
+	}
+
+	if _, err := postgresEnv.DB.Exec(ctx, `
+INSERT INTO apollo.competition_matches (
+    competition_session_id,
+    match_index,
+    status
+)
+VALUES ($1, $2, 'assigned')
+`, sessionID, 1); err != nil {
+		t.Fatalf("Exec(insert assigned match) error = %v", err)
+	}
+}
+
 func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 	ctx := context.Background()
 
@@ -91,7 +177,12 @@ func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 		t.Fatalf("ApplyApolloSchema() error = %v", err)
 	}
 
-	if err := testutil.ApplySQLFiles(ctx, postgresEnv.DB, testutil.RepoFilePath("db", "migrations", "009_competition_container_runtime.down.sql")); err != nil {
+	if err := testutil.ApplySQLFiles(
+		ctx,
+		postgresEnv.DB,
+		testutil.RepoFilePath("db", "migrations", "010_competition_execution_runtime.down.sql"),
+		testutil.RepoFilePath("db", "migrations", "009_competition_container_runtime.down.sql"),
+	); err != nil {
 		t.Fatalf("ApplySQLFiles(down migration) error = %v", err)
 	}
 
@@ -102,6 +193,7 @@ FROM information_schema.tables
 WHERE table_schema = 'apollo'
   AND table_name IN (
     'competition_sessions',
+    'competition_session_queue_members',
     'competition_session_teams',
     'competition_team_roster_members',
     'competition_matches',

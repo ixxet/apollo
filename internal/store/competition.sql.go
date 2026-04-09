@@ -18,7 +18,7 @@ SET status = 'archived',
     archived_at = $2,
     updated_at = $2
 WHERE id = $1
-  AND status = 'draft'
+  AND status IN ('draft', 'assigned', 'in_progress')
 RETURNING id,
           competition_session_id,
           match_index,
@@ -48,14 +48,15 @@ func (q *Queries) ArchiveCompetitionMatch(ctx context.Context, arg ArchiveCompet
 	return i, err
 }
 
-const archiveCompetitionSession = `-- name: ArchiveCompetitionSession :one
+const assignCompetitionSessionFromQueue = `-- name: AssignCompetitionSessionFromQueue :one
 UPDATE apollo.competition_sessions
-SET status = 'archived',
-    archived_at = $3,
-    updated_at = $3
+SET status = 'assigned',
+    queue_version = queue_version + 1,
+    updated_at = $4
 WHERE id = $1
   AND owner_user_id = $2
-  AND status = 'draft'
+  AND status = 'queue_open'
+  AND queue_version = $3
 RETURNING id,
           owner_user_id,
           display_name,
@@ -63,21 +64,43 @@ RETURNING id,
           facility_key,
           zone_key,
           participants_per_side,
+          queue_version,
           status,
           created_at,
           updated_at,
           archived_at
 `
 
-type ArchiveCompetitionSessionParams struct {
-	ID          uuid.UUID
-	OwnerUserID uuid.UUID
-	ArchivedAt  pgtype.Timestamptz
+type AssignCompetitionSessionFromQueueParams struct {
+	ID           uuid.UUID
+	OwnerUserID  uuid.UUID
+	QueueVersion int32
+	UpdatedAt    pgtype.Timestamptz
 }
 
-func (q *Queries) ArchiveCompetitionSession(ctx context.Context, arg ArchiveCompetitionSessionParams) (ApolloCompetitionSession, error) {
-	row := q.db.QueryRow(ctx, archiveCompetitionSession, arg.ID, arg.OwnerUserID, arg.ArchivedAt)
-	var i ApolloCompetitionSession
+type AssignCompetitionSessionFromQueueRow struct {
+	ID                  uuid.UUID
+	OwnerUserID         uuid.UUID
+	DisplayName         string
+	SportKey            string
+	FacilityKey         string
+	ZoneKey             *string
+	ParticipantsPerSide int32
+	QueueVersion        int32
+	Status              string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	ArchivedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) AssignCompetitionSessionFromQueue(ctx context.Context, arg AssignCompetitionSessionFromQueueParams) (AssignCompetitionSessionFromQueueRow, error) {
+	row := q.db.QueryRow(ctx, assignCompetitionSessionFromQueue,
+		arg.ID,
+		arg.OwnerUserID,
+		arg.QueueVersion,
+		arg.UpdatedAt,
+	)
+	var i AssignCompetitionSessionFromQueueRow
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerUserID,
@@ -86,6 +109,69 @@ func (q *Queries) ArchiveCompetitionSession(ctx context.Context, arg ArchiveComp
 		&i.FacilityKey,
 		&i.ZoneKey,
 		&i.ParticipantsPerSide,
+		&i.QueueVersion,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+	)
+	return i, err
+}
+
+const bumpCompetitionSessionQueueVersion = `-- name: BumpCompetitionSessionQueueVersion :one
+UPDATE apollo.competition_sessions
+SET queue_version = queue_version + 1,
+    updated_at = $3
+WHERE id = $1
+  AND owner_user_id = $2
+  AND status = 'queue_open'
+RETURNING id,
+          owner_user_id,
+          display_name,
+          sport_key,
+          facility_key,
+          zone_key,
+          participants_per_side,
+          queue_version,
+          status,
+          created_at,
+          updated_at,
+          archived_at
+`
+
+type BumpCompetitionSessionQueueVersionParams struct {
+	ID          uuid.UUID
+	OwnerUserID uuid.UUID
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type BumpCompetitionSessionQueueVersionRow struct {
+	ID                  uuid.UUID
+	OwnerUserID         uuid.UUID
+	DisplayName         string
+	SportKey            string
+	FacilityKey         string
+	ZoneKey             *string
+	ParticipantsPerSide int32
+	QueueVersion        int32
+	Status              string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	ArchivedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) BumpCompetitionSessionQueueVersion(ctx context.Context, arg BumpCompetitionSessionQueueVersionParams) (BumpCompetitionSessionQueueVersionRow, error) {
+	row := q.db.QueryRow(ctx, bumpCompetitionSessionQueueVersion, arg.ID, arg.OwnerUserID, arg.UpdatedAt)
+	var i BumpCompetitionSessionQueueVersionRow
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.DisplayName,
+		&i.SportKey,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.ParticipantsPerSide,
+		&i.QueueVersion,
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -143,6 +229,19 @@ func (q *Queries) CountCompetitionRosterMembersByTeamID(ctx context.Context, com
 	return count, err
 }
 
+const countCompetitionSessionQueueMembersBySessionID = `-- name: CountCompetitionSessionQueueMembersBySessionID :one
+SELECT count(*)
+FROM apollo.competition_session_queue_members
+WHERE competition_session_id = $1
+`
+
+func (q *Queries) CountCompetitionSessionQueueMembersBySessionID(ctx context.Context, competitionSessionID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countCompetitionSessionQueueMembersBySessionID, competitionSessionID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countDraftCompetitionMatchesBySessionID = `-- name: CountDraftCompetitionMatchesBySessionID :one
 SELECT count(*)
 FROM apollo.competition_matches
@@ -164,7 +263,7 @@ INSERT INTO apollo.competition_matches (
   status,
   updated_at
 )
-VALUES ($1, $2, 'draft', NOW())
+VALUES ($1, $2, $3, NOW())
 RETURNING id,
           competition_session_id,
           match_index,
@@ -177,10 +276,11 @@ RETURNING id,
 type CreateCompetitionMatchParams struct {
 	CompetitionSessionID uuid.UUID
 	MatchIndex           int32
+	Status               string
 }
 
 func (q *Queries) CreateCompetitionMatch(ctx context.Context, arg CreateCompetitionMatchParams) (ApolloCompetitionMatch, error) {
-	row := q.db.QueryRow(ctx, createCompetitionMatch, arg.CompetitionSessionID, arg.MatchIndex)
+	row := q.db.QueryRow(ctx, createCompetitionMatch, arg.CompetitionSessionID, arg.MatchIndex, arg.Status)
 	var i ApolloCompetitionMatch
 	err := row.Scan(
 		&i.ID,
@@ -244,6 +344,7 @@ RETURNING id,
           facility_key,
           zone_key,
           participants_per_side,
+          queue_version,
           status,
           created_at,
           updated_at,
@@ -259,7 +360,22 @@ type CreateCompetitionSessionParams struct {
 	ParticipantsPerSide int32
 }
 
-func (q *Queries) CreateCompetitionSession(ctx context.Context, arg CreateCompetitionSessionParams) (ApolloCompetitionSession, error) {
+type CreateCompetitionSessionRow struct {
+	ID                  uuid.UUID
+	OwnerUserID         uuid.UUID
+	DisplayName         string
+	SportKey            string
+	FacilityKey         string
+	ZoneKey             *string
+	ParticipantsPerSide int32
+	QueueVersion        int32
+	Status              string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	ArchivedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionSession(ctx context.Context, arg CreateCompetitionSessionParams) (CreateCompetitionSessionRow, error) {
 	row := q.db.QueryRow(ctx, createCompetitionSession,
 		arg.OwnerUserID,
 		arg.DisplayName,
@@ -268,7 +384,7 @@ func (q *Queries) CreateCompetitionSession(ctx context.Context, arg CreateCompet
 		arg.ZoneKey,
 		arg.ParticipantsPerSide,
 	)
-	var i ApolloCompetitionSession
+	var i CreateCompetitionSessionRow
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerUserID,
@@ -277,11 +393,37 @@ func (q *Queries) CreateCompetitionSession(ctx context.Context, arg CreateCompet
 		&i.FacilityKey,
 		&i.ZoneKey,
 		&i.ParticipantsPerSide,
+		&i.QueueVersion,
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
 	)
+	return i, err
+}
+
+const createCompetitionSessionQueueMember = `-- name: CreateCompetitionSessionQueueMember :one
+INSERT INTO apollo.competition_session_queue_members (
+  competition_session_id,
+  user_id,
+  joined_at
+)
+VALUES ($1, $2, $3)
+RETURNING competition_session_id,
+          user_id,
+          joined_at
+`
+
+type CreateCompetitionSessionQueueMemberParams struct {
+	CompetitionSessionID uuid.UUID
+	UserID               uuid.UUID
+	JoinedAt             pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionSessionQueueMember(ctx context.Context, arg CreateCompetitionSessionQueueMemberParams) (ApolloCompetitionSessionQueueMember, error) {
+	row := q.db.QueryRow(ctx, createCompetitionSessionQueueMember, arg.CompetitionSessionID, arg.UserID, arg.JoinedAt)
+	var i ApolloCompetitionSessionQueueMember
+	err := row.Scan(&i.CompetitionSessionID, &i.UserID, &i.JoinedAt)
 	return i, err
 }
 
@@ -354,6 +496,38 @@ func (q *Queries) CreateCompetitionTeamRosterMember(ctx context.Context, arg Cre
 	return i, err
 }
 
+const deleteCompetitionSessionQueueMember = `-- name: DeleteCompetitionSessionQueueMember :execrows
+DELETE FROM apollo.competition_session_queue_members
+WHERE competition_session_id = $1
+  AND user_id = $2
+`
+
+type DeleteCompetitionSessionQueueMemberParams struct {
+	CompetitionSessionID uuid.UUID
+	UserID               uuid.UUID
+}
+
+func (q *Queries) DeleteCompetitionSessionQueueMember(ctx context.Context, arg DeleteCompetitionSessionQueueMemberParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCompetitionSessionQueueMember, arg.CompetitionSessionID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteCompetitionSessionQueueMembersBySessionID = `-- name: DeleteCompetitionSessionQueueMembersBySessionID :execrows
+DELETE FROM apollo.competition_session_queue_members
+WHERE competition_session_id = $1
+`
+
+func (q *Queries) DeleteCompetitionSessionQueueMembersBySessionID(ctx context.Context, competitionSessionID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCompetitionSessionQueueMembersBySessionID, competitionSessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteCompetitionSessionTeam = `-- name: DeleteCompetitionSessionTeam :execrows
 DELETE FROM apollo.competition_session_teams
 WHERE id = $1
@@ -422,6 +596,7 @@ SELECT id,
        facility_key,
        zone_key,
        participants_per_side,
+       queue_version,
        status,
        created_at,
        updated_at,
@@ -437,9 +612,24 @@ type GetCompetitionSessionByIDForOwnerParams struct {
 	OwnerUserID uuid.UUID
 }
 
-func (q *Queries) GetCompetitionSessionByIDForOwner(ctx context.Context, arg GetCompetitionSessionByIDForOwnerParams) (ApolloCompetitionSession, error) {
+type GetCompetitionSessionByIDForOwnerRow struct {
+	ID                  uuid.UUID
+	OwnerUserID         uuid.UUID
+	DisplayName         string
+	SportKey            string
+	FacilityKey         string
+	ZoneKey             *string
+	ParticipantsPerSide int32
+	QueueVersion        int32
+	Status              string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	ArchivedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) GetCompetitionSessionByIDForOwner(ctx context.Context, arg GetCompetitionSessionByIDForOwnerParams) (GetCompetitionSessionByIDForOwnerRow, error) {
 	row := q.db.QueryRow(ctx, getCompetitionSessionByIDForOwner, arg.ID, arg.OwnerUserID)
-	var i ApolloCompetitionSession
+	var i GetCompetitionSessionByIDForOwnerRow
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerUserID,
@@ -448,6 +638,7 @@ func (q *Queries) GetCompetitionSessionByIDForOwner(ctx context.Context, arg Get
 		&i.FacilityKey,
 		&i.ZoneKey,
 		&i.ParticipantsPerSide,
+		&i.QueueVersion,
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -556,6 +747,58 @@ func (q *Queries) ListCompetitionMatchesBySessionID(ctx context.Context, competi
 	return items, nil
 }
 
+const listCompetitionSessionQueueMembersBySessionID = `-- name: ListCompetitionSessionQueueMembersBySessionID :many
+SELECT q.competition_session_id,
+       q.user_id,
+       q.joined_at,
+       u.display_name,
+       u.preferences,
+       COALESCE(lm.status, 'not_joined') AS lobby_membership_status
+FROM apollo.competition_session_queue_members AS q
+INNER JOIN apollo.users AS u
+  ON u.id = q.user_id
+LEFT JOIN apollo.lobby_memberships AS lm
+  ON lm.user_id = q.user_id
+WHERE q.competition_session_id = $1
+ORDER BY q.joined_at ASC, q.user_id ASC
+`
+
+type ListCompetitionSessionQueueMembersBySessionIDRow struct {
+	CompetitionSessionID  uuid.UUID
+	UserID                uuid.UUID
+	JoinedAt              pgtype.Timestamptz
+	DisplayName           string
+	Preferences           []byte
+	LobbyMembershipStatus string
+}
+
+func (q *Queries) ListCompetitionSessionQueueMembersBySessionID(ctx context.Context, competitionSessionID uuid.UUID) ([]ListCompetitionSessionQueueMembersBySessionIDRow, error) {
+	rows, err := q.db.Query(ctx, listCompetitionSessionQueueMembersBySessionID, competitionSessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCompetitionSessionQueueMembersBySessionIDRow
+	for rows.Next() {
+		var i ListCompetitionSessionQueueMembersBySessionIDRow
+		if err := rows.Scan(
+			&i.CompetitionSessionID,
+			&i.UserID,
+			&i.JoinedAt,
+			&i.DisplayName,
+			&i.Preferences,
+			&i.LobbyMembershipStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCompetitionSessionTeamsBySessionID = `-- name: ListCompetitionSessionTeamsBySessionID :many
 SELECT id,
        competition_session_id,
@@ -599,6 +842,7 @@ SELECT id,
        facility_key,
        zone_key,
        participants_per_side,
+       queue_version,
        status,
        created_at,
        updated_at,
@@ -608,15 +852,30 @@ WHERE owner_user_id = $1
 ORDER BY created_at DESC, id DESC
 `
 
-func (q *Queries) ListCompetitionSessionsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]ApolloCompetitionSession, error) {
+type ListCompetitionSessionsByOwnerRow struct {
+	ID                  uuid.UUID
+	OwnerUserID         uuid.UUID
+	DisplayName         string
+	SportKey            string
+	FacilityKey         string
+	ZoneKey             *string
+	ParticipantsPerSide int32
+	QueueVersion        int32
+	Status              string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	ArchivedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) ListCompetitionSessionsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]ListCompetitionSessionsByOwnerRow, error) {
 	rows, err := q.db.Query(ctx, listCompetitionSessionsByOwner, ownerUserID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ApolloCompetitionSession
+	var items []ListCompetitionSessionsByOwnerRow
 	for rows.Next() {
-		var i ApolloCompetitionSession
+		var i ListCompetitionSessionsByOwnerRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OwnerUserID,
@@ -625,6 +884,7 @@ func (q *Queries) ListCompetitionSessionsByOwner(ctx context.Context, ownerUserI
 			&i.FacilityKey,
 			&i.ZoneKey,
 			&i.ParticipantsPerSide,
+			&i.QueueVersion,
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -687,4 +947,173 @@ func (q *Queries) ListCompetitionTeamRosterMembersBySessionID(ctx context.Contex
 		return nil, err
 	}
 	return items, nil
+}
+
+const openCompetitionSessionQueue = `-- name: OpenCompetitionSessionQueue :one
+UPDATE apollo.competition_sessions
+SET status = 'queue_open',
+    queue_version = 1,
+    updated_at = $3
+WHERE id = $1
+  AND owner_user_id = $2
+  AND status = 'draft'
+RETURNING id,
+          owner_user_id,
+          display_name,
+          sport_key,
+          facility_key,
+          zone_key,
+          participants_per_side,
+          queue_version,
+          status,
+          created_at,
+          updated_at,
+          archived_at
+`
+
+type OpenCompetitionSessionQueueParams struct {
+	ID          uuid.UUID
+	OwnerUserID uuid.UUID
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type OpenCompetitionSessionQueueRow struct {
+	ID                  uuid.UUID
+	OwnerUserID         uuid.UUID
+	DisplayName         string
+	SportKey            string
+	FacilityKey         string
+	ZoneKey             *string
+	ParticipantsPerSide int32
+	QueueVersion        int32
+	Status              string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	ArchivedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) OpenCompetitionSessionQueue(ctx context.Context, arg OpenCompetitionSessionQueueParams) (OpenCompetitionSessionQueueRow, error) {
+	row := q.db.QueryRow(ctx, openCompetitionSessionQueue, arg.ID, arg.OwnerUserID, arg.UpdatedAt)
+	var i OpenCompetitionSessionQueueRow
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.DisplayName,
+		&i.SportKey,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.ParticipantsPerSide,
+		&i.QueueVersion,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+	)
+	return i, err
+}
+
+const updateCompetitionMatchStatusBySessionID = `-- name: UpdateCompetitionMatchStatusBySessionID :execrows
+UPDATE apollo.competition_matches
+SET status = $2,
+    updated_at = $4,
+    archived_at = CASE
+        WHEN $2 = 'archived' THEN $4
+        ELSE archived_at
+    END
+WHERE competition_session_id = $1
+  AND status = $3
+`
+
+type UpdateCompetitionMatchStatusBySessionIDParams struct {
+	CompetitionSessionID uuid.UUID
+	Status               string
+	Status_2             string
+	UpdatedAt            pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateCompetitionMatchStatusBySessionID(ctx context.Context, arg UpdateCompetitionMatchStatusBySessionIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateCompetitionMatchStatusBySessionID,
+		arg.CompetitionSessionID,
+		arg.Status,
+		arg.Status_2,
+		arg.UpdatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateCompetitionSessionStatus = `-- name: UpdateCompetitionSessionStatus :one
+UPDATE apollo.competition_sessions
+SET status = $3,
+    updated_at = $4,
+    archived_at = CASE
+        WHEN $3 = 'archived' THEN $4
+        ELSE archived_at
+    END
+WHERE id = $1
+  AND owner_user_id = $2
+  AND status = $5
+RETURNING id,
+          owner_user_id,
+          display_name,
+          sport_key,
+          facility_key,
+          zone_key,
+          participants_per_side,
+          queue_version,
+          status,
+          created_at,
+          updated_at,
+          archived_at
+`
+
+type UpdateCompetitionSessionStatusParams struct {
+	ID          uuid.UUID
+	OwnerUserID uuid.UUID
+	Status      string
+	UpdatedAt   pgtype.Timestamptz
+	Status_2    string
+}
+
+type UpdateCompetitionSessionStatusRow struct {
+	ID                  uuid.UUID
+	OwnerUserID         uuid.UUID
+	DisplayName         string
+	SportKey            string
+	FacilityKey         string
+	ZoneKey             *string
+	ParticipantsPerSide int32
+	QueueVersion        int32
+	Status              string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	ArchivedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateCompetitionSessionStatus(ctx context.Context, arg UpdateCompetitionSessionStatusParams) (UpdateCompetitionSessionStatusRow, error) {
+	row := q.db.QueryRow(ctx, updateCompetitionSessionStatus,
+		arg.ID,
+		arg.OwnerUserID,
+		arg.Status,
+		arg.UpdatedAt,
+		arg.Status_2,
+	)
+	var i UpdateCompetitionSessionStatusRow
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.DisplayName,
+		&i.SportKey,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.ParticipantsPerSide,
+		&i.QueueVersion,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+	)
+	return i, err
 }

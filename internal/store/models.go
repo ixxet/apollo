@@ -76,6 +76,13 @@ type ApolloCompetitionSession struct {
 	CreatedAt           pgtype.Timestamptz
 	UpdatedAt           pgtype.Timestamptz
 	ArchivedAt          pgtype.Timestamptz
+	QueueVersion        int32
+}
+
+type ApolloCompetitionSessionQueueMember struct {
+	CompetitionSessionID uuid.UUID
+	UserID               uuid.UUID
+	JoinedAt             pgtype.Timestamptz
 }
 
 type ApolloCompetitionSessionTeam struct {

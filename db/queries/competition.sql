@@ -6,6 +6,7 @@ SELECT id,
        facility_key,
        zone_key,
        participants_per_side,
+       queue_version,
        status,
        created_at,
        updated_at,
@@ -22,6 +23,7 @@ SELECT id,
        facility_key,
        zone_key,
        participants_per_side,
+       queue_version,
        status,
        created_at,
        updated_at,
@@ -50,15 +52,16 @@ RETURNING id,
           facility_key,
           zone_key,
           participants_per_side,
+          queue_version,
           status,
           created_at,
           updated_at,
           archived_at;
 
--- name: ArchiveCompetitionSession :one
+-- name: OpenCompetitionSessionQueue :one
 UPDATE apollo.competition_sessions
-SET status = 'archived',
-    archived_at = $3,
+SET status = 'queue_open',
+    queue_version = 1,
     updated_at = $3
 WHERE id = $1
   AND owner_user_id = $2
@@ -70,6 +73,73 @@ RETURNING id,
           facility_key,
           zone_key,
           participants_per_side,
+          queue_version,
+          status,
+          created_at,
+          updated_at,
+          archived_at;
+
+-- name: UpdateCompetitionSessionStatus :one
+UPDATE apollo.competition_sessions
+SET status = $3,
+    updated_at = $4,
+    archived_at = CASE
+        WHEN $3 = 'archived' THEN $4
+        ELSE archived_at
+    END
+WHERE id = $1
+  AND owner_user_id = $2
+  AND status = $5
+RETURNING id,
+          owner_user_id,
+          display_name,
+          sport_key,
+          facility_key,
+          zone_key,
+          participants_per_side,
+          queue_version,
+          status,
+          created_at,
+          updated_at,
+          archived_at;
+
+-- name: BumpCompetitionSessionQueueVersion :one
+UPDATE apollo.competition_sessions
+SET queue_version = queue_version + 1,
+    updated_at = $3
+WHERE id = $1
+  AND owner_user_id = $2
+  AND status = 'queue_open'
+RETURNING id,
+          owner_user_id,
+          display_name,
+          sport_key,
+          facility_key,
+          zone_key,
+          participants_per_side,
+          queue_version,
+          status,
+          created_at,
+          updated_at,
+          archived_at;
+
+-- name: AssignCompetitionSessionFromQueue :one
+UPDATE apollo.competition_sessions
+SET status = 'assigned',
+    queue_version = queue_version + 1,
+    updated_at = $4
+WHERE id = $1
+  AND owner_user_id = $2
+  AND status = 'queue_open'
+  AND queue_version = $3
+RETURNING id,
+          owner_user_id,
+          display_name,
+          sport_key,
+          facility_key,
+          zone_key,
+          participants_per_side,
+          queue_version,
           status,
           created_at,
           updated_at,
@@ -80,6 +150,46 @@ SELECT count(*)
 FROM apollo.competition_matches
 WHERE competition_session_id = $1
   AND status = 'draft';
+
+-- name: CountCompetitionSessionQueueMembersBySessionID :one
+SELECT count(*)
+FROM apollo.competition_session_queue_members
+WHERE competition_session_id = $1;
+
+-- name: ListCompetitionSessionQueueMembersBySessionID :many
+SELECT q.competition_session_id,
+       q.user_id,
+       q.joined_at,
+       u.display_name,
+       u.preferences,
+       COALESCE(lm.status, 'not_joined') AS lobby_membership_status
+FROM apollo.competition_session_queue_members AS q
+INNER JOIN apollo.users AS u
+  ON u.id = q.user_id
+LEFT JOIN apollo.lobby_memberships AS lm
+  ON lm.user_id = q.user_id
+WHERE q.competition_session_id = $1
+ORDER BY q.joined_at ASC, q.user_id ASC;
+
+-- name: CreateCompetitionSessionQueueMember :one
+INSERT INTO apollo.competition_session_queue_members (
+  competition_session_id,
+  user_id,
+  joined_at
+)
+VALUES ($1, $2, $3)
+RETURNING competition_session_id,
+          user_id,
+          joined_at;
+
+-- name: DeleteCompetitionSessionQueueMember :execrows
+DELETE FROM apollo.competition_session_queue_members
+WHERE competition_session_id = $1
+  AND user_id = $2;
+
+-- name: DeleteCompetitionSessionQueueMembersBySessionID :execrows
+DELETE FROM apollo.competition_session_queue_members
+WHERE competition_session_id = $1;
 
 -- name: ListCompetitionSessionTeamsBySessionID :many
 SELECT id,
@@ -198,7 +308,7 @@ INSERT INTO apollo.competition_matches (
   status,
   updated_at
 )
-VALUES ($1, $2, 'draft', NOW())
+VALUES ($1, $2, $3, NOW())
 RETURNING id,
           competition_session_id,
           match_index,
@@ -213,7 +323,7 @@ SET status = 'archived',
     archived_at = $2,
     updated_at = $2
 WHERE id = $1
-  AND status = 'draft'
+  AND status IN ('draft', 'assigned', 'in_progress')
 RETURNING id,
           competition_session_id,
           match_index,
@@ -221,6 +331,17 @@ RETURNING id,
           created_at,
           updated_at,
           archived_at;
+
+-- name: UpdateCompetitionMatchStatusBySessionID :execrows
+UPDATE apollo.competition_matches
+SET status = $2,
+    updated_at = $4,
+    archived_at = CASE
+        WHEN $2 = 'archived' THEN $4
+        ELSE archived_at
+    END
+WHERE competition_session_id = $1
+  AND status = $3;
 
 -- name: CreateCompetitionMatchSideSlot :one
 INSERT INTO apollo.competition_match_side_slots (

@@ -49,6 +49,7 @@ func TestLobbyMembershipRuntimeDoesNotMutateVisitsWorkoutsRecommendationsOrClaim
 	beforeClaimedTags := countRows(t, env, "apollo.claimed_tags", user.ID)
 	beforePreferences := lookupPreferences(t, env, user.ID)
 	beforeCompetitionSessions := countTableRows(t, env, "apollo.competition_sessions")
+	beforeCompetitionQueueMembers := countTableRows(t, env, "apollo.competition_session_queue_members")
 	beforeCompetitionTeams := countTableRows(t, env, "apollo.competition_session_teams")
 	beforeCompetitionRosterMembers := countTableRows(t, env, "apollo.competition_team_roster_members")
 	beforeCompetitionMatches := countTableRows(t, env, "apollo.competition_matches")
@@ -78,6 +79,9 @@ func TestLobbyMembershipRuntimeDoesNotMutateVisitsWorkoutsRecommendationsOrClaim
 	}
 	if afterCompetitionSessions := countTableRows(t, env, "apollo.competition_sessions"); afterCompetitionSessions != beforeCompetitionSessions {
 		t.Fatalf("competition session count changed from %d to %d after lobby membership transitions", beforeCompetitionSessions, afterCompetitionSessions)
+	}
+	if afterCompetitionQueueMembers := countTableRows(t, env, "apollo.competition_session_queue_members"); afterCompetitionQueueMembers != beforeCompetitionQueueMembers {
+		t.Fatalf("competition queue member count changed from %d to %d after lobby membership transitions", beforeCompetitionQueueMembers, afterCompetitionQueueMembers)
 	}
 	if afterCompetitionTeams := countTableRows(t, env, "apollo.competition_session_teams"); afterCompetitionTeams != beforeCompetitionTeams {
 		t.Fatalf("competition team count changed from %d to %d after lobby membership transitions", beforeCompetitionTeams, afterCompetitionTeams)

@@ -40,6 +40,7 @@ func TestLobbyMatchPreviewRuntimeIsReadOnlyAcrossDomains(t *testing.T) {
 	beforeAresMatches := countTableRows(t, env, "apollo.ares_matches")
 	beforeAresMatchPlayers := countTableRows(t, env, "apollo.ares_match_players")
 	beforeCompetitionSessions := countTableRows(t, env, "apollo.competition_sessions")
+	beforeCompetitionQueueMembers := countTableRows(t, env, "apollo.competition_session_queue_members")
 	beforeCompetitionTeams := countTableRows(t, env, "apollo.competition_session_teams")
 	beforeCompetitionRosterMembers := countTableRows(t, env, "apollo.competition_team_roster_members")
 	beforeCompetitionMatches := countTableRows(t, env, "apollo.competition_matches")
@@ -77,6 +78,9 @@ func TestLobbyMatchPreviewRuntimeIsReadOnlyAcrossDomains(t *testing.T) {
 	}
 	if afterCompetitionSessions := countTableRows(t, env, "apollo.competition_sessions"); afterCompetitionSessions != beforeCompetitionSessions {
 		t.Fatalf("competition session count changed from %d to %d after preview reads", beforeCompetitionSessions, afterCompetitionSessions)
+	}
+	if afterCompetitionQueueMembers := countTableRows(t, env, "apollo.competition_session_queue_members"); afterCompetitionQueueMembers != beforeCompetitionQueueMembers {
+		t.Fatalf("competition queue member count changed from %d to %d after preview reads", beforeCompetitionQueueMembers, afterCompetitionQueueMembers)
 	}
 	if afterCompetitionTeams := countTableRows(t, env, "apollo.competition_session_teams"); afterCompetitionTeams != beforeCompetitionTeams {
 		t.Fatalf("competition team count changed from %d to %d after preview reads", beforeCompetitionTeams, afterCompetitionTeams)

@@ -14,13 +14,20 @@ import (
 
 type stubStore struct {
 	getUserByID              func(ctx context.Context, userID uuid.UUID) (*store.ApolloUser, error)
+	getLobbyMembershipByUser func(ctx context.Context, userID uuid.UUID) (*store.ApolloLobbyMembership, error)
 	getSportConfig           func(ctx context.Context, sportKey string) (*SportConfig, error)
 	listFacilityCapabilities func(ctx context.Context) ([]FacilityCapability, error)
 	listSessionsByOwner      func(ctx context.Context, ownerUserID uuid.UUID) ([]sessionRecord, error)
 	getSessionByIDForOwner   func(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID) (*sessionRecord, error)
 	createSession            func(ctx context.Context, ownerUserID uuid.UUID, input CreateSessionInput) (sessionRecord, error)
-	archiveSession           func(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, archivedAt time.Time) (sessionRecord, error)
+	openQueue                func(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, updatedAt time.Time) (sessionRecord, error)
+	updateSessionStatus      func(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (sessionRecord, error)
+	addQueueMember           func(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, joinedAt time.Time) error
+	removeQueueMember        func(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, updatedAt time.Time) error
+	assignQueue              func(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error)
 	countDraftMatchesByID    func(ctx context.Context, sessionID uuid.UUID) (int64, error)
+	countQueueMembersByID    func(ctx context.Context, sessionID uuid.UUID) (int64, error)
+	listQueueMembersByID     func(ctx context.Context, sessionID uuid.UUID) ([]queueRecord, error)
 	listTeamsBySessionID     func(ctx context.Context, sessionID uuid.UUID) ([]teamRecord, error)
 	getTeamByID              func(ctx context.Context, teamID uuid.UUID) (*teamRecord, error)
 	createTeam               func(ctx context.Context, sessionID uuid.UUID, sideIndex int) (teamRecord, error)
@@ -35,11 +42,16 @@ type stubStore struct {
 	getMatchByID             func(ctx context.Context, matchID uuid.UUID) (*matchRecord, error)
 	createMatchWithSideSlots func(ctx context.Context, sessionID uuid.UUID, matchIndex int, sideSlots []MatchSideInput) (matchRecord, error)
 	archiveMatch             func(ctx context.Context, matchID uuid.UUID, archivedAt time.Time) (matchRecord, error)
+	updateMatchStatusesByID  func(ctx context.Context, sessionID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (int64, error)
 	listMatchSideSlotsByID   func(ctx context.Context, sessionID uuid.UUID) ([]matchSideSlotRecord, error)
 }
 
 func (s stubStore) GetUserByID(ctx context.Context, userID uuid.UUID) (*store.ApolloUser, error) {
 	return s.getUserByID(ctx, userID)
+}
+
+func (s stubStore) GetLobbyMembershipByUserID(ctx context.Context, userID uuid.UUID) (*store.ApolloLobbyMembership, error) {
+	return s.getLobbyMembershipByUser(ctx, userID)
 }
 
 func (s stubStore) GetSportConfig(ctx context.Context, sportKey string) (*SportConfig, error) {
@@ -62,12 +74,36 @@ func (s stubStore) CreateSession(ctx context.Context, ownerUserID uuid.UUID, inp
 	return s.createSession(ctx, ownerUserID, input)
 }
 
-func (s stubStore) ArchiveSession(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, archivedAt time.Time) (sessionRecord, error) {
-	return s.archiveSession(ctx, sessionID, ownerUserID, archivedAt)
+func (s stubStore) OpenQueue(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, updatedAt time.Time) (sessionRecord, error) {
+	return s.openQueue(ctx, sessionID, ownerUserID, updatedAt)
+}
+
+func (s stubStore) UpdateSessionStatus(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (sessionRecord, error) {
+	return s.updateSessionStatus(ctx, sessionID, ownerUserID, fromStatus, toStatus, updatedAt)
+}
+
+func (s stubStore) AddQueueMember(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, joinedAt time.Time) error {
+	return s.addQueueMember(ctx, sessionID, ownerUserID, userID, joinedAt)
+}
+
+func (s stubStore) RemoveQueueMember(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, updatedAt time.Time) error {
+	return s.removeQueueMember(ctx, sessionID, ownerUserID, userID, updatedAt)
+}
+
+func (s stubStore) AssignQueue(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error) {
+	return s.assignQueue(ctx, ownerUserID, session, input, sport, queueMembers, assignedAt)
 }
 
 func (s stubStore) CountDraftMatchesBySessionID(ctx context.Context, sessionID uuid.UUID) (int64, error) {
 	return s.countDraftMatchesByID(ctx, sessionID)
+}
+
+func (s stubStore) CountQueueMembersBySessionID(ctx context.Context, sessionID uuid.UUID) (int64, error) {
+	return s.countQueueMembersByID(ctx, sessionID)
+}
+
+func (s stubStore) ListQueueMembersBySessionID(ctx context.Context, sessionID uuid.UUID) ([]queueRecord, error) {
+	return s.listQueueMembersByID(ctx, sessionID)
 }
 
 func (s stubStore) ListTeamsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]teamRecord, error) {
@@ -126,6 +162,10 @@ func (s stubStore) ArchiveMatch(ctx context.Context, matchID uuid.UUID, archived
 	return s.archiveMatch(ctx, matchID, archivedAt)
 }
 
+func (s stubStore) UpdateMatchStatusesBySessionID(ctx context.Context, sessionID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (int64, error) {
+	return s.updateMatchStatusesByID(ctx, sessionID, fromStatus, toStatus, updatedAt)
+}
+
 func (s stubStore) ListMatchSideSlotsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchSideSlotRecord, error) {
 	return s.listMatchSideSlotsByID(ctx, sessionID)
 }
@@ -139,6 +179,9 @@ func TestAddRosterMemberMapsSchemaUniqueConflictToErrRosterConflict(t *testing.T
 	svc := NewService(stubStore{
 		getUserByID: func(context.Context, uuid.UUID) (*store.ApolloUser, error) {
 			return &store.ApolloUser{ID: memberUserID}, nil
+		},
+		getLobbyMembershipByUser: func(context.Context, uuid.UUID) (*store.ApolloLobbyMembership, error) {
+			return nil, errors.New("unexpected GetLobbyMembershipByUserID call")
 		},
 		getSportConfig: func(context.Context, string) (*SportConfig, error) {
 			return nil, errors.New("unexpected GetSportConfig call")
@@ -160,11 +203,29 @@ func TestAddRosterMemberMapsSchemaUniqueConflictToErrRosterConflict(t *testing.T
 		createSession: func(context.Context, uuid.UUID, CreateSessionInput) (sessionRecord, error) {
 			return sessionRecord{}, errors.New("unexpected CreateSession call")
 		},
-		archiveSession: func(context.Context, uuid.UUID, uuid.UUID, time.Time) (sessionRecord, error) {
-			return sessionRecord{}, errors.New("unexpected ArchiveSession call")
+		openQueue: func(context.Context, uuid.UUID, uuid.UUID, time.Time) (sessionRecord, error) {
+			return sessionRecord{}, errors.New("unexpected OpenQueue call")
+		},
+		updateSessionStatus: func(context.Context, uuid.UUID, uuid.UUID, string, string, time.Time) (sessionRecord, error) {
+			return sessionRecord{}, errors.New("unexpected UpdateSessionStatus call")
+		},
+		addQueueMember: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time) error {
+			return errors.New("unexpected AddQueueMember call")
+		},
+		removeQueueMember: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time) error {
+			return errors.New("unexpected RemoveQueueMember call")
+		},
+		assignQueue: func(context.Context, uuid.UUID, sessionRecord, AssignSessionInput, SportConfig, []queueRecord, time.Time) (sessionRecord, error) {
+			return sessionRecord{}, errors.New("unexpected AssignQueue call")
 		},
 		countDraftMatchesByID: func(context.Context, uuid.UUID) (int64, error) {
 			return 0, errors.New("unexpected CountDraftMatchesBySessionID call")
+		},
+		countQueueMembersByID: func(context.Context, uuid.UUID) (int64, error) {
+			return 0, errors.New("unexpected CountQueueMembersBySessionID call")
+		},
+		listQueueMembersByID: func(context.Context, uuid.UUID) ([]queueRecord, error) {
+			return nil, errors.New("unexpected ListQueueMembersBySessionID call")
 		},
 		listTeamsBySessionID: func(context.Context, uuid.UUID) ([]teamRecord, error) {
 			return nil, errors.New("unexpected ListTeamsBySessionID call")
@@ -210,6 +271,9 @@ func TestAddRosterMemberMapsSchemaUniqueConflictToErrRosterConflict(t *testing.T
 		},
 		archiveMatch: func(context.Context, uuid.UUID, time.Time) (matchRecord, error) {
 			return matchRecord{}, errors.New("unexpected ArchiveMatch call")
+		},
+		updateMatchStatusesByID: func(context.Context, uuid.UUID, string, string, time.Time) (int64, error) {
+			return 0, errors.New("unexpected UpdateMatchStatusesBySessionID call")
 		},
 		listMatchSideSlotsByID: func(context.Context, uuid.UUID) ([]matchSideSlotRecord, error) {
 			return nil, errors.New("unexpected ListMatchSideSlotsBySessionID call")
