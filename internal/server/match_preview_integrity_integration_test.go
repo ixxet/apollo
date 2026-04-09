@@ -39,6 +39,11 @@ func TestLobbyMatchPreviewRuntimeIsReadOnlyAcrossDomains(t *testing.T) {
 	beforeClaimedTags := countRows(t, env, "apollo.claimed_tags", viewer.ID)
 	beforeAresMatches := countTableRows(t, env, "apollo.ares_matches")
 	beforeAresMatchPlayers := countTableRows(t, env, "apollo.ares_match_players")
+	beforeCompetitionSessions := countTableRows(t, env, "apollo.competition_sessions")
+	beforeCompetitionTeams := countTableRows(t, env, "apollo.competition_session_teams")
+	beforeCompetitionRosterMembers := countTableRows(t, env, "apollo.competition_team_roster_members")
+	beforeCompetitionMatches := countTableRows(t, env, "apollo.competition_matches")
+	beforeCompetitionMatchSides := countTableRows(t, env, "apollo.competition_match_side_slots")
 
 	firstResponse := env.doRequest(t, http.MethodGet, "/api/v1/lobby/match-preview", nil, viewerCookie)
 	if firstResponse.Code != http.StatusOK {
@@ -69,6 +74,21 @@ func TestLobbyMatchPreviewRuntimeIsReadOnlyAcrossDomains(t *testing.T) {
 	}
 	if afterAresMatchPlayers := countTableRows(t, env, "apollo.ares_match_players"); afterAresMatchPlayers != beforeAresMatchPlayers {
 		t.Fatalf("ares match player count changed from %d to %d after preview reads", beforeAresMatchPlayers, afterAresMatchPlayers)
+	}
+	if afterCompetitionSessions := countTableRows(t, env, "apollo.competition_sessions"); afterCompetitionSessions != beforeCompetitionSessions {
+		t.Fatalf("competition session count changed from %d to %d after preview reads", beforeCompetitionSessions, afterCompetitionSessions)
+	}
+	if afterCompetitionTeams := countTableRows(t, env, "apollo.competition_session_teams"); afterCompetitionTeams != beforeCompetitionTeams {
+		t.Fatalf("competition team count changed from %d to %d after preview reads", beforeCompetitionTeams, afterCompetitionTeams)
+	}
+	if afterCompetitionRosterMembers := countTableRows(t, env, "apollo.competition_team_roster_members"); afterCompetitionRosterMembers != beforeCompetitionRosterMembers {
+		t.Fatalf("competition roster member count changed from %d to %d after preview reads", beforeCompetitionRosterMembers, afterCompetitionRosterMembers)
+	}
+	if afterCompetitionMatches := countTableRows(t, env, "apollo.competition_matches"); afterCompetitionMatches != beforeCompetitionMatches {
+		t.Fatalf("competition match count changed from %d to %d after preview reads", beforeCompetitionMatches, afterCompetitionMatches)
+	}
+	if afterCompetitionMatchSides := countTableRows(t, env, "apollo.competition_match_side_slots"); afterCompetitionMatchSides != beforeCompetitionMatchSides {
+		t.Fatalf("competition match side count changed from %d to %d after preview reads", beforeCompetitionMatchSides, afterCompetitionMatchSides)
 	}
 
 	if string(firstResponse.Body.Bytes()) != string(secondResponse.Body.Bytes()) {

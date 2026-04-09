@@ -13,13 +13,15 @@ recommendations, and the ARES matchmaking subsystem.
 > preview over explicit lobby membership only, plus the first APOLLO-owned
 > competition substrate with deterministic sport registry reads,
 > facility-sport capability reads, and static sport rules/config for badminton
-> and basketball. APOLLO now proves account
+> and basketball, plus the first APOLLO-owned competition container runtime
+> with authenticated internal HTTP session, team, roster, and match container
+> writes. APOLLO now proves account
 > ownership, signed session handling, the first full visit lifecycle slice, the
 > first real intent-behavior slice, explicit workout-history
 > create/update/finish behavior, one narrow member shell, a deterministic
-> coaching recommendation runtime, a deterministic match preview, and one
-> bounded competition substrate without widening into live orchestration or
-> invitations.
+> coaching recommendation runtime, a deterministic match preview, one bounded
+> competition substrate, and one bounded competition container substrate
+> without widening into live orchestration, queueing, results, or invitations.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -99,6 +101,9 @@ flowchart LR
 | Sport registry read | `apollo sport list --format text|json` | Real | Lists deterministic APOLLO-owned sport definitions for badminton and basketball |
 | Sport detail read | `apollo sport show --sport-key <key> --format text|json` | Real | Returns one sport definition plus its facility-sport capability rows |
 | Facility-sport capability read | `apollo sport capability list [--sport-key ...] [--facility-key ...] --format text|json` | Real | Lists deterministic APOLLO-owned facility-sport capability mappings without scheduling or live availability claims |
+| Competition session list/create | `GET/POST /api/v1/competition/sessions` | Real | Authenticated owner-scoped read/create for APOLLO-local competition session containers |
+| Competition session detail | `GET /api/v1/competition/sessions/{id}` | Real | Authenticated owner-scoped detail for one session container, including teams, roster rows, and match containers |
+| Competition team / roster / match writes | `POST /api/v1/competition/sessions/{id}/teams`, `.../teams/{teamID}/members`, `.../matches`, and archive/remove actions | Real | Authenticated owner-scoped container writes only; no queueing, assignment, results, ratings, standings, or public reads |
 | Event consumer | `apollo serve` with `APOLLO_NATS_URL` | Real | Consumes `athena.identified_presence.arrived` and `athena.identified_presence.departed` from NATS |
 | Recommendation storage | `apollo.recommendations` | Schema authored | Tracer 7 does not persist recommendation reads yet |
 | Match preview runtime | `GET /api/v1/lobby/match-preview` | Real | ARES preview logic is active as a read-only runtime over explicit lobby membership only |
@@ -113,6 +118,7 @@ flowchart LR
 | workout history | staff operations workflows |
 | deterministic recommendation and coaching context | the shared wire contract definitions |
 | sport registry, facility-sport capability, and static sport rules/config | facility hours, closures, scheduling, and live availability |
+| competition session / team / roster / match containers | queueing, assignment, results, ratings, standings, and public competition reads |
 | explicit matchmaking intent and deterministic ARES preview | tool routing, invites, notifications, and global approval policy |
 
 APOLLO owns member intent. That is the key boundary. Presence can affect member
@@ -132,6 +138,7 @@ eligibility, or any social state.
 | `apollo.workouts` and `apollo.exercises` | Real | Stores explicit workout draft and finished history with ordered exercise rows |
 | `apollo.sports` | Real | Stores APOLLO-owned sport definitions and static rule profiles for the current competition substrate line |
 | `apollo.facility_catalog_refs`, `apollo.facility_zone_refs`, `apollo.sport_facility_capabilities`, and `apollo.sport_facility_capability_zones` | Real | Stores bounded facility identifier references plus APOLLO-owned facility-sport support mappings without duplicating ATHENA hours or metadata |
+| `apollo.competition_sessions`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted competition container truth without widening into queueing, results, or standings |
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
 | `apollo.recommendations` | Schema authored | Tracer 7 recommendation reads are derived at read time; persisted recommendation records remain deferred |
 | `users.preferences` JSONB | Real schema, future-heavy use | Intended home for flexible member-intent state such as `visibility_mode` and `availability_mode` |
@@ -155,7 +162,7 @@ eligibility, or any social state.
 | ARES match preview runtime | deterministic read-only preview over explicit lobby membership | Real | `v0.9.0` | Tracer 13 keeps candidate selection explicit, excludes ineligible joined members, and stays read-only |
 | ARES rating engine | OpenSkill | Planned | later than `v0.9.0` | Schema groundwork exists, but the rating and recorded match layer is still deferred |
 | Sport and facility-sport registry | sport catalog, facility-sport capability mapping, and basic sport rules/config for at least two sports | Shipped | `v0.10.0` | CLI-only substrate read over seeded registry tables; deployment truth and public surfaces remain deferred |
-| Team / session substrate | team, roster, session, and match container primitives | Planned | `v0.11.0` | Gives later matchmaking and result lines a real container model |
+| Team / session substrate | session-rooted team, roster, session, and match container primitives | Real | `v0.11.0` | Current local/runtime line adds authenticated internal HTTP container truth without widening into queueing, results, or public standings |
 | Matchmaking lifecycle | queue, assignment, and session lifecycle truth | Planned | `v0.12.0` | Keep it deterministic and bounded before any rivalry or badge logic |
 | Results, ratings, and member stats | result capture, ratings, rudimentary standings, and member profile stats | Planned | `v0.13.0` | Competition truth should exist before public or social surfaces |
 | Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Planned | `v0.14.0` | Lands after the operations/competition base and stays backend/CLI-first |
@@ -255,8 +262,15 @@ exercise, recommendations, or matchmaking.
 - `apollo sport list`, `apollo sport show`, and `apollo sport capability list`
   are real and keep sport identity, facility support, and static rules/config
   deterministic and read-only
-- sport registry reads stay separate from ARES preview, member preferences,
-  ATHENA hours/closures, and any team/session container logic
+- authenticated `GET/POST /api/v1/competition/sessions`, nested team/roster
+  writes, match container writes, and archive/remove actions are real and keep
+  competition session truth separate from auth sessions, lobby membership, and
+  ARES preview
+- competition session writes bind to sport registry and facility capability
+  truth, but do not assume hours, closures, scheduling, or live availability
+- competition team and roster writes remain session-rooted and owner-scoped:
+  they do not create queue state, assignment flow, results, ratings, or public
+  team identity
 - the bounded live cluster deployment now proves APOLLO can boot its schema,
   connect to in-cluster NATS, and persist the live ATHENA identified
   arrival/departure-close boundary into Postgres
@@ -272,8 +286,8 @@ exercise, recommendations, or matchmaking.
 - the live cluster proof is still only the visit-ingest boundary; it does not
   widen APOLLO into a broader product deployment
 - deterministic recommendation reads are now in the active tracer scope
-- the competition substrate surface is CLI-only and read-only: no scheduling,
-  availability, team/session, matchmaking, or public sports reads were added
+- competition container surfaces are authenticated internal HTTP only and stay
+  owner-scoped, local/runtime-only, and separate from the thin member shell
 - recommendation persistence, generated plans, live matchmaking execution,
   invites, and notifications are still outside the active tracer scope
 
@@ -295,8 +309,8 @@ exercise, recommendations, or matchmaking.
   before the planner and deterministic coaching lines are stable
 - letting tap-in imply lobby or matchmaking intent
 - adding invites or match formation before explicit lobby membership is stable
-- widening sport substrate into team/session containers, matchmaking,
-  scheduling, results, ratings, or public standings before later tracers land
+- widening competition containers into matchmaking, scheduling, results,
+  ratings, or public standings before later tracers land
 - adding the recommendation pipeline before workout data exists
 - meaningful frontend widening before the Phase 2 ladder closes cleanly
 
@@ -313,14 +327,14 @@ exercise, recommendations, or matchmaking.
 | `v0.7.0` | `v0.7.0` | Shipped | minimal member web shell over existing APIs | deployment truth, lobby membership, ARES, and generated planning |
 | `v0.8.0` | `v0.8.0` | Shipped | explicit lobby membership runtime | ARES preview, invites, and generated planning |
 | `v0.9.0` | `v0.9.0` | Shipped | first deterministic ARES match preview over explicit lobby membership | assignment, invites, notifications, and live match execution |
+| `v0.10.0` | `v0.10.0` | Shipped | sport registry, facility-sport capability mapping, and static sport rules/config | team/session containers, matchmaking, results, and standings |
+| `v0.11.0` | `v0.11.0` | Current | session-rooted team, roster, session, and match container primitives over authenticated internal HTTP | queueing, assignment, results, ratings, standings, public competition reads, and deployment widening |
 
 ## Planned Release Lines
 
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch if repo-local APOLLO truth ever needed backfilled closeout | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
-| `v0.10.0` | sport registry, facility-sport capability mapping, and basic sport rules/config for at least two sports | keep the line backend-first and bounded | do not widen into matchmaking runtime yet |
-| `v0.11.0` | team, roster, session, and match container primitives | give later matchmaking and result work a real container model | do not widen into public standings |
 | `v0.12.0` | matchmaking / queue / assignment flow and session lifecycle | keep the line deterministic and bounded | do not widen into rivalry or badge logic |
 | `v0.13.0` | result capture, ratings, rudimentary standings, and member profile stats | make competition truth real before any public/social surface | do not widen into a broad public social layer |
 | `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work |
@@ -351,12 +365,13 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 | `internal/visits/` | visit service and repository boundary |
 | `internal/workouts/` | workout repository and service for explicit member-owned workout history |
 | `internal/recommendations/` | deterministic workout recommendation service and repository |
+| `internal/competition/` | session-rooted competition container repository and service over sport/facility truth plus auth ownership |
 | `internal/server/web/` | embedded member-shell HTML, CSS, JS, and browser-side tests for the thin APOLLO web shell |
 | `internal/store/` | sqlc-generated models and query bindings |
 | `internal/sports/` | sport registry and facility-sport capability repository and service |
-| `internal/server/` | health, auth, profile, membership, match preview, workout, recommendation, session middleware, and embedded shell wiring |
-| `db/migrations/` | current schema for users, auth/session state, visits, lobby membership, workouts, sport substrate, ARES, and recommendations |
-| `db/queries/` | checked-in SQL for auth, profile, visit, lobby membership, sport substrate, and match preview operations |
+| `internal/server/` | health, auth, competition, profile, membership, match preview, workout, recommendation, session middleware, and embedded shell wiring |
+| `db/migrations/` | current schema for users, auth/session state, visits, lobby membership, workouts, sport substrate, competition containers, ARES, and recommendations |
+| `db/queries/` | checked-in SQL for auth, competition, profile, visit, lobby membership, sport substrate, and match preview operations |
 | `docs/` | roadmap, ADRs, runbook, growing pains, and diagrams |
 
 ## Deployment Boundary

@@ -117,4 +117,18 @@ WHERE table_schema = 'apollo'
 	if seededCapabilityCount != 2 {
 		t.Fatalf("seeded sport facility capability count = %d, want 2", seededCapabilityCount)
 	}
+
+	var competitionSessionsTableCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.tables
+WHERE table_schema = 'apollo'
+  AND table_name = 'competition_sessions'
+`).Scan(&competitionSessionsTableCount); err != nil {
+		t.Fatalf("count competition_sessions table error = %v", err)
+	}
+
+	if competitionSessionsTableCount != 1 {
+		t.Fatalf("competition_sessions table count = %d, want 1", competitionSessionsTableCount)
+	}
 }

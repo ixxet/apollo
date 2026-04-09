@@ -15,6 +15,7 @@ import (
 
 	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/membership"
 	"github.com/ixxet/apollo/internal/profile"
@@ -35,6 +36,19 @@ type Authenticator interface {
 type Profiler interface {
 	GetProfile(ctx context.Context, userID uuid.UUID) (profile.MemberProfile, error)
 	UpdateProfile(ctx context.Context, userID uuid.UUID, input profile.UpdateInput) (profile.MemberProfile, error)
+}
+
+type CompetitionManager interface {
+	ListSessions(ctx context.Context, ownerUserID uuid.UUID) ([]competition.SessionSummary, error)
+	GetSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
+	CreateSession(ctx context.Context, ownerUserID uuid.UUID, input competition.CreateSessionInput) (competition.Session, error)
+	ArchiveSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
+	CreateTeam(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.CreateTeamInput) (competition.Team, error)
+	RemoveTeam(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID) error
+	AddRosterMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID, input competition.AddRosterMemberInput) (competition.Team, error)
+	RemoveRosterMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID) error
+	CreateMatch(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.CreateMatchInput) (competition.Match, error)
+	ArchiveMatch(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, matchID uuid.UUID) (competition.Match, error)
 }
 
 type EligibilityReader interface {
@@ -66,6 +80,7 @@ type WorkoutManager interface {
 type Dependencies struct {
 	ConsumerEnabled bool
 	Auth            Authenticator
+	Competition     CompetitionManager
 	Profile         Profiler
 	Eligibility     EligibilityReader
 	Membership      MembershipManager
@@ -95,6 +110,28 @@ type startVerificationRequest struct {
 
 type verifyRequest struct {
 	Token string `json:"token"`
+}
+
+type createCompetitionSessionRequest struct {
+	DisplayName         string  `json:"display_name"`
+	SportKey            string  `json:"sport_key"`
+	FacilityKey         string  `json:"facility_key"`
+	ZoneKey             *string `json:"zone_key"`
+	ParticipantsPerSide int     `json:"participants_per_side"`
+}
+
+type createCompetitionTeamRequest struct {
+	SideIndex int `json:"side_index"`
+}
+
+type addCompetitionRosterMemberRequest struct {
+	UserID    uuid.UUID `json:"user_id"`
+	SlotIndex int       `json:"slot_index"`
+}
+
+type createCompetitionMatchRequest struct {
+	MatchIndex int                          `json:"match_index"`
+	SideSlots  []competition.MatchSideInput `json:"side_slots"`
 }
 
 type createWorkoutRequest struct {
@@ -243,6 +280,215 @@ func NewHandler(deps Dependencies) http.Handler {
 				"preview_version", matchPreview.PreviewVersion,
 			)
 			writeJSON(w, http.StatusOK, matchPreview)
+		})
+		authenticated.Get("/api/v1/competition/sessions", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			sessions, err := deps.Competition.ListSessions(r.Context(), principal.UserID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, sessions)
+		})
+		authenticated.Post("/api/v1/competition/sessions", func(w http.ResponseWriter, r *http.Request) {
+			var request createCompetitionSessionRequest
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			session, err := deps.Competition.CreateSession(r.Context(), principal.UserID, competition.CreateSessionInput{
+				DisplayName:         request.DisplayName,
+				SportKey:            request.SportKey,
+				FacilityKey:         request.FacilityKey,
+				ZoneKey:             request.ZoneKey,
+				ParticipantsPerSide: request.ParticipantsPerSide,
+			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, session)
+		})
+		authenticated.Get("/api/v1/competition/sessions/{sessionID}", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			session, err := deps.Competition.GetSession(r.Context(), principal.UserID, sessionID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/archive", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			session, err := deps.Competition.ArchiveSession(r.Context(), principal.UserID, sessionID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request createCompetitionTeamRequest
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			team, err := deps.Competition.CreateTeam(r.Context(), principal.UserID, sessionID, competition.CreateTeamInput{
+				SideIndex: request.SideIndex,
+			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, team)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams/{teamID}/remove", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			teamID, err := parseUUIDParam(r, "teamID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			if err := deps.Competition.RemoveTeam(r.Context(), principal.UserID, sessionID, teamID); err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			w.WriteHeader(http.StatusNoContent)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams/{teamID}/members", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			teamID, err := parseUUIDParam(r, "teamID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request addCompetitionRosterMemberRequest
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			team, err := deps.Competition.AddRosterMember(r.Context(), principal.UserID, sessionID, teamID, competition.AddRosterMemberInput{
+				UserID:    request.UserID,
+				SlotIndex: request.SlotIndex,
+			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, team)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams/{teamID}/members/{userID}/remove", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			teamID, err := parseUUIDParam(r, "teamID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			userID, err := parseUUIDParam(r, "userID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			if err := deps.Competition.RemoveRosterMember(r.Context(), principal.UserID, sessionID, teamID, userID); err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			w.WriteHeader(http.StatusNoContent)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request createCompetitionMatchRequest
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			match, err := deps.Competition.CreateMatch(r.Context(), principal.UserID, sessionID, competition.CreateMatchInput{
+				MatchIndex: request.MatchIndex,
+				SideSlots:  request.SideSlots,
+			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, match)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/archive", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			matchID, err := parseUUIDParam(r, "matchID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			match, err := deps.Competition.ArchiveMatch(r.Context(), principal.UserID, sessionID, matchID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, match)
 		})
 		authenticated.Post("/api/v1/lobby/membership/join", func(w http.ResponseWriter, r *http.Request) {
 			principal := principalFromContext(r.Context())
@@ -590,4 +836,42 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, errorResponse{Error: err.Error()})
+}
+
+func writeCompetitionError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, competition.ErrSessionNotFound),
+		errors.Is(err, competition.ErrTeamNotFound),
+		errors.Is(err, competition.ErrMatchNotFound),
+		errors.Is(err, competition.ErrRosterMemberNotFound),
+		errors.Is(err, competition.ErrUserNotFound),
+		errors.Is(err, competition.ErrSportNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, competition.ErrSessionNameRequired),
+		errors.Is(err, competition.ErrParticipantsPerSide),
+		errors.Is(err, competition.ErrFacilityUnsupported),
+		errors.Is(err, competition.ErrZoneUnsupported),
+		errors.Is(err, competition.ErrTeamSideIndexInvalid),
+		errors.Is(err, competition.ErrRosterSlotIndexInvalid),
+		errors.Is(err, competition.ErrRosterSlotOutOfRange),
+		errors.Is(err, competition.ErrMatchIndexInvalid),
+		errors.Is(err, competition.ErrMatchSideCountMismatch),
+		errors.Is(err, competition.ErrMatchSideIndexInvalid):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, competition.ErrSessionArchived),
+		errors.Is(err, competition.ErrDuplicateSession),
+		errors.Is(err, competition.ErrDuplicateTeam),
+		errors.Is(err, competition.ErrRosterConflict),
+		errors.Is(err, competition.ErrDuplicateRosterSlot),
+		errors.Is(err, competition.ErrTeamReferencedByMatch),
+		errors.Is(err, competition.ErrTeamSizeMismatch),
+		errors.Is(err, competition.ErrDuplicateMatch),
+		errors.Is(err, competition.ErrDuplicateMatchSideIndex),
+		errors.Is(err, competition.ErrDuplicateMatchTeam),
+		errors.Is(err, competition.ErrSessionHasDraftMatches),
+		errors.Is(err, competition.ErrMatchArchived):
+		writeError(w, http.StatusConflict, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
 }

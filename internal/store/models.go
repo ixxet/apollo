@@ -47,6 +47,52 @@ type ApolloClaimedTag struct {
 	ClaimedAt pgtype.Timestamptz
 }
 
+type ApolloCompetitionMatch struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	MatchIndex           int32
+	Status               string
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	ArchivedAt           pgtype.Timestamptz
+}
+
+type ApolloCompetitionMatchSideSlot struct {
+	CompetitionMatchID       uuid.UUID
+	CompetitionSessionTeamID uuid.UUID
+	SideIndex                int32
+	CreatedAt                pgtype.Timestamptz
+}
+
+type ApolloCompetitionSession struct {
+	ID                  uuid.UUID
+	OwnerUserID         uuid.UUID
+	DisplayName         string
+	SportKey            string
+	FacilityKey         string
+	ZoneKey             *string
+	ParticipantsPerSide int32
+	Status              string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	ArchivedAt          pgtype.Timestamptz
+}
+
+type ApolloCompetitionSessionTeam struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	SideIndex            int32
+	CreatedAt            pgtype.Timestamptz
+}
+
+type ApolloCompetitionTeamRosterMember struct {
+	CompetitionSessionID     uuid.UUID
+	CompetitionSessionTeamID uuid.UUID
+	UserID                   uuid.UUID
+	SlotIndex                int32
+	CreatedAt                pgtype.Timestamptz
+}
+
 type ApolloEmailVerificationToken struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID

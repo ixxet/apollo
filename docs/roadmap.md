@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current active line: `v0.10.0`
+Current active line: `v0.11.0`
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -19,6 +19,8 @@ Current active line: `v0.10.0`
 - deterministic read-only ARES match preview is real locally
 - APOLLO-owned sport registry, facility-sport capability mapping, and static
   sport rules/config are shipped through CLI reads
+- authenticated internal HTTP competition session, team, roster, and match
+  container primitives are real locally
 - deployment truth is still narrower than the full product surface
 
 ## Planned Release Lines
@@ -26,7 +28,6 @@ Current active line: `v0.10.0`
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch only if repo-local closure ever needs a backfill | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
-| `v0.11.0` | team, roster, session, and match container primitives | give later matchmaking and result work a real container model | do not widen into public standings |
 | `v0.12.0` | matchmaking / queue / assignment flow and session lifecycle | keep the line deterministic and bounded | do not widen into rivalry or badge logic |
 | `v0.13.0` | result capture, ratings, rudimentary standings, and member profile stats | make competition truth real before any public/social surface | do not widen into a broad public social layer |
 | `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work |
@@ -54,8 +55,8 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 - do not let match preview reads mutate membership, visits, workouts,
   recommendations, or ARES tables
 - do not let visit changes silently affect match preview output
-- do not let sport registry reads widen into team/session, scheduling,
-  matchmaking, results, ratings, or public standings
+- do not let sport registry or competition container reads widen into
+  scheduling, matchmaking, results, ratings, or public standings
 - do not widen deployment truth unless a bounded deployment workstream proves it
 
 ## Tracer / Workstream Ownership

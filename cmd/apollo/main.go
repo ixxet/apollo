@@ -19,6 +19,7 @@ import (
 	dbmigrations "github.com/ixxet/apollo/db/migrations"
 	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/config"
 	"github.com/ixxet/apollo/internal/consumer"
 	"github.com/ixxet/apollo/internal/eligibility"
@@ -184,10 +185,12 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 	matchPreviewService := ares.NewService(ares.NewRepository(pool))
 	recommendationService := recommendations.NewService(recommendations.NewRepository(pool))
 	workoutService := workouts.NewService(workouts.NewRepository(pool))
+	competitionService := competition.NewService(competition.NewRepository(pool))
 
 	return server.Dependencies{
 		ConsumerEnabled: consumerEnabled,
 		Auth:            authService,
+		Competition:     competitionService,
 		Profile:         profileService,
 		Eligibility:     eligibilityService,
 		Membership:      membershipService,

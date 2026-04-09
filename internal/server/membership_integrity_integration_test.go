@@ -48,6 +48,11 @@ func TestLobbyMembershipRuntimeDoesNotMutateVisitsWorkoutsRecommendationsOrClaim
 	beforeWorkouts := countRows(t, env, "apollo.workouts", user.ID)
 	beforeClaimedTags := countRows(t, env, "apollo.claimed_tags", user.ID)
 	beforePreferences := lookupPreferences(t, env, user.ID)
+	beforeCompetitionSessions := countTableRows(t, env, "apollo.competition_sessions")
+	beforeCompetitionTeams := countTableRows(t, env, "apollo.competition_session_teams")
+	beforeCompetitionRosterMembers := countTableRows(t, env, "apollo.competition_team_roster_members")
+	beforeCompetitionMatches := countTableRows(t, env, "apollo.competition_matches")
+	beforeCompetitionMatchSides := countTableRows(t, env, "apollo.competition_match_side_slots")
 
 	joinResponse := env.doRequest(t, http.MethodPost, "/api/v1/lobby/membership/join", nil, cookie)
 	if joinResponse.Code != http.StatusOK {
@@ -70,5 +75,20 @@ func TestLobbyMembershipRuntimeDoesNotMutateVisitsWorkoutsRecommendationsOrClaim
 	}
 	if afterPreferences := lookupPreferences(t, env, user.ID); afterPreferences != beforePreferences {
 		t.Fatalf("preferences changed from %q to %q after lobby membership transitions", beforePreferences, afterPreferences)
+	}
+	if afterCompetitionSessions := countTableRows(t, env, "apollo.competition_sessions"); afterCompetitionSessions != beforeCompetitionSessions {
+		t.Fatalf("competition session count changed from %d to %d after lobby membership transitions", beforeCompetitionSessions, afterCompetitionSessions)
+	}
+	if afterCompetitionTeams := countTableRows(t, env, "apollo.competition_session_teams"); afterCompetitionTeams != beforeCompetitionTeams {
+		t.Fatalf("competition team count changed from %d to %d after lobby membership transitions", beforeCompetitionTeams, afterCompetitionTeams)
+	}
+	if afterCompetitionRosterMembers := countTableRows(t, env, "apollo.competition_team_roster_members"); afterCompetitionRosterMembers != beforeCompetitionRosterMembers {
+		t.Fatalf("competition roster member count changed from %d to %d after lobby membership transitions", beforeCompetitionRosterMembers, afterCompetitionRosterMembers)
+	}
+	if afterCompetitionMatches := countTableRows(t, env, "apollo.competition_matches"); afterCompetitionMatches != beforeCompetitionMatches {
+		t.Fatalf("competition match count changed from %d to %d after lobby membership transitions", beforeCompetitionMatches, afterCompetitionMatches)
+	}
+	if afterCompetitionMatchSides := countTableRows(t, env, "apollo.competition_match_side_slots"); afterCompetitionMatchSides != beforeCompetitionMatchSides {
+		t.Fatalf("competition match side count changed from %d to %d after lobby membership transitions", beforeCompetitionMatchSides, afterCompetitionMatchSides)
 	}
 }
