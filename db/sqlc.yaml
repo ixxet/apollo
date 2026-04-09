@@ -13,6 +13,7 @@ sql:
       - "migrations/008_sport_substrate_runtime.up.sql"
       - "migrations/009_competition_container_runtime.up.sql"
       - "migrations/010_competition_execution_runtime.up.sql"
+      - "migrations/011_competition_history_runtime.up.sql"
     queries: "queries"
     gen:
       go:

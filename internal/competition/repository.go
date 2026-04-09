@@ -56,6 +56,7 @@ func (r *Repository) GetSportConfig(ctx context.Context, sportKey string) (*Spor
 	}
 
 	return &SportConfig{
+		CompetitionMode:        row.CompetitionMode,
 		SportKey:               row.SportKey,
 		SidesPerMatch:          int(row.SidesPerMatch),
 		ParticipantsPerSideMin: int(row.ParticipantsPerSideMin),

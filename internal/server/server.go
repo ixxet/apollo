@@ -41,6 +41,7 @@ type Profiler interface {
 type CompetitionManager interface {
 	ListSessions(ctx context.Context, ownerUserID uuid.UUID) ([]competition.SessionSummary, error)
 	GetSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
+	ListMemberStats(ctx context.Context, userID uuid.UUID) ([]competition.MemberStat, error)
 	CreateSession(ctx context.Context, ownerUserID uuid.UUID, input competition.CreateSessionInput) (competition.Session, error)
 	OpenQueue(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
 	AddQueueMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.QueueMemberInput) (competition.Session, error)
@@ -54,6 +55,7 @@ type CompetitionManager interface {
 	RemoveRosterMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID) error
 	CreateMatch(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.CreateMatchInput) (competition.Match, error)
 	ArchiveMatch(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, matchID uuid.UUID) (competition.Match, error)
+	RecordMatchResult(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, matchID uuid.UUID, input competition.RecordMatchResultInput) (competition.Session, error)
 }
 
 type EligibilityReader interface {
@@ -145,6 +147,10 @@ type assignCompetitionSessionRequest struct {
 type createCompetitionMatchRequest struct {
 	MatchIndex int                          `json:"match_index"`
 	SideSlots  []competition.MatchSideInput `json:"side_slots"`
+}
+
+type recordCompetitionMatchResultRequest struct {
+	Sides []competition.MatchResultSideInput `json:"sides"`
 }
 
 type createWorkoutRequest struct {
@@ -303,6 +309,16 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, sessions)
+		})
+		authenticated.Get("/api/v1/competition/member-stats", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			memberStats, err := deps.Competition.ListMemberStats(r.Context(), principal.UserID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, memberStats)
 		})
 		authenticated.Post("/api/v1/competition/sessions", func(w http.ResponseWriter, r *http.Request) {
 			var request createCompetitionSessionRequest
@@ -603,6 +619,35 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, match)
+		})
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/result", func(w http.ResponseWriter, r *http.Request) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			matchID, err := parseUUIDParam(r, "matchID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request recordCompetitionMatchResultRequest
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			session, err := deps.Competition.RecordMatchResult(r.Context(), principal.UserID, sessionID, matchID, competition.RecordMatchResultInput{
+				Sides: request.Sides,
+			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
 		})
 		authenticated.Post("/api/v1/lobby/membership/join", func(w http.ResponseWriter, r *http.Request) {
 			principal := principalFromContext(r.Context())
@@ -971,7 +1016,11 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrQueueVersionRequired),
 		errors.Is(err, competition.ErrMatchIndexInvalid),
 		errors.Is(err, competition.ErrMatchSideCountMismatch),
-		errors.Is(err, competition.ErrMatchSideIndexInvalid):
+		errors.Is(err, competition.ErrMatchSideIndexInvalid),
+		errors.Is(err, competition.ErrMatchResultSideCount),
+		errors.Is(err, competition.ErrMatchResultSideIndex),
+		errors.Is(err, competition.ErrMatchResultOutcome),
+		errors.Is(err, competition.ErrMatchResultShape):
 		writeError(w, http.StatusBadRequest, err)
 	case errors.Is(err, competition.ErrSessionArchived),
 		errors.Is(err, competition.ErrQueueClosed),
@@ -995,7 +1044,10 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrDuplicateMatchSideIndex),
 		errors.Is(err, competition.ErrDuplicateMatchTeam),
 		errors.Is(err, competition.ErrSessionHasDraftMatches),
-		errors.Is(err, competition.ErrMatchArchived):
+		errors.Is(err, competition.ErrMatchArchived),
+		errors.Is(err, competition.ErrMatchNotInProgress),
+		errors.Is(err, competition.ErrMatchResultRecorded),
+		errors.Is(err, competition.ErrMatchResultTeamMismatch):
 		writeError(w, http.StatusConflict, err)
 	default:
 		writeError(w, http.StatusInternalServerError, err)

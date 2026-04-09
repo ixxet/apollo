@@ -44,6 +44,11 @@ type stubStore struct {
 	archiveMatch             func(ctx context.Context, matchID uuid.UUID, archivedAt time.Time) (matchRecord, error)
 	updateMatchStatusesByID  func(ctx context.Context, sessionID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (int64, error)
 	listMatchSideSlotsByID   func(ctx context.Context, sessionID uuid.UUID) ([]matchSideSlotRecord, error)
+	getMatchResultByID       func(ctx context.Context, matchID uuid.UUID) (*matchResultRecord, error)
+	listMatchResultsByID     func(ctx context.Context, sessionID uuid.UUID) ([]matchResultSideRecord, error)
+	recordMatchResult        func(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error
+	listMemberRatingsByUser  func(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error)
+	listMemberStatRowsByUser func(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error)
 }
 
 func (s stubStore) GetUserByID(ctx context.Context, userID uuid.UUID) (*store.ApolloUser, error) {
@@ -168,6 +173,41 @@ func (s stubStore) UpdateMatchStatusesBySessionID(ctx context.Context, sessionID
 
 func (s stubStore) ListMatchSideSlotsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchSideSlotRecord, error) {
 	return s.listMatchSideSlotsByID(ctx, sessionID)
+}
+
+func (s stubStore) GetMatchResultByMatchID(ctx context.Context, matchID uuid.UUID) (*matchResultRecord, error) {
+	if s.getMatchResultByID == nil {
+		return nil, nil
+	}
+	return s.getMatchResultByID(ctx, matchID)
+}
+
+func (s stubStore) ListMatchResultsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchResultSideRecord, error) {
+	if s.listMatchResultsByID == nil {
+		return nil, nil
+	}
+	return s.listMatchResultsByID(ctx, sessionID)
+}
+
+func (s stubStore) RecordMatchResult(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error {
+	if s.recordMatchResult == nil {
+		return errors.New("unexpected RecordMatchResult call")
+	}
+	return s.recordMatchResult(ctx, ownerUserID, session, sport, match, input, recordedAt)
+}
+
+func (s stubStore) ListMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error) {
+	if s.listMemberRatingsByUser == nil {
+		return nil, nil
+	}
+	return s.listMemberRatingsByUser(ctx, userID)
+}
+
+func (s stubStore) ListMemberStatRowsByUserID(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error) {
+	if s.listMemberStatRowsByUser == nil {
+		return nil, nil
+	}
+	return s.listMemberStatRowsByUser(ctx, userID)
 }
 
 func TestAddRosterMemberMapsSchemaUniqueConflictToErrRosterConflict(t *testing.T) {

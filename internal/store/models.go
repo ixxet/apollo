@@ -57,11 +57,35 @@ type ApolloCompetitionMatch struct {
 	ArchivedAt           pgtype.Timestamptz
 }
 
+type ApolloCompetitionMatchResult struct {
+	CompetitionMatchID uuid.UUID
+	RecordedByUserID   uuid.UUID
+	RecordedAt         pgtype.Timestamptz
+}
+
+type ApolloCompetitionMatchResultSide struct {
+	CompetitionMatchID       uuid.UUID
+	SideIndex                int32
+	CompetitionSessionTeamID uuid.UUID
+	Outcome                  string
+}
+
 type ApolloCompetitionMatchSideSlot struct {
 	CompetitionMatchID       uuid.UUID
 	CompetitionSessionTeamID uuid.UUID
 	SideIndex                int32
 	CreatedAt                pgtype.Timestamptz
+}
+
+type ApolloCompetitionMemberRating struct {
+	UserID        uuid.UUID
+	SportKey      string
+	ModeKey       string
+	Mu            pgtype.Numeric
+	Sigma         pgtype.Numeric
+	MatchesPlayed int32
+	LastPlayed    pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
 }
 
 type ApolloCompetitionSession struct {

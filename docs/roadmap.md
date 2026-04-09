@@ -23,14 +23,20 @@ Latest tagged repo/runtime line: Tracer 21 `v0.12.0`
   container primitives are shipped
 - authenticated internal HTTP competition queue state, deterministic
   assignment, and explicit session lifecycle transitions are shipped
+- authenticated internal HTTP competition result capture, sport-and-mode
+  ratings, session-scoped standings, and self-scoped member stats are
+  closure-clean in repo/runtime on `main` for the `v0.13.0` line
 - deployment truth is still narrower than the full product surface
 
 ## Planned Release Lines
 
+The current repo/runtime closeout line on `main` is Tracer 22 competition
+history for the intended `v0.13.0` release line. Later planned lines begin
+below.
+
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch only if repo-local closure ever needs a backfill | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
-| `v0.13.0` | result capture, ratings, rudimentary standings, and member profile stats | make competition truth real before any public/social surface | do not widen into a broad public social layer |
 | `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work |
 | `v0.15.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
 | `v0.16.0` | explanation, summarization, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
@@ -58,8 +64,8 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 - do not let match preview reads mutate membership, visits, workouts,
   recommendations, ARES tables, or competition execution state
 - do not let visit changes silently affect match preview output
-- do not let competition execution runtime widen into results, ratings,
-  standings, rivalry/badge logic, or public competition reads
+- do not let competition history runtime widen into rivalry/badge logic or
+  public competition reads
 - do not widen deployment truth unless a bounded deployment workstream proves it
 
 ## Tracer / Workstream Ownership

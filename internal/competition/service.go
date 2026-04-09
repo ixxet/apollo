@@ -3,6 +3,7 @@ package competition
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -22,10 +23,12 @@ const (
 	SessionStatusQueueOpen  = "queue_open"
 	SessionStatusAssigned   = "assigned"
 	SessionStatusInProgress = "in_progress"
+	SessionStatusCompleted  = "completed"
 	SessionStatusArchived   = "archived"
 	MatchStatusDraft        = "draft"
 	MatchStatusAssigned     = "assigned"
 	MatchStatusInProgress   = "in_progress"
+	MatchStatusCompleted    = "completed"
 	MatchStatusArchived     = "archived"
 
 	competitionTeamRosterMembersPrimaryKey        = "competition_team_roster_members_pkey"
@@ -75,6 +78,13 @@ var (
 	ErrInvalidSessionTransition = errors.New("competition session transition is invalid")
 	ErrSessionHasDraftMatches   = errors.New("competition session still has draft matches")
 	ErrMatchArchived            = errors.New("competition match is archived")
+	ErrMatchNotInProgress       = errors.New("competition match is not in progress")
+	ErrMatchResultRecorded      = errors.New("competition match result is already recorded")
+	ErrMatchResultSideCount     = errors.New("competition match result side count does not match match side slots")
+	ErrMatchResultSideIndex     = errors.New("competition match result side_index values must be positive and contiguous")
+	ErrMatchResultTeamMismatch  = errors.New("competition match result does not match match side slots")
+	ErrMatchResultOutcome       = errors.New("competition match result outcome is invalid")
+	ErrMatchResultShape         = errors.New("competition match result outcomes are invalid")
 )
 
 type Clock func() time.Time
@@ -111,6 +121,11 @@ type Store interface {
 	ArchiveMatch(ctx context.Context, matchID uuid.UUID, archivedAt time.Time) (matchRecord, error)
 	UpdateMatchStatusesBySessionID(ctx context.Context, sessionID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (int64, error)
 	ListMatchSideSlotsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchSideSlotRecord, error)
+	GetMatchResultByMatchID(ctx context.Context, matchID uuid.UUID) (*matchResultRecord, error)
+	ListMatchResultsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchResultSideRecord, error)
+	RecordMatchResult(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error
+	ListMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error)
+	ListMemberStatRowsByUserID(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error)
 }
 
 type Service struct {
@@ -119,6 +134,7 @@ type Service struct {
 }
 
 type SportConfig struct {
+	CompetitionMode        string
 	SportKey               string
 	SidesPerMatch          int
 	ParticipantsPerSideMin int
@@ -147,9 +163,10 @@ type SessionSummary struct {
 
 type Session struct {
 	SessionSummary
-	Queue   []QueueMember `json:"queue"`
-	Teams   []Team        `json:"teams"`
-	Matches []Match       `json:"matches"`
+	Queue     []QueueMember `json:"queue"`
+	Teams     []Team        `json:"teams"`
+	Matches   []Match       `json:"matches"`
+	Standings []Standing    `json:"standings"`
 }
 
 type QueueMember struct {
@@ -180,12 +197,56 @@ type Match struct {
 	UpdatedAt  time.Time      `json:"updated_at"`
 	ArchivedAt *time.Time     `json:"archived_at,omitempty"`
 	SideSlots  []MatchSideRef `json:"side_slots"`
+	Result     *MatchResult   `json:"result,omitempty"`
 }
 
 type MatchSideRef struct {
 	TeamID    uuid.UUID `json:"team_id"`
 	SideIndex int       `json:"side_index"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type MatchResult struct {
+	CompetitionMatchID uuid.UUID         `json:"competition_match_id"`
+	RecordedByUserID   uuid.UUID         `json:"recorded_by_user_id"`
+	RecordedAt         time.Time         `json:"recorded_at"`
+	Sides              []MatchResultSide `json:"sides"`
+}
+
+type MatchResultSide struct {
+	SideIndex                int       `json:"side_index"`
+	CompetitionSessionTeamID uuid.UUID `json:"competition_session_team_id"`
+	Outcome                  string    `json:"outcome"`
+}
+
+type MatchResultSideInput struct {
+	SideIndex                int       `json:"side_index"`
+	CompetitionSessionTeamID uuid.UUID `json:"competition_session_team_id"`
+	Outcome                  string    `json:"outcome"`
+}
+
+type Standing struct {
+	CompetitionSessionID     uuid.UUID `json:"competition_session_id"`
+	CompetitionSessionTeamID uuid.UUID `json:"competition_session_team_id"`
+	SideIndex                int       `json:"side_index"`
+	Rank                     int       `json:"rank"`
+	MatchesPlayed            int       `json:"matches_played"`
+	Wins                     int       `json:"wins"`
+	Losses                   int       `json:"losses"`
+	Draws                    int       `json:"draws"`
+}
+
+type MemberStat struct {
+	UserID             uuid.UUID  `json:"user_id"`
+	SportKey           string     `json:"sport_key"`
+	ModeKey            string     `json:"mode_key"`
+	MatchesPlayed      int        `json:"matches_played"`
+	Wins               int        `json:"wins"`
+	Losses             int        `json:"losses"`
+	Draws              int        `json:"draws"`
+	LastPlayedAt       *time.Time `json:"last_played_at,omitempty"`
+	CurrentRatingMu    float64    `json:"current_rating_mu"`
+	CurrentRatingSigma float64    `json:"current_rating_sigma"`
 }
 
 type CreateSessionInput struct {
@@ -221,6 +282,10 @@ type AssignSessionInput struct {
 type CreateMatchInput struct {
 	MatchIndex int              `json:"match_index"`
 	SideSlots  []MatchSideInput `json:"side_slots"`
+}
+
+type RecordMatchResultInput struct {
+	Sides []MatchResultSideInput `json:"sides"`
 }
 
 type sessionRecord struct {
@@ -276,6 +341,41 @@ type matchSideSlotRecord struct {
 	TeamID    uuid.UUID
 	SideIndex int
 	CreatedAt time.Time
+}
+
+type matchResultRecord struct {
+	CompetitionMatchID uuid.UUID
+	RecordedByUserID   uuid.UUID
+	RecordedAt         time.Time
+}
+
+type matchResultSideRecord struct {
+	CompetitionMatchID       uuid.UUID
+	RecordedByUserID         uuid.UUID
+	RecordedAt               time.Time
+	SideIndex                int
+	CompetitionSessionTeamID uuid.UUID
+	Outcome                  string
+}
+
+type memberRatingRecord struct {
+	UserID        uuid.UUID
+	SportKey      string
+	ModeKey       string
+	Mu            float64
+	Sigma         float64
+	MatchesPlayed int
+	LastPlayedAt  *time.Time
+	UpdatedAt     time.Time
+}
+
+type memberStatRowRecord struct {
+	SportKey            string
+	CompetitionMode     string
+	SidesPerMatch       int
+	ParticipantsPerSide int
+	RecordedAt          time.Time
+	Outcome             string
 }
 
 func NewService(repository Store) *Service {
@@ -626,6 +726,8 @@ func (s *Service) ArchiveSession(ctx context.Context, ownerUserID uuid.UUID, ses
 		if updatedMatches == 0 {
 			return Session{}, ErrMatchNotFound
 		}
+	case SessionStatusCompleted:
+		// Completed sessions may be archived without mutating completed matches.
 	default:
 		return Session{}, ErrInvalidSessionTransition
 	}
@@ -936,6 +1038,10 @@ func (s *Service) loadSessionDetail(ctx context.Context, session sessionRecord) 
 	if err != nil {
 		return Session{}, err
 	}
+	resultRows, err := s.repository.ListMatchResultsBySessionID(ctx, session.ID)
+	if err != nil {
+		return Session{}, err
+	}
 
 	teamValues := make([]Team, 0, len(teams))
 	teamIndex := make(map[uuid.UUID]int, len(teams))
@@ -973,6 +1079,7 @@ func (s *Service) loadSessionDetail(ctx context.Context, session sessionRecord) 
 			UpdatedAt:  match.UpdatedAt,
 			ArchivedAt: match.ArchivedAt,
 			SideSlots:  nil,
+			Result:     nil,
 		})
 	}
 	for _, slot := range sideSlots {
@@ -985,6 +1092,14 @@ func (s *Service) loadSessionDetail(ctx context.Context, session sessionRecord) 
 			SideIndex: slot.SideIndex,
 			CreatedAt: slot.CreatedAt,
 		})
+	}
+	matchResults := buildMatchResults(resultRows)
+	for matchID, result := range matchResults {
+		index, exists := matchIndex[matchID]
+		if !exists {
+			continue
+		}
+		matchValues[index].Result = result
 	}
 
 	queueValues := make([]QueueMember, 0, len(queueRows))
@@ -1001,6 +1116,7 @@ func (s *Service) loadSessionDetail(ctx context.Context, session sessionRecord) 
 		Queue:          queueValues,
 		Teams:          teamValues,
 		Matches:        matchValues,
+		Standings:      buildStandings(session.ID, teamValues, matchResults),
 	}, nil
 }
 
@@ -1107,6 +1223,10 @@ func buildSessionSummary(session sessionRecord) SessionSummary {
 		UpdatedAt:           session.UpdatedAt,
 		ArchivedAt:          session.ArchivedAt,
 	}
+}
+
+func buildModeKey(competitionMode string, sidesPerMatch int, participantsPerSide int) string {
+	return fmt.Sprintf("%s:s%d-p%d", competitionMode, sidesPerMatch, participantsPerSide)
 }
 
 func validateMatchSideInputs(sideSlots []MatchSideInput) error {

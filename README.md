@@ -165,11 +165,11 @@ eligibility, or any social state.
 | Minimal member web shell | embedded HTML/CSS/JS over existing APIs | Real | `v0.7.0` | Tracer 11 keeps the UI thin, leaves workout state transitions backend-authoritative, and now maps total bootstrap or refresh network failure into explicit recoverable error UI |
 | Lobby membership runtime | explicit member-scoped membership state | Real | `v0.8.0` | Tracer 12 keeps membership server-authoritative, durable, and separate from eligibility and visits |
 | ARES match preview runtime | deterministic read-only preview over explicit lobby membership | Real | `v0.9.0` | Tracer 13 keeps candidate selection explicit, excludes ineligible joined members, and stays read-only |
-| ARES rating engine | OpenSkill | Planned | later than `v0.9.0` | Schema groundwork exists, but the rating and recorded match layer is still deferred |
+| ARES rating engine | preview-only historical groundwork | Deferred | later than `v0.13.0` | Tracer 22 keeps competition history in the competition runtime and leaves ARES read-only |
 | Sport and facility-sport registry | sport catalog, facility-sport capability mapping, and basic sport rules/config for at least two sports | Shipped | `v0.10.0` | CLI-only substrate read over seeded registry tables; deployment truth and public surfaces remain deferred |
 | Team / session substrate | session-rooted team, roster, session, and match container primitives | Shipped | `v0.11.0` | Tracer 20 settled the bounded competition container model before execution widening |
 | Matchmaking lifecycle | queue, assignment, and session lifecycle truth | Shipped | `v0.12.0` | Tagged Tracer 21 release line adds authenticated internal HTTP execution truth without widening into results, rivalry, badges, or public reads |
-| Results, ratings, and member stats | result capture, ratings, rudimentary standings, and member profile stats | Planned | `v0.13.0` | Competition truth should exist before public or social surfaces |
+| Results, ratings, and member stats | result capture, ratings, session-scoped standings, and member profile stats | Closure-clean on `main` | `v0.13.0` | Competition history is now owner-scoped authenticated internal HTTP/runtime truth while public/social reads and deployed truth remain deferred |
 | Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Planned | `v0.14.0` | Lands after the operations/competition base and stays backend/CLI-first |
 | Deterministic fitness coaching | conservative deterministic recommendation engine plus calorie / macro ranges and low-friction meal logging | Planned | `v0.15.0` | Keep the engine deterministic and explainable before any later helper layer |
 | Explanation and agent-facing helpers | explanation/summarization helpers over deterministic core logic | Deferred | `v0.16.0` | Preserve as future direction without making the helper layer the decision engine |
@@ -303,9 +303,11 @@ exercise, recommendations, or matchmaking.
 - competition execution surfaces are authenticated internal HTTP only and stay
   owner-scoped, local/runtime-only, and separate from the thin member shell
 - ARES preview stays read-only and side-effect free even though real queue,
-  assignment, and lifecycle runtime now exist elsewhere in APOLLO
-- recommendation persistence, generated plans, results, ratings, standings,
-  invites, and notifications are still outside the active tracer scope
+  assignment, lifecycle, and competition-history runtime now exist elsewhere in
+  APOLLO
+- recommendation persistence, generated plans, invites, notifications,
+  rivalry/badge logic, public competition reads, and deployment widening are
+  still outside the active tracer scope
 
 ### Authored in schema, not yet active in runtime
 
@@ -325,8 +327,8 @@ exercise, recommendations, or matchmaking.
   before the planner and deterministic coaching lines are stable
 - letting tap-in imply lobby or matchmaking intent
 - adding invites or match formation before explicit lobby membership is stable
-- widening competition execution runtime into results, ratings, standings,
-  rivalry, badges, or public competition reads before later tracers land
+- widening the competition-history runtime into rivalry, badges, public
+  leaderboards, or public competition reads before later tracers land
 - adding the recommendation pipeline before workout data exists
 - meaningful frontend widening before the Phase 2 ladder closes cleanly
 
@@ -349,10 +351,12 @@ exercise, recommendations, or matchmaking.
 
 ## Planned Release Lines
 
+Current repo/runtime closeout truth on `main` is Tracer 22 competition history on
+the intended `v0.13.0` line. Later planned lines begin below.
+
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch if repo-local APOLLO truth ever needed backfilled closeout | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
-| `v0.13.0` | result capture, ratings, rudimentary standings, and member profile stats | make competition truth real before any public/social surface | do not widen into a broad public social layer |
 | `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work |
 | `v0.15.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
 | `v0.16.0` | explanation, summarization, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
@@ -386,8 +390,8 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 | `internal/store/` | sqlc-generated models and query bindings |
 | `internal/sports/` | sport registry and facility-sport capability repository and service |
 | `internal/server/` | health, auth, competition, profile, membership, match preview, workout, recommendation, session middleware, and embedded shell wiring |
-| `db/migrations/` | current schema for users, auth/session state, visits, lobby membership, workouts, sport substrate, competition execution runtime, ARES, and recommendations |
-| `db/queries/` | checked-in SQL for auth, competition execution, profile, visit, lobby membership, sport substrate, and match preview operations |
+| `db/migrations/` | current schema for users, auth/session state, visits, lobby membership, workouts, sport substrate, competition execution/history runtime, ARES, and recommendations |
+| `db/queries/` | checked-in SQL for auth, competition execution/history, profile, visit, lobby membership, sport substrate, and match preview operations |
 | `docs/` | roadmap, ADRs, runbook, growing pains, and diagrams |
 
 ## Deployment Boundary
@@ -396,10 +400,10 @@ APOLLO owns its runtime, schema, and consumer logic. Infrastructure, GitOps,
 and cluster policy still live outside this repo in the Prometheus/Talos layer.
 Milestone 1.6 already proved one bounded live APOLLO departure-close path; the
 broader auth, eligibility, membership, workout, recommendation, member-shell,
-and competition execution surfaces remain repo-local/runtime truth unless a
-future deployment workstream proves them live. This README is documenting
-APOLLO's internal system logic and product boundary, not the homelab
-substrate.
+competition execution, and competition-history surfaces remain repo-local/runtime
+truth unless a future deployment workstream proves them live. This README is
+documenting APOLLO's internal system logic and product boundary, not the
+homelab substrate.
 
 ## Docs Map
 
@@ -423,6 +427,8 @@ schema design, event-driven ingestion, and a strong boundary between presence,
 profile state, workout history, recommendation logic, and matchmaking intent.
 The current tracer now also proves one bounded competition execution runtime:
 owner-scoped queue state, deterministic assignment into session-bound
-containers, and explicit lifecycle transitions over authenticated internal
-HTTP. The thin member shell remains narrow and separate; results/history/public
-competition truth and deployment widening are still deferred.
+containers, explicit lifecycle transitions, immutable result capture,
+sport-and-mode-scoped ratings, session-scoped standings, and self-scoped member
+stats over authenticated internal HTTP. The thin member shell remains narrow
+and separate; public competition truth, social widening, and deployment
+widening are still deferred.
