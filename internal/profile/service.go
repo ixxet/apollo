@@ -23,15 +23,19 @@ const (
 )
 
 var (
-	ErrNotFound                = errors.New("profile not found")
-	ErrInvalidVisibilityMode   = errors.New("invalid visibility_mode")
-	ErrInvalidAvailabilityMode = errors.New("invalid availability_mode")
-	ErrInvalidGoalKey          = errors.New("invalid coaching_profile.goal_key")
-	ErrInvalidDaysPerWeek      = errors.New("invalid coaching_profile.days_per_week")
-	ErrInvalidSessionMinutes   = errors.New("invalid coaching_profile.session_minutes")
-	ErrInvalidExperienceLevel  = errors.New("invalid coaching_profile.experience_level")
-	ErrInvalidEquipmentKeys    = errors.New("invalid coaching_profile.preferred_equipment_keys")
-	ErrEmptyPatch              = errors.New("profile patch is empty")
+	ErrNotFound                   = errors.New("profile not found")
+	ErrInvalidVisibilityMode      = errors.New("invalid visibility_mode")
+	ErrInvalidAvailabilityMode    = errors.New("invalid availability_mode")
+	ErrInvalidGoalKey             = errors.New("invalid coaching_profile.goal_key")
+	ErrInvalidDaysPerWeek         = errors.New("invalid coaching_profile.days_per_week")
+	ErrInvalidSessionMinutes      = errors.New("invalid coaching_profile.session_minutes")
+	ErrInvalidExperienceLevel     = errors.New("invalid coaching_profile.experience_level")
+	ErrInvalidEquipmentKeys       = errors.New("invalid coaching_profile.preferred_equipment_keys")
+	ErrInvalidDietaryRestrictions = errors.New("invalid nutrition_profile.dietary_restrictions")
+	ErrInvalidCuisinePreferences  = errors.New("invalid nutrition_profile.meal_preference.cuisine_preferences")
+	ErrInvalidBudgetPreference    = errors.New("invalid nutrition_profile.budget_preference")
+	ErrInvalidCookingCapability   = errors.New("invalid nutrition_profile.cooking_capability")
+	ErrEmptyPatch                 = errors.New("profile patch is empty")
 )
 
 type Finder interface {
@@ -45,20 +49,22 @@ type Service struct {
 }
 
 type MemberProfile struct {
-	UserID           uuid.UUID       `json:"user_id"`
-	StudentID        string          `json:"student_id"`
-	DisplayName      string          `json:"display_name"`
-	Email            string          `json:"email"`
-	EmailVerified    bool            `json:"email_verified"`
-	VisibilityMode   string          `json:"visibility_mode"`
-	AvailabilityMode string          `json:"availability_mode"`
-	CoachingProfile  CoachingProfile `json:"coaching_profile"`
+	UserID           uuid.UUID        `json:"user_id"`
+	StudentID        string           `json:"student_id"`
+	DisplayName      string           `json:"display_name"`
+	Email            string           `json:"email"`
+	EmailVerified    bool             `json:"email_verified"`
+	VisibilityMode   string           `json:"visibility_mode"`
+	AvailabilityMode string           `json:"availability_mode"`
+	CoachingProfile  CoachingProfile  `json:"coaching_profile"`
+	NutritionProfile NutritionProfile `json:"nutrition_profile"`
 }
 
 type UpdateInput struct {
-	VisibilityMode   *string               `json:"visibility_mode"`
-	AvailabilityMode *string               `json:"availability_mode"`
-	CoachingProfile  *CoachingProfileInput `json:"coaching_profile"`
+	VisibilityMode   *string                `json:"visibility_mode"`
+	AvailabilityMode *string                `json:"availability_mode"`
+	CoachingProfile  *CoachingProfileInput  `json:"coaching_profile"`
+	NutritionProfile *NutritionProfileInput `json:"nutrition_profile"`
 }
 
 type EquipmentResolver interface {
@@ -85,7 +91,7 @@ func (s *Service) GetProfile(ctx context.Context, userID uuid.UUID) (MemberProfi
 }
 
 func (s *Service) UpdateProfile(ctx context.Context, userID uuid.UUID, input UpdateInput) (MemberProfile, error) {
-	if input.VisibilityMode == nil && input.AvailabilityMode == nil && !hasCoachingProfileUpdates(input.CoachingProfile) {
+	if input.VisibilityMode == nil && input.AvailabilityMode == nil && !hasCoachingProfileUpdates(input.CoachingProfile) && !hasNutritionProfileUpdates(input.NutritionProfile) {
 		return MemberProfile{}, ErrEmptyPatch
 	}
 
@@ -119,6 +125,13 @@ func (s *Service) UpdateProfile(ctx context.Context, userID uuid.UUID, input Upd
 		}
 		preferences["coaching_profile"] = updatedProfile
 	}
+	if hasNutritionProfileUpdates(input.NutritionProfile) {
+		updatedProfile, err := s.mergeNutritionProfile(preferences["nutrition_profile"], *input.NutritionProfile)
+		if err != nil {
+			return MemberProfile{}, err
+		}
+		preferences["nutrition_profile"] = updatedProfile
+	}
 
 	encodedPreferences, err := json.Marshal(preferences)
 	if err != nil {
@@ -145,6 +158,7 @@ func buildProfile(user store.ApolloUser) MemberProfile {
 		VisibilityMode:   modes.VisibilityMode,
 		AvailabilityMode: modes.AvailabilityMode,
 		CoachingProfile:  ReadCoachingProfile(user.Preferences),
+		NutritionProfile: ReadNutritionProfile(user.Preferences),
 	}
 }
 
@@ -171,6 +185,13 @@ func hasCoachingProfileUpdates(input *CoachingProfileInput) bool {
 		return false
 	}
 	return input.GoalKey != nil || input.DaysPerWeek != nil || input.SessionMinutes != nil || input.ExperienceLevel != nil || input.PreferredEquipmentKeys != nil
+}
+
+func hasNutritionProfileUpdates(input *NutritionProfileInput) bool {
+	if input == nil {
+		return false
+	}
+	return input.DietaryRestrictions != nil || input.MealPreference != nil || input.BudgetPreference != nil || input.CookingCapability != nil
 }
 
 func (s *Service) mergeCoachingProfile(ctx context.Context, current any, input CoachingProfileInput) (map[string]any, error) {
@@ -236,4 +257,97 @@ func (s *Service) mergeCoachingProfile(ctx context.Context, current any, input C
 	}
 
 	return merged, nil
+}
+
+func (s *Service) mergeNutritionProfile(current any, input NutritionProfileInput) (map[string]any, error) {
+	merged := map[string]any{}
+	if currentMap, ok := current.(map[string]any); ok {
+		for key, value := range currentMap {
+			merged[key] = value
+		}
+	}
+
+	if input.DietaryRestrictions != nil {
+		restrictions := normalizeStringSlice(*input.DietaryRestrictions)
+		if !areValidDietaryRestrictions(restrictions) {
+			return nil, ErrInvalidDietaryRestrictions
+		}
+		merged["dietary_restrictions"] = restrictions
+	}
+	if input.MealPreference != nil {
+		mealPreference, err := mergeMealPreference(merged["meal_preference"], *input.MealPreference)
+		if err != nil {
+			return nil, err
+		}
+		merged["meal_preference"] = mealPreference
+	}
+	if input.BudgetPreference != nil {
+		budgetPreference := strings.TrimSpace(*input.BudgetPreference)
+		if !isValidBudgetPreference(budgetPreference) {
+			return nil, ErrInvalidBudgetPreference
+		}
+		merged["budget_preference"] = budgetPreference
+	}
+	if input.CookingCapability != nil {
+		cookingCapability := strings.TrimSpace(*input.CookingCapability)
+		if !isValidCookingCapability(cookingCapability) {
+			return nil, ErrInvalidCookingCapability
+		}
+		merged["cooking_capability"] = cookingCapability
+	}
+
+	return merged, nil
+}
+
+func mergeMealPreference(current any, input MealPreferenceInput) (map[string]any, error) {
+	merged := map[string]any{}
+	if currentMap, ok := current.(map[string]any); ok {
+		for key, value := range currentMap {
+			merged[key] = value
+		}
+	}
+
+	if input.CuisinePreferences != nil {
+		values := normalizeStringSlice(*input.CuisinePreferences)
+		for _, value := range values {
+			if !goalKeyPattern.MatchString(value) {
+				return nil, ErrInvalidCuisinePreferences
+			}
+		}
+		merged["cuisine_preferences"] = values
+	}
+
+	return merged, nil
+}
+
+func normalizeStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := strings.TrimSpace(value)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+
+	return result
+}
+
+func areValidDietaryRestrictions(values []string) bool {
+	for _, value := range values {
+		if !isValidDietaryRestriction(value) {
+			return false
+		}
+	}
+
+	return !hasConflictingDietPatterns(values)
 }

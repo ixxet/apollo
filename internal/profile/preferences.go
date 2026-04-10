@@ -23,6 +23,28 @@ type CoachingProfile struct {
 	PreferredEquipmentKeys []string `json:"preferred_equipment_keys,omitempty"`
 }
 
+type MealPreference struct {
+	CuisinePreferences []string `json:"cuisine_preferences,omitempty"`
+}
+
+type MealPreferenceInput struct {
+	CuisinePreferences *[]string `json:"cuisine_preferences"`
+}
+
+type NutritionProfile struct {
+	DietaryRestrictions []string       `json:"dietary_restrictions,omitempty"`
+	MealPreference      MealPreference `json:"meal_preference,omitempty"`
+	BudgetPreference    *string        `json:"budget_preference,omitempty"`
+	CookingCapability   *string        `json:"cooking_capability,omitempty"`
+}
+
+type NutritionProfileInput struct {
+	DietaryRestrictions *[]string            `json:"dietary_restrictions"`
+	MealPreference      *MealPreferenceInput `json:"meal_preference"`
+	BudgetPreference    *string              `json:"budget_preference"`
+	CookingCapability   *string              `json:"cooking_capability"`
+}
+
 type CoachingProfileInput struct {
 	GoalKey                *string   `json:"goal_key"`
 	DaysPerWeek            *int      `json:"days_per_week"`
@@ -122,6 +144,49 @@ func ReadCoachingProfile(raw []byte) CoachingProfile {
 	return profile
 }
 
+func ReadNutritionProfile(raw []byte) NutritionProfile {
+	preferences := decodePreferences(raw)
+	rawProfile, ok := preferences["nutrition_profile"]
+	if !ok {
+		return NutritionProfile{}
+	}
+
+	asMap, ok := rawProfile.(map[string]any)
+	if !ok {
+		return NutritionProfile{}
+	}
+
+	profile := NutritionProfile{}
+	if value, ok := asMap["dietary_restrictions"]; ok {
+		if restrictions := normalizeRestrictionEntries(value); len(restrictions) > 0 {
+			profile.DietaryRestrictions = restrictions
+		}
+	}
+	if value, ok := asMap["meal_preference"]; ok {
+		if mealPreference, ok := value.(map[string]any); ok {
+			if cuisines := normalizeSlugEntries(mealPreference["cuisine_preferences"]); len(cuisines) > 0 {
+				profile.MealPreference = MealPreference{CuisinePreferences: cuisines}
+			}
+		}
+	}
+	if value, ok := asMap["budget_preference"]; ok {
+		asString, stringOK := value.(string)
+		asString = strings.TrimSpace(asString)
+		if stringOK && isValidBudgetPreference(asString) {
+			profile.BudgetPreference = &asString
+		}
+	}
+	if value, ok := asMap["cooking_capability"]; ok {
+		asString, stringOK := value.(string)
+		asString = strings.TrimSpace(asString)
+		if stringOK && isValidCookingCapability(asString) {
+			profile.CookingCapability = &asString
+		}
+	}
+
+	return profile
+}
+
 func decodePreferences(raw []byte) map[string]any {
 	if len(raw) == 0 {
 		return map[string]any{}
@@ -162,4 +227,95 @@ func isValidExperienceLevel(value string) bool {
 	default:
 		return false
 	}
+}
+
+func isValidDietaryRestriction(value string) bool {
+	switch value {
+	case "vegetarian", "vegan", "pescatarian", "halal", "kosher", "gluten_free", "dairy_free", "nut_free", "shellfish_free", "egg_free", "soy_free":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidBudgetPreference(value string) bool {
+	switch value {
+	case "budget_constrained", "moderate", "flexible":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidCookingCapability(value string) bool {
+	switch value {
+	case "no_kitchen", "microwave_only", "basic_kitchen", "full_kitchen":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeRestrictionEntries(raw any) []string {
+	asSlice, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(asSlice))
+	result := make([]string, 0, len(asSlice))
+	for _, entry := range asSlice {
+		asString, stringOK := entry.(string)
+		asString = strings.TrimSpace(asString)
+		if !stringOK || !isValidDietaryRestriction(asString) {
+			continue
+		}
+		if _, exists := seen[asString]; exists {
+			continue
+		}
+		seen[asString] = struct{}{}
+		result = append(result, asString)
+	}
+
+	if hasConflictingDietPatterns(result) {
+		return nil
+	}
+
+	return result
+}
+
+func normalizeSlugEntries(raw any) []string {
+	asSlice, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(asSlice))
+	result := make([]string, 0, len(asSlice))
+	for _, entry := range asSlice {
+		asString, stringOK := entry.(string)
+		asString = strings.TrimSpace(asString)
+		if !stringOK || !goalKeyPattern.MatchString(asString) {
+			continue
+		}
+		if _, exists := seen[asString]; exists {
+			continue
+		}
+		seen[asString] = struct{}{}
+		result = append(result, asString)
+	}
+
+	return result
+}
+
+func hasConflictingDietPatterns(values []string) bool {
+	patterns := make(map[string]struct{}, 3)
+	for _, value := range values {
+		switch value {
+		case "vegetarian", "vegan", "pescatarian":
+			patterns[value] = struct{}{}
+		}
+	}
+
+	return len(patterns) > 1
 }

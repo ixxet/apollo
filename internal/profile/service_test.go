@@ -88,6 +88,44 @@ func TestUpdateProfileValidatesModesWithTableDrivenCoverage(t *testing.T) {
 			expectedErr: ErrInvalidExperienceLevel,
 		},
 		{
+			name: "conflicting dietary restrictions",
+			input: UpdateInput{
+				NutritionProfile: &NutritionProfileInput{
+					DietaryRestrictions: &[]string{"vegetarian", "vegan"},
+				},
+			},
+			expectedErr: ErrInvalidDietaryRestrictions,
+		},
+		{
+			name: "invalid cuisine preferences",
+			input: UpdateInput{
+				NutritionProfile: &NutritionProfileInput{
+					MealPreference: &MealPreferenceInput{
+						CuisinePreferences: &[]string{"not valid"},
+					},
+				},
+			},
+			expectedErr: ErrInvalidCuisinePreferences,
+		},
+		{
+			name: "invalid budget preference",
+			input: UpdateInput{
+				NutritionProfile: &NutritionProfileInput{
+					BudgetPreference: stringPtr("luxury"),
+				},
+			},
+			expectedErr: ErrInvalidBudgetPreference,
+		},
+		{
+			name: "invalid cooking capability",
+			input: UpdateInput{
+				NutritionProfile: &NutritionProfileInput{
+					CookingCapability: stringPtr("chef_kitchen"),
+				},
+			},
+			expectedErr: ErrInvalidCookingCapability,
+		},
+		{
 			name:        "empty patch",
 			input:       UpdateInput{},
 			expectedErr: ErrEmptyPatch,
@@ -220,6 +258,71 @@ func TestUpdateProfileWritesTypedCoachingProfileFields(t *testing.T) {
 	}
 	if coachingProfile["legacy"] != "preserved" {
 		t.Fatalf("legacy = %#v, want preserved", coachingProfile["legacy"])
+	}
+}
+
+func TestUpdateProfileWritesTypedNutritionProfileFields(t *testing.T) {
+	repository := &stubRepository{
+		userToReturn: &store.ApolloUser{
+			ID:          uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+			StudentID:   "student-001",
+			DisplayName: "student-001",
+			Email:       "student@example.com",
+			Preferences: []byte(`{"visibility_mode":"ghost","availability_mode":"with_team","nutrition_profile":{"legacy":"preserved"}}`),
+		},
+		updatedUser: &store.ApolloUser{
+			ID:          uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+			StudentID:   "student-001",
+			DisplayName: "student-001",
+			Email:       "student@example.com",
+			Preferences: []byte(`{"visibility_mode":"ghost","availability_mode":"with_team","nutrition_profile":{"legacy":"preserved","dietary_restrictions":["vegetarian","dairy_free"],"meal_preference":{"cuisine_preferences":["mediterranean","latin-american"]},"budget_preference":"budget_constrained","cooking_capability":"microwave_only"}}`),
+		},
+	}
+	service := NewService(repository, stubEquipmentResolver{})
+
+	profile, err := service.UpdateProfile(context.Background(), uuid.MustParse("11111111-1111-1111-1111-111111111111"), UpdateInput{
+		NutritionProfile: &NutritionProfileInput{
+			DietaryRestrictions: &[]string{" vegetarian ", "dairy_free", "vegetarian"},
+			MealPreference: &MealPreferenceInput{
+				CuisinePreferences: &[]string{" mediterranean ", "latin-american", "mediterranean"},
+			},
+			BudgetPreference:  stringPtr("budget_constrained"),
+			CookingCapability: stringPtr("microwave_only"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile() error = %v", err)
+	}
+	if len(profile.NutritionProfile.DietaryRestrictions) != 2 {
+		t.Fatalf("DietaryRestrictions = %#v, want 2 entries", profile.NutritionProfile.DietaryRestrictions)
+	}
+	if profile.NutritionProfile.BudgetPreference == nil || *profile.NutritionProfile.BudgetPreference != "budget_constrained" {
+		t.Fatalf("BudgetPreference = %#v, want budget_constrained", profile.NutritionProfile.BudgetPreference)
+	}
+	if profile.NutritionProfile.CookingCapability == nil || *profile.NutritionProfile.CookingCapability != "microwave_only" {
+		t.Fatalf("CookingCapability = %#v, want microwave_only", profile.NutritionProfile.CookingCapability)
+	}
+	if len(profile.NutritionProfile.MealPreference.CuisinePreferences) != 2 {
+		t.Fatalf("CuisinePreferences = %#v, want 2 entries", profile.NutritionProfile.MealPreference.CuisinePreferences)
+	}
+
+	var savedPreferences map[string]any
+	if err := json.Unmarshal(repository.updatedPreferences, &savedPreferences); err != nil {
+		t.Fatalf("json.Unmarshal(updatedPreferences) error = %v", err)
+	}
+	nutritionProfile, ok := savedPreferences["nutrition_profile"].(map[string]any)
+	if !ok {
+		t.Fatalf("nutrition_profile = %#v, want object", savedPreferences["nutrition_profile"])
+	}
+	if nutritionProfile["legacy"] != "preserved" {
+		t.Fatalf("legacy = %#v, want preserved", nutritionProfile["legacy"])
+	}
+	mealPreference, ok := nutritionProfile["meal_preference"].(map[string]any)
+	if !ok {
+		t.Fatalf("meal_preference = %#v, want object", nutritionProfile["meal_preference"])
+	}
+	if cuisines, ok := mealPreference["cuisine_preferences"].([]any); !ok || len(cuisines) != 2 {
+		t.Fatalf("cuisine_preferences = %#v, want 2 entries", mealPreference["cuisine_preferences"])
 	}
 }
 
