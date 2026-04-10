@@ -89,7 +89,7 @@ flowchart LR
 | Verification start | `POST /api/v1/auth/verification/start` | Real | Starts registration or passwordless sign-in with student ID + email |
 | Verification consume | `GET/POST /api/v1/auth/verify` | Real | Consumes a stored token, marks it used, verifies email ownership, and issues a signed session cookie |
 | Profile read | `GET /api/v1/profile` | Real | Requires a valid session cookie and returns persisted member profile state |
-| Profile update | `PATCH /api/v1/profile` | Real | Requires a valid session cookie and updates `visibility_mode`, `availability_mode`, and bounded non-medical `coaching_profile` inputs only |
+| Profile update | `PATCH /api/v1/profile` | Real | Requires a valid session cookie and updates `visibility_mode`, `availability_mode`, and bounded non-medical `coaching_profile` inputs only (`goal_key`, `days_per_week`, `session_minutes`, `experience_level`, `preferred_equipment_keys`) |
 | Planner exercise catalog | `GET /api/v1/planner/exercises` | Real | Requires a valid session cookie and returns APOLLO-owned exercise definitions with allowed equipment keys |
 | Planner equipment catalog | `GET /api/v1/planner/equipment` | Real | Requires a valid session cookie and returns APOLLO-owned equipment definitions with one bounded `is_machine` flag |
 | Planner template list/create | `GET/POST /api/v1/planner/templates` | Real | Requires a valid session cookie and returns or creates owner-scoped reusable templates/loadouts |
@@ -105,7 +105,10 @@ flowchart LR
 | Workout detail | `GET /api/v1/workouts/{id}` | Real | Requires a valid session cookie and is owner-scoped |
 | Workout update | `PUT /api/v1/workouts/{id}` | Real | Requires a valid session cookie and replaces draft exercise data while the workout is `in_progress` |
 | Workout finish | `POST /api/v1/workouts/{id}/finish` | Real | Requires a valid session cookie and finishes a non-empty `in_progress` workout |
+| Workout effort feedback | `PUT /api/v1/workouts/{id}/effort-feedback` | Real | Requires a valid session cookie, is owner-scoped, and accepts one bounded effort enum for finished workouts only |
+| Workout recovery feedback | `PUT /api/v1/workouts/{id}/recovery-feedback` | Real | Requires a valid session cookie, is owner-scoped, and accepts one bounded recovery enum for finished workouts only |
 | Workout recommendation | `GET /api/v1/recommendations/workout` | Real | Requires a valid session cookie and returns one deterministic coaching recommendation from explicit workout history |
+| Coaching recommendation | `GET /api/v1/recommendations/coaching?week_start=YYYY-MM-DD` | Real | Requires a valid session cookie and returns deterministic Tracer 24 coaching proposal/explanation output without mutating planner truth |
 | Logout | `POST /api/v1/auth/logout` | Real | Revokes the current server-side session and clears the cookie |
 | Visit readback | `apollo visit list --student-id ... --format text|json` | Real | Lists visit history for a member |
 | Sport registry read | `apollo sport list --format text|json` | Real | Lists deterministic APOLLO-owned sport definitions for badminton and basketball |
@@ -153,6 +156,7 @@ eligibility, or any social state.
 | `apollo.equipment_definitions`, `apollo.exercise_definitions`, and `apollo.exercise_definition_equipment` | Real | Stores APOLLO-owned exercise-library truth separate from workout history |
 | `apollo.workout_templates` and `apollo.workout_template_items` | Real | Stores owner-scoped reusable templates/loadouts with catalog-backed item rows |
 | `apollo.planner_weeks`, `apollo.planner_sessions`, and `apollo.planner_session_items` | Real | Stores week-rooted planner truth separate from workouts, visits, and recommendations |
+| `apollo.workout_effort_feedback` and `apollo.workout_recovery_feedback` | Real | Stores one owner-scoped feedback row per finished workout for deterministic coaching ladder inputs |
 | `apollo.sports` | Real | Stores APOLLO-owned sport definitions and static rule profiles for the current competition substrate line |
 | `apollo.facility_catalog_refs`, `apollo.facility_zone_refs`, `apollo.sport_facility_capabilities`, and `apollo.sport_facility_capability_zones` | Real | Stores bounded facility identifier references plus APOLLO-owned facility-sport support mappings without duplicating ATHENA hours or metadata |
 | `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth without widening into results, ratings, or standings |
@@ -183,7 +187,7 @@ eligibility, or any social state.
 | Matchmaking lifecycle | queue, assignment, and session lifecycle truth | Shipped | `v0.12.0` | Tagged Tracer 21 release line adds authenticated internal HTTP execution truth without widening into results, rivalry, badges, or public reads |
 | Results, ratings, and member stats | result capture, ratings, session-scoped standings, and member profile stats | Closure-clean on `main` | `v0.13.0` | Competition history is now owner-scoped authenticated internal HTTP/runtime truth while public/social reads and deployed truth remain deferred |
 | Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Real on `main` | `v0.14.0` | Tracer 23 keeps the line authenticated/internal, backend-first, and separate from workout history and recommendation logic |
-| Deterministic fitness coaching | conservative deterministic recommendation engine plus calorie / macro ranges and low-friction meal logging | Planned | `v0.15.0` | Keep the engine deterministic and explainable before any later helper layer |
+| Deterministic fitness coaching | conservative deterministic coaching recommendation and structured plan-change proposal over planner/profile/workout truth | Real in local/runtime | `v0.15.0` line | Keep it deterministic, bounded, and side-effect free over planner truth |
 | Explanation and agent-facing helpers | explanation/summarization helpers over deterministic core logic | Deferred | `v0.16.0` | Preserve as future direction without making the helper layer the decision engine |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.16.0` | Not part of Phase 2 |
 
@@ -254,8 +258,17 @@ exercise, recommendations, or matchmaking.
   week-rooted planner truth separate from workouts, recommendations, visits,
   membership, and competition history
 - authenticated `PATCH /api/v1/profile` now supports bounded
-  `coaching_profile.goal_key`, `days_per_week`, `session_minutes`, and
-  `preferred_equipment_keys` writes while preserving unrelated preference data
+  `coaching_profile.goal_key`, `days_per_week`, `session_minutes`,
+  `experience_level`, and `preferred_equipment_keys` writes while preserving
+  unrelated preference data
+- authenticated
+  `PUT /api/v1/workouts/{id}/effort-feedback|recovery-feedback` writes are
+  real, owner-scoped, and restricted to finished workouts with bounded enum
+  payloads
+- authenticated `GET /api/v1/recommendations/coaching?week_start=...` is real
+  and returns deterministic Tracer 24 coaching recommendation output with a
+  response-only structured plan-change proposal and structured explanation
+  evidence over planner/profile/workout truth
 - `GET /`, `GET /app/login`, and protected `GET /app` are real and provide one
   minimal member web shell over the already-real auth, profile, workout, and
   recommendation APIs
@@ -385,8 +398,11 @@ the tagged `v0.14.0` line. Later planned lines begin below.
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch if repo-local APOLLO truth ever needed backfilled closeout | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
 | `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work, workout instantiation, or recommendation logic |
-| `v0.15.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
-| `v0.16.0` | explanation, summarization, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
+| `v0.15.0` | deterministic coaching substrate over planner, profile, and workout history | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
+| `v0.16.0` | conservative nutrition substrate with meal logging and calorie / macro ranges | keep it non-clinical and conservative | do not turn the product into a diet app or diagnostic engine |
+| `v0.17.0` | explanation, summarization, bounded AI helper flows, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
+| `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
+| `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 
 ## Versioning Discipline
 
