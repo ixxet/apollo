@@ -182,6 +182,28 @@ type ApolloLobbyMembership struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
+type ApolloMemberPresenceStreak struct {
+	UserID            uuid.UUID
+	FacilityKey       string
+	CurrentCount      int32
+	CurrentStartDay   pgtype.Date
+	LastCreditedDay   pgtype.Date
+	LastLinkedVisitID uuid.UUID
+	UpdatedAt         pgtype.Timestamptz
+}
+
+type ApolloMemberPresenceStreakEvent struct {
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	FacilityKey string
+	EventKind   string
+	CountBefore int32
+	CountAfter  int32
+	StreakDay   pgtype.Date
+	VisitID     uuid.UUID
+	CreatedAt   pgtype.Timestamptz
+}
+
 type ApolloNutritionMealLog struct {
 	ID               uuid.UUID
 	UserID           uuid.UUID
@@ -305,6 +327,12 @@ type ApolloVisit struct {
 	DepartedAt             pgtype.Timestamptz
 	Metadata               []byte
 	DepartureSourceEventID *string
+}
+
+type ApolloVisitTapLink struct {
+	VisitID      uuid.UUID
+	ClaimedTagID uuid.UUID
+	LinkedAt     pgtype.Timestamptz
 }
 
 type ApolloWorkout struct {
