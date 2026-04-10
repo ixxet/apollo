@@ -292,3 +292,17 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: when richer helper or apply semantics belong to a later tracer, earlier
   deterministic nutrition lines must stay thin instead of borrowing those
   semantics early.
+
+- Symptom: the first Tracer 27 pass was at risk of inventing one global
+  `ambiguous` member-presence state even though APOLLO visit truth is only
+  unique per `(user_id, facility_key)`.
+  Cause: it was tempting to summarize multiple open facilities under one
+  top-level member status, but that would have turned a real facility-scoped
+  edge case into a vague product abstraction.
+  Fix: keep Tracer 27 facility-scoped on purpose: `GET /api/v1/presence`
+  returns one presence/streak block per facility, tap-link rows stay per visit,
+  and streak identity stays per member/facility instead of becoming one global
+  attendance counter.
+  Rule: when physical truth is facility-scoped, the first product-facing
+  presence model must stay facility-scoped too; do not hide multi-facility
+  reality behind one synthesized member singleton.
