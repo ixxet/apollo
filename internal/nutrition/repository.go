@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/ixxet/apollo/internal/store"
 )
@@ -24,6 +26,33 @@ func NewRepository(db store.DBTX) *Repository {
 
 func (r *Repository) ListMealLogs(ctx context.Context, userID uuid.UUID) ([]MealLog, error) {
 	rows, err := r.queries.ListMealLogsByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]MealLog, 0, len(rows))
+	for _, row := range rows {
+		mealLog, err := mealLogFromStore(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, mealLog)
+	}
+	return result, nil
+}
+
+func (r *Repository) ListMealLogsWithinRange(ctx context.Context, userID uuid.UUID, start time.Time, end time.Time) ([]MealLog, error) {
+	rows, err := r.queries.ListMealLogsByUserIDWithinRange(ctx, store.ListMealLogsByUserIDWithinRangeParams{
+		UserID: userID,
+		LoggedAt: pgtype.Timestamptz{
+			Time:  start.UTC(),
+			Valid: true,
+		},
+		LoggedAt_2: pgtype.Timestamptz{
+			Time:  end.UTC(),
+			Valid: true,
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
