@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Latest tagged repo/runtime line: Tracer 23 `v0.14.0`
+Latest tagged repo/runtime line: Tracer 24 `v0.15.0`
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -29,17 +29,20 @@ Latest tagged repo/runtime line: Tracer 23 `v0.14.0`
 - authenticated internal HTTP planner catalog reads, template/loadout writes,
   week-rooted planner writes, and typed non-medical `coaching_profile` inputs
   are real in repo/runtime on `main` for the tagged `v0.14.0` line
-- Tracer 24 deterministic coaching substrate is now real in local/runtime:
-  owner-scoped finished-workout effort/recovery feedback writes plus
-  deterministic coaching recommendation reads over planner/profile/workout
-  truth with structured proposal/explanation output and no planner mutation
+- Tracer 24 deterministic coaching substrate is tagged on the `v0.15.0` line,
+  and `v0.15.1` is the narrow post-closeout hardening patch on that same line
+- Tracer 25 conservative nutrition substrate is now real in local/runtime on
+  `main`: typed non-clinical `nutrition_profile` inputs, owner-scoped meal
+  template and meal-log truth, and deterministic read-only calorie/macro range
+  recommendations over explicit inputs plus recent meal history
 - deployment truth is still narrower than the full product surface
 
 ## Planned Release Lines
 
-The current repo/runtime closeout line on `main` is tagged Tracer 23 planner,
-template/loadout, and profile substrate on the `v0.14.0` release line. The
-remaining pre-`Milestone 2.0` APOLLO substrate lines begin below.
+The current tagged repo/runtime closeout line on `main` is Tracer 24 coaching
+on `v0.15.0`, with `v0.15.1` reserved for the narrow hardening patch on that
+same line. Tracer 25 nutrition substrate is now real locally on the `v0.16.0`
+line, but tag and broader closeout truth still remain separate decisions.
 
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |

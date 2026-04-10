@@ -251,3 +251,30 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: when stressing a shared harness, choose commands that still traverse
   the same setup entrypoint without conflating harness readiness with the
   runner's package-timeout ceiling.
+
+- Symptom: the first Tracer 25 nutrition pass was at risk of turning
+  `users.preferences` into a second untyped runtime store just because Tracer 23
+  had already widened bounded profile inputs there.
+  Cause: `nutrition_profile` belongs next to other declared member intent, which
+  made it tempting to keep meal logs and reusable templates in the same JSONB
+  path for speed.
+  Fix: keep only typed non-clinical nutrition inputs in
+  `users.preferences.nutrition_profile`, but move durable meal template and meal
+  log truth into dedicated nutrition tables with owner-scoped queries and
+  runtime/integrity coverage.
+  Rule: JSON-backed member intent may stay typed and bounded, but any nutrition
+  state that acts like history or reusable runtime truth should graduate into
+  explicit tables instead of hiding in preferences.
+
+- Symptom: Tracer 25 nutrition was at risk of inheriting the richer Tracer 24
+  coaching proposal pattern and overclaiming planner mutation or helper-owned
+  decisioning before those lines were actually in scope.
+  Cause: coaching already had structured proposal and explanation output, so
+  reusing that shape wholesale would have felt consistent even though nutrition
+  was supposed to stay narrower.
+  Fix: keep Tracer 25 nutrition recommendation output read-only and structured:
+  conservative ranges, strategy flags, thin reason/evidence/limitations, and no
+  apply path, no chatbot-first flow, and no opaque model-owned core.
+  Rule: when richer helper or apply semantics belong to a later tracer, earlier
+  deterministic nutrition lines must stay thin instead of borrowing those
+  semantics early.
