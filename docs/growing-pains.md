@@ -222,13 +222,32 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: release-ladder tables are part of repo truth; closeout is not finished
   until README, roadmap, and control-plane docs all say the same thing.
 
-- Symptom: the first repeated `go test -count=5 ./internal/...` Tracer 24 proof
-  pass surfaced a transient Postgres startup connection-refused failure in the
-  integration-heavy server suite.
-  Cause: Docker-backed test startup can still flake under repeated integration
-  load even when the tracer runtime itself is stable.
-  Fix: rerun the exact proof command before treating it as a product regression,
-  and only widen the fix scope if the failure becomes reproducible.
-  Rule: hardening should distinguish environment flakes from deterministic
-  runtime regressions; repeatability matters before a tracer takes on a new
-  code-side fix.
+- Symptom: repeated Docker-backed integration reruns could still fail at
+  `StartPostgres()` with transient `connection refused` errors even though the
+  same APOLLO runtime code would pass on rerun.
+  Cause: the shared Postgres harness relied on an opaque dockertest retry loop,
+  kept an overly aggressive startup cadence, and did not close failed `pgxpool`
+  attempts on each retry before trying again.
+  Fix: replace the opaque retry path with an explicit readiness loop, close
+  failed pool attempts per retry, add a conservative ping timeout and startup
+  budget, and add unit coverage for cleanup and deadline behavior in
+  `internal/testutil`.
+  Rule: repeated Docker-backed integration harnesses need explicit readiness
+  budgets, explicit retry cadence, and per-attempt connection cleanup; do not
+  hide that behavior inside a generic retry helper.
+
+- Symptom: `go test -count=10 ./internal/server` was not a stable stress
+  command for this hardening pass because it could hit Go's default package
+  timeout ceiling while exercising a much broader integration surface than the
+  shared Postgres startup path alone.
+  Cause: `internal/server` reruns compound full HTTP, auth, planner,
+  recommendation, competition, and membership integration work on every pass,
+  so the package-level timeout became a test-runner limit, not direct evidence
+  of product instability.
+  Fix: record the package-timeout ceiling honestly as a stress-command
+  limitation, then stress the same `StartPostgres()` path through repeated
+  representative tests that both enter `newAuthProfileServerEnv()`, which
+  still calls `testutil.StartPostgres()`.
+  Rule: when stressing a shared harness, choose commands that still traverse
+  the same setup entrypoint without conflating harness readiness with the
+  runner's package-timeout ceiling.
