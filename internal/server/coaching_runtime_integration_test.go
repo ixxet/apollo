@@ -136,6 +136,96 @@ func TestCoachingRuntimeFeedbackDrivesBoundedProgressAndRegression(t *testing.T)
 	}
 }
 
+func TestCoachingHelperRuntimeReadWhyAndVariationStayDeterministicAndReadOnly(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	cookie, _ := createVerifiedSessionViaHTTP(t, env, "student-coaching-012", "coaching-012@example.com")
+
+	profilePatchResponse := env.doJSONRequest(t, http.MethodPatch, "/api/v1/profile", `{"coaching_profile":{"goal_key":"build-strength","days_per_week":4,"session_minutes":60,"experience_level":"intermediate"}}`, cookie)
+	if profilePatchResponse.Code != http.StatusOK {
+		t.Fatalf("profilePatchResponse.Code = %d, want %d", profilePatchResponse.Code, http.StatusOK)
+	}
+
+	putWeekResponse := env.doJSONRequest(t, http.MethodPut, "/api/v1/planner/weeks/2026-04-06", `{"sessions":[{"day_index":1,"items":[{"exercise_key":"barbell-back-squat","equipment_key":"barbell","sets":5,"reps":5,"weight_kg":100},{"exercise_key":"push-up","sets":3,"reps":12}]}]}`, cookie)
+	if putWeekResponse.Code != http.StatusOK {
+		t.Fatalf("putWeekResponse.Code = %d, want %d", putWeekResponse.Code, http.StatusOK)
+	}
+	weekBefore := decodeWeekResponse(t, putWeekResponse)
+
+	createWorkoutResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/workouts", `{"notes":"coaching helper runtime"}`, cookie)
+	if createWorkoutResponse.Code != http.StatusCreated {
+		t.Fatalf("createWorkoutResponse.Code = %d, want %d", createWorkoutResponse.Code, http.StatusCreated)
+	}
+	createdWorkout := decodeWorkoutResponse(t, createWorkoutResponse)
+
+	updateWorkoutResponse := env.doJSONRequest(t, http.MethodPut, "/api/v1/workouts/"+createdWorkout.ID.String(), `{"exercises":[{"name":"back squat","sets":5,"reps":5,"weight_kg":100}]}`, cookie)
+	if updateWorkoutResponse.Code != http.StatusOK {
+		t.Fatalf("updateWorkoutResponse.Code = %d, want %d", updateWorkoutResponse.Code, http.StatusOK)
+	}
+	finishWorkoutResponse := env.doRequest(t, http.MethodPost, "/api/v1/workouts/"+createdWorkout.ID.String()+"/finish", nil, cookie)
+	if finishWorkoutResponse.Code != http.StatusOK {
+		t.Fatalf("finishWorkoutResponse.Code = %d, want %d", finishWorkoutResponse.Code, http.StatusOK)
+	}
+	effortResponse := env.doJSONRequest(t, http.MethodPut, "/api/v1/workouts/"+createdWorkout.ID.String()+"/effort-feedback", `{"effort_level":"easy"}`, cookie)
+	if effortResponse.Code != http.StatusOK {
+		t.Fatalf("effortResponse.Code = %d, want %d", effortResponse.Code, http.StatusOK)
+	}
+	recoveryResponse := env.doJSONRequest(t, http.MethodPut, "/api/v1/workouts/"+createdWorkout.ID.String()+"/recovery-feedback", `{"recovery_level":"recovered"}`, cookie)
+	if recoveryResponse.Code != http.StatusOK {
+		t.Fatalf("recoveryResponse.Code = %d, want %d", recoveryResponse.Code, http.StatusOK)
+	}
+
+	firstHelperResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching?week_start=2026-04-06", nil, cookie)
+	if firstHelperResponse.Code != http.StatusOK {
+		t.Fatalf("firstHelperResponse.Code = %d, want %d", firstHelperResponse.Code, http.StatusOK)
+	}
+	firstHelper := decodeCoachingHelperReadResponse(t, firstHelperResponse)
+
+	secondHelperResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching?week_start=2026-04-06", nil, cookie)
+	if secondHelperResponse.Code != http.StatusOK {
+		t.Fatalf("secondHelperResponse.Code = %d, want %d", secondHelperResponse.Code, http.StatusOK)
+	}
+	secondHelper := decodeCoachingHelperReadResponse(t, secondHelperResponse)
+
+	if !reflect.DeepEqual(normalizeCoachingHelperRead(firstHelper), normalizeCoachingHelperRead(secondHelper)) {
+		t.Fatalf("helper reads changed across rerun:\nfirst=%#v\nsecond=%#v", firstHelper, secondHelper)
+	}
+	if firstHelper.PreviewMode != "read_only" {
+		t.Fatalf("PreviewMode = %q, want read_only", firstHelper.PreviewMode)
+	}
+
+	whyResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching/why?week_start=2026-04-06&topic=proposal", nil, cookie)
+	if whyResponse.Code != http.StatusOK {
+		t.Fatalf("whyResponse.Code = %d, want %d", whyResponse.Code, http.StatusOK)
+	}
+	why := decodeCoachingHelperWhyResponse(t, whyResponse)
+	if why.Topic != coaching.WhyTopicProposal {
+		t.Fatalf("why.Topic = %q, want %q", why.Topic, coaching.WhyTopicProposal)
+	}
+
+	variationResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching/variation?week_start=2026-04-06&variation=easier", nil, cookie)
+	if variationResponse.Code != http.StatusOK {
+		t.Fatalf("variationResponse.Code = %d, want %d", variationResponse.Code, http.StatusOK)
+	}
+	variation := decodeCoachingVariationPreviewResponse(t, variationResponse)
+	if variation.BaseKind != coaching.KindProgress {
+		t.Fatalf("variation.BaseKind = %q, want %q", variation.BaseKind, coaching.KindProgress)
+	}
+	if variation.Recommendation.Kind != coaching.KindHold {
+		t.Fatalf("variation.Recommendation.Kind = %q, want %q", variation.Recommendation.Kind, coaching.KindHold)
+	}
+
+	weekAfterResponse := env.doRequest(t, http.MethodGet, "/api/v1/planner/weeks/2026-04-06", nil, cookie)
+	if weekAfterResponse.Code != http.StatusOK {
+		t.Fatalf("weekAfterResponse.Code = %d, want %d", weekAfterResponse.Code, http.StatusOK)
+	}
+	weekAfter := decodeWeekResponse(t, weekAfterResponse)
+	if !reflect.DeepEqual(weekBefore, weekAfter) {
+		t.Fatalf("planner week mutated by coaching helper read:\nbefore=%#v\nafter=%#v", weekBefore, weekAfter)
+	}
+}
+
 func decodeCoachingRecommendationResponse(t *testing.T, response *httptest.ResponseRecorder) coaching.CoachingRecommendation {
 	t.Helper()
 
@@ -146,9 +236,45 @@ func decodeCoachingRecommendationResponse(t *testing.T, response *httptest.Respo
 	return recommendation
 }
 
+func decodeCoachingHelperReadResponse(t *testing.T, response *httptest.ResponseRecorder) coaching.CoachingHelperRead {
+	t.Helper()
+
+	var helperRead coaching.CoachingHelperRead
+	if err := json.Unmarshal(response.Body.Bytes(), &helperRead); err != nil {
+		t.Fatalf("json.Unmarshal(coaching helper read) error = %v", err)
+	}
+	return helperRead
+}
+
+func decodeCoachingHelperWhyResponse(t *testing.T, response *httptest.ResponseRecorder) coaching.CoachingHelperWhy {
+	t.Helper()
+
+	var why coaching.CoachingHelperWhy
+	if err := json.Unmarshal(response.Body.Bytes(), &why); err != nil {
+		t.Fatalf("json.Unmarshal(coaching helper why) error = %v", err)
+	}
+	return why
+}
+
+func decodeCoachingVariationPreviewResponse(t *testing.T, response *httptest.ResponseRecorder) coaching.CoachingVariationPreview {
+	t.Helper()
+
+	var preview coaching.CoachingVariationPreview
+	if err := json.Unmarshal(response.Body.Bytes(), &preview); err != nil {
+		t.Fatalf("json.Unmarshal(coaching variation preview) error = %v", err)
+	}
+	return preview
+}
+
 func normalizeRecommendation(input coaching.CoachingRecommendation) coaching.CoachingRecommendation {
 	result := input
 	result.GeneratedAt = time.Time{}
+	return result
+}
+
+func normalizeCoachingHelperRead(input coaching.CoachingHelperRead) coaching.CoachingHelperRead {
+	result := input
+	result.Recommendation = normalizeRecommendation(result.Recommendation)
 	return result
 }
 

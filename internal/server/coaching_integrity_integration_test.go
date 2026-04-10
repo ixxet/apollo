@@ -52,6 +52,19 @@ func TestCoachingRuntimeRejectsInvalidPayloadsAndWrongOwnerMutations(t *testing.
 	if invalidRecoveryPayloadResponse.Code != http.StatusBadRequest {
 		t.Fatalf("invalidRecoveryPayloadResponse.Code = %d, want %d", invalidRecoveryPayloadResponse.Code, http.StatusBadRequest)
 	}
+
+	missingTopicResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching/why?week_start=2026-04-06", nil, firstCookie)
+	if missingTopicResponse.Code != http.StatusBadRequest {
+		t.Fatalf("missingTopicResponse.Code = %d, want %d", missingTopicResponse.Code, http.StatusBadRequest)
+	}
+	unsupportedTopicResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching/why?week_start=2026-04-06&topic=timeline", nil, firstCookie)
+	if unsupportedTopicResponse.Code != http.StatusBadRequest {
+		t.Fatalf("unsupportedTopicResponse.Code = %d, want %d", unsupportedTopicResponse.Code, http.StatusBadRequest)
+	}
+	unsupportedVariationResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching/variation?week_start=2026-04-06&variation=longer", nil, firstCookie)
+	if unsupportedVariationResponse.Code != http.StatusBadRequest {
+		t.Fatalf("unsupportedVariationResponse.Code = %d, want %d", unsupportedVariationResponse.Code, http.StatusBadRequest)
+	}
 }
 
 func TestCoachingRuntimeDoesNotMutateUnrelatedStateDomains(t *testing.T) {
@@ -80,6 +93,18 @@ VALUES ($1, '{}'::jsonb, 'deterministic-fixture')
 	recommendationResponse := env.doRequest(t, http.MethodGet, "/api/v1/recommendations/coaching?week_start=2026-04-06", nil, cookie)
 	if recommendationResponse.Code != http.StatusOK {
 		t.Fatalf("recommendationResponse.Code = %d, want %d", recommendationResponse.Code, http.StatusOK)
+	}
+	helperReadResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching?week_start=2026-04-06", nil, cookie)
+	if helperReadResponse.Code != http.StatusOK {
+		t.Fatalf("helperReadResponse.Code = %d, want %d", helperReadResponse.Code, http.StatusOK)
+	}
+	helperWhyResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching/why?week_start=2026-04-06&topic=proposal", nil, cookie)
+	if helperWhyResponse.Code != http.StatusOK {
+		t.Fatalf("helperWhyResponse.Code = %d, want %d", helperWhyResponse.Code, http.StatusOK)
+	}
+	helperVariationResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/coaching/variation?week_start=2026-04-06&variation=easier", nil, cookie)
+	if helperVariationResponse.Code != http.StatusOK {
+		t.Fatalf("helperVariationResponse.Code = %d, want %d", helperVariationResponse.Code, http.StatusOK)
 	}
 
 	if afterRecommendationRows := countTotalRows(t, env, "apollo.recommendations"); afterRecommendationRows != beforeRecommendationRows {

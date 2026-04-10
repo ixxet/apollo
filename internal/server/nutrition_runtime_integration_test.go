@@ -227,6 +227,106 @@ func TestNutritionRecommendationRuntimeStaysConservativeWithSparseHistory(t *tes
 	}
 }
 
+func TestNutritionHelperRuntimeReadWhyAndVariationStayDeterministicAndReadOnly(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	cookie, _ := createVerifiedSessionViaHTTP(t, env, "student-nutrition-rt-003", "nutrition-rt-003@example.com")
+	base := time.Now().UTC().Truncate(time.Second)
+
+	patchResponse := env.doJSONRequest(t, http.MethodPatch, "/api/v1/profile", `{
+		"coaching_profile":{"goal_key":"build-strength","days_per_week":4,"session_minutes":60},
+		"nutrition_profile":{
+			"dietary_restrictions":["vegetarian"],
+			"meal_preference":{"cuisine_preferences":["mediterranean"]},
+			"budget_preference":"budget_constrained",
+			"cooking_capability":"microwave_only"
+		}
+	}`, cookie)
+	if patchResponse.Code != http.StatusOK {
+		t.Fatalf("patchResponse.Code = %d, want %d", patchResponse.Code, http.StatusOK)
+	}
+
+	templateResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/nutrition/meal-templates", `{
+		"name":"Helper Bowl",
+		"meal_type":"dinner",
+		"calories":700,
+		"protein_grams":40,
+		"carbs_grams":65,
+		"fat_grams":20
+	}`, cookie)
+	if templateResponse.Code != http.StatusCreated {
+		t.Fatalf("templateResponse.Code = %d, want %d", templateResponse.Code, http.StatusCreated)
+	}
+	template := decodeMealTemplateResponse(t, templateResponse)
+
+	for _, body := range []string{
+		fmt.Sprintf(`{"source_template_id":"%s","logged_at":"%s"}`, template.ID, base.AddDate(0, 0, -1).Format(time.RFC3339)),
+		fmt.Sprintf(`{"name":"Lunch Plate","meal_type":"lunch","logged_at":"%s","calories":720,"protein_grams":42,"carbs_grams":66,"fat_grams":21}`, base.AddDate(0, 0, -2).Format(time.RFC3339)),
+		fmt.Sprintf(`{"name":"Snack Stack","meal_type":"snack","logged_at":"%s","calories":710,"protein_grams":41,"carbs_grams":64,"fat_grams":20}`, base.AddDate(0, 0, -3).Format(time.RFC3339)),
+	} {
+		response := env.doJSONRequest(t, http.MethodPost, "/api/v1/nutrition/meal-logs", body, cookie)
+		if response.Code != http.StatusCreated {
+			t.Fatalf("meal log response.Code = %d, want %d", response.Code, http.StatusCreated)
+		}
+	}
+
+	mealLogsBeforeResponse := env.doRequest(t, http.MethodGet, "/api/v1/nutrition/meal-logs", nil, cookie)
+	if mealLogsBeforeResponse.Code != http.StatusOK {
+		t.Fatalf("mealLogsBeforeResponse.Code = %d, want %d", mealLogsBeforeResponse.Code, http.StatusOK)
+	}
+	mealLogsBefore := decodeMealLogListResponse(t, mealLogsBeforeResponse)
+
+	firstHelperResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition", nil, cookie)
+	if firstHelperResponse.Code != http.StatusOK {
+		t.Fatalf("firstHelperResponse.Code = %d, want %d", firstHelperResponse.Code, http.StatusOK)
+	}
+	firstHelper := decodeNutritionHelperReadResponse(t, firstHelperResponse)
+
+	secondHelperResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition", nil, cookie)
+	if secondHelperResponse.Code != http.StatusOK {
+		t.Fatalf("secondHelperResponse.Code = %d, want %d", secondHelperResponse.Code, http.StatusOK)
+	}
+	secondHelper := decodeNutritionHelperReadResponse(t, secondHelperResponse)
+
+	if !reflect.DeepEqual(normalizeNutritionHelperRead(firstHelper), normalizeNutritionHelperRead(secondHelper)) {
+		t.Fatalf("helper reads changed across rerun:\nfirst=%#v\nsecond=%#v", firstHelper, secondHelper)
+	}
+	if firstHelper.PreviewMode != "read_only" {
+		t.Fatalf("PreviewMode = %q, want read_only", firstHelper.PreviewMode)
+	}
+
+	whyResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition/why?topic=history", nil, cookie)
+	if whyResponse.Code != http.StatusOK {
+		t.Fatalf("whyResponse.Code = %d, want %d", whyResponse.Code, http.StatusOK)
+	}
+	why := decodeNutritionHelperWhyResponse(t, whyResponse)
+	if why.Topic != nutrition.WhyTopicHistory {
+		t.Fatalf("why.Topic = %q, want %q", why.Topic, nutrition.WhyTopicHistory)
+	}
+
+	variationResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition/variation?variation=cheaper", nil, cookie)
+	if variationResponse.Code != http.StatusOK {
+		t.Fatalf("variationResponse.Code = %d, want %d", variationResponse.Code, http.StatusOK)
+	}
+	variation := decodeNutritionVariationPreviewResponse(t, variationResponse)
+	if variation.Variation != nutrition.VariationCheaper {
+		t.Fatalf("variation.Variation = %q, want %q", variation.Variation, nutrition.VariationCheaper)
+	}
+	if variation.Recommendation.DailyCalories != firstHelper.Recommendation.DailyCalories {
+		t.Fatalf("variation daily calories = %#v, want %#v", variation.Recommendation.DailyCalories, firstHelper.Recommendation.DailyCalories)
+	}
+
+	mealLogsAfterResponse := env.doRequest(t, http.MethodGet, "/api/v1/nutrition/meal-logs", nil, cookie)
+	if mealLogsAfterResponse.Code != http.StatusOK {
+		t.Fatalf("mealLogsAfterResponse.Code = %d, want %d", mealLogsAfterResponse.Code, http.StatusOK)
+	}
+	mealLogsAfter := decodeMealLogListResponse(t, mealLogsAfterResponse)
+	if !reflect.DeepEqual(mealLogsBefore, mealLogsAfter) {
+		t.Fatalf("meal logs mutated by nutrition helper read:\nbefore=%#v\nafter=%#v", mealLogsBefore, mealLogsAfter)
+	}
+}
+
 func decodeMealTemplateResponse(t *testing.T, response *httptest.ResponseRecorder) nutrition.MealTemplate {
 	t.Helper()
 
@@ -277,8 +377,43 @@ func decodeNutritionRecommendationResponse(t *testing.T, response *httptest.Resp
 	return recommendation
 }
 
+func decodeNutritionHelperReadResponse(t *testing.T, response *httptest.ResponseRecorder) nutrition.HelperRead {
+	t.Helper()
+
+	var helperRead nutrition.HelperRead
+	if err := json.Unmarshal(response.Body.Bytes(), &helperRead); err != nil {
+		t.Fatalf("json.Unmarshal(nutrition helper read) error = %v", err)
+	}
+	return helperRead
+}
+
+func decodeNutritionHelperWhyResponse(t *testing.T, response *httptest.ResponseRecorder) nutrition.HelperWhy {
+	t.Helper()
+
+	var why nutrition.HelperWhy
+	if err := json.Unmarshal(response.Body.Bytes(), &why); err != nil {
+		t.Fatalf("json.Unmarshal(nutrition helper why) error = %v", err)
+	}
+	return why
+}
+
+func decodeNutritionVariationPreviewResponse(t *testing.T, response *httptest.ResponseRecorder) nutrition.VariationPreview {
+	t.Helper()
+
+	var preview nutrition.VariationPreview
+	if err := json.Unmarshal(response.Body.Bytes(), &preview); err != nil {
+		t.Fatalf("json.Unmarshal(nutrition variation preview) error = %v", err)
+	}
+	return preview
+}
+
 func normalizeNutritionRecommendation(input nutrition.Recommendation) nutrition.Recommendation {
 	input.GeneratedAt = time.Time{}
+	return input
+}
+
+func normalizeNutritionHelperRead(input nutrition.HelperRead) nutrition.HelperRead {
+	input.Recommendation = normalizeNutritionRecommendation(input.Recommendation)
 	return input
 }
 

@@ -92,6 +92,19 @@ func TestNutritionRuntimeRejectsInvalidPayloadsAndWrongOwnerMutations(t *testing
 	if missingLoggedAtResponse.Code != http.StatusBadRequest {
 		t.Fatalf("missingLoggedAtResponse.Code = %d, want %d", missingLoggedAtResponse.Code, http.StatusBadRequest)
 	}
+
+	missingHelperTopicResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition/why", nil, firstCookie)
+	if missingHelperTopicResponse.Code != http.StatusBadRequest {
+		t.Fatalf("missingHelperTopicResponse.Code = %d, want %d", missingHelperTopicResponse.Code, http.StatusBadRequest)
+	}
+	unsupportedHelperTopicResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition/why?topic=timeline", nil, firstCookie)
+	if unsupportedHelperTopicResponse.Code != http.StatusBadRequest {
+		t.Fatalf("unsupportedHelperTopicResponse.Code = %d, want %d", unsupportedHelperTopicResponse.Code, http.StatusBadRequest)
+	}
+	unsupportedHelperVariationResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition/variation?variation=higher-protein", nil, firstCookie)
+	if unsupportedHelperVariationResponse.Code != http.StatusBadRequest {
+		t.Fatalf("unsupportedHelperVariationResponse.Code = %d, want %d", unsupportedHelperVariationResponse.Code, http.StatusBadRequest)
+	}
 }
 
 func TestNutritionRuntimeDoesNotMutateUnrelatedStateDomains(t *testing.T) {
@@ -191,6 +204,18 @@ func TestNutritionRuntimeDoesNotMutateUnrelatedStateDomains(t *testing.T) {
 	recommendationResponse := env.doRequest(t, http.MethodGet, "/api/v1/recommendations/nutrition", nil, cookie)
 	if recommendationResponse.Code != http.StatusOK {
 		t.Fatalf("recommendationResponse.Code = %d, want %d", recommendationResponse.Code, http.StatusOK)
+	}
+	helperReadResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition", nil, cookie)
+	if helperReadResponse.Code != http.StatusOK {
+		t.Fatalf("helperReadResponse.Code = %d, want %d", helperReadResponse.Code, http.StatusOK)
+	}
+	helperWhyResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition/why?topic=history", nil, cookie)
+	if helperWhyResponse.Code != http.StatusOK {
+		t.Fatalf("helperWhyResponse.Code = %d, want %d", helperWhyResponse.Code, http.StatusOK)
+	}
+	helperVariationResponse := env.doRequest(t, http.MethodGet, "/api/v1/helpers/nutrition/variation?variation=cheaper", nil, cookie)
+	if helperVariationResponse.Code != http.StatusOK {
+		t.Fatalf("helperVariationResponse.Code = %d, want %d", helperVariationResponse.Code, http.StatusOK)
 	}
 
 	if afterClaimedTags := countRows(t, env, "apollo.claimed_tags", user.ID); afterClaimedTags != beforeClaimedTags {
