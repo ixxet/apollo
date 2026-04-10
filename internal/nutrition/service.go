@@ -3,12 +3,14 @@ package nutrition
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/helper"
 	"github.com/ixxet/apollo/internal/profile"
 )
 
@@ -34,6 +36,15 @@ const (
 	maxCalories = 6000
 	minGrams    = 1
 	maxGrams    = 500
+)
+
+const (
+	WhyTopicRanges   = "ranges"
+	WhyTopicHistory  = "history"
+	WhyTopicStrategy = "strategy"
+
+	VariationCheaper = "cheaper"
+	VariationSimpler = "simpler"
 )
 
 var (
@@ -175,6 +186,45 @@ type Recommendation struct {
 	Explanation       RecommendationExplanation `json:"explanation"`
 	PolicyVersion     string                    `json:"policy_version"`
 	GeneratedAt       time.Time                 `json:"generated_at"`
+}
+
+type GuidanceSuggestion struct {
+	Key    string `json:"key"`
+	Detail string `json:"detail"`
+}
+
+type GuidanceProposal struct {
+	Variant           string               `json:"variant"`
+	FocusFlags        []string             `json:"focus_flags"`
+	Suggestions       []GuidanceSuggestion `json:"suggestions"`
+	DailyCalories     Range                `json:"daily_calories"`
+	DailyProteinGrams Range                `json:"daily_protein_grams"`
+	DailyCarbsGrams   Range                `json:"daily_carbs_grams"`
+	DailyFatGrams     Range                `json:"daily_fat_grams"`
+}
+
+type HelperRead struct {
+	PreviewMode      helper.PreviewMode `json:"preview_mode"`
+	Recommendation   Recommendation     `json:"recommendation"`
+	Proposal         GuidanceProposal   `json:"proposal"`
+	Summary          helper.Summary     `json:"summary"`
+	WhyOptions       []helper.Option    `json:"why_options"`
+	VariationOptions []helper.Option    `json:"variation_options"`
+}
+
+type HelperWhy struct {
+	PreviewMode    helper.PreviewMode `json:"preview_mode"`
+	Topic          string             `json:"topic"`
+	Recommendation Recommendation     `json:"recommendation"`
+	Summary        helper.Summary     `json:"summary"`
+}
+
+type VariationPreview struct {
+	PreviewMode    helper.PreviewMode `json:"preview_mode"`
+	Variation      string             `json:"variation"`
+	Recommendation Recommendation     `json:"recommendation"`
+	Proposal       GuidanceProposal   `json:"proposal"`
+	Summary        helper.Summary     `json:"summary"`
 }
 
 func NewService(store Store, profileReader ProfileReader) *Service {
@@ -365,6 +415,61 @@ func (s *Service) GetRecommendation(ctx context.Context, userID uuid.UUID) (Reco
 		},
 		PolicyVersion: PolicyVersion,
 		GeneratedAt:   end,
+	}, nil
+}
+
+func (s *Service) GetHelperRead(ctx context.Context, userID uuid.UUID) (HelperRead, error) {
+	recommendation, err := s.GetRecommendation(ctx, userID)
+	if err != nil {
+		return HelperRead{}, err
+	}
+
+	return HelperRead{
+		PreviewMode:      helper.PreviewModeReadOnly,
+		Recommendation:   recommendation,
+		Proposal:         buildGuidanceProposal(recommendation, ""),
+		Summary:          buildHelperSummary(recommendation),
+		WhyOptions:       helperOptionsForWhy(),
+		VariationOptions: helperOptionsForVariation(),
+	}, nil
+}
+
+func (s *Service) AskWhy(ctx context.Context, userID uuid.UUID, topic string) (HelperWhy, error) {
+	recommendation, err := s.GetRecommendation(ctx, userID)
+	if err != nil {
+		return HelperWhy{}, err
+	}
+
+	summary, err := buildWhySummary(recommendation, topic)
+	if err != nil {
+		return HelperWhy{}, err
+	}
+
+	return HelperWhy{
+		PreviewMode:    helper.PreviewModeReadOnly,
+		Topic:          normalizeHelperKey(topic),
+		Recommendation: recommendation,
+		Summary:        summary,
+	}, nil
+}
+
+func (s *Service) PreviewVariation(ctx context.Context, userID uuid.UUID, variation string) (VariationPreview, error) {
+	recommendation, err := s.GetRecommendation(ctx, userID)
+	if err != nil {
+		return VariationPreview{}, err
+	}
+
+	normalizedVariation := normalizeHelperKey(variation)
+	if !isSupportedVariation(normalizedVariation) {
+		return VariationPreview{}, helper.ErrUnsupportedVariation
+	}
+
+	return VariationPreview{
+		PreviewMode:    helper.PreviewModeReadOnly,
+		Variation:      normalizedVariation,
+		Recommendation: recommendation,
+		Proposal:       buildGuidanceProposal(recommendation, normalizedVariation),
+		Summary:        buildVariationSummary(recommendation, normalizedVariation),
 	}, nil
 }
 
@@ -608,6 +713,199 @@ func dedupeAndSort(values []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func helperOptionsForWhy() []helper.Option {
+	return []helper.Option{
+		{Key: WhyTopicRanges, Label: "Why these ranges"},
+		{Key: WhyTopicHistory, Label: "How history affected it"},
+		{Key: WhyTopicStrategy, Label: "Why these strategy flags"},
+	}
+}
+
+func helperOptionsForVariation() []helper.Option {
+	return []helper.Option{
+		{Key: VariationCheaper, Label: "Make it cheaper"},
+		{Key: VariationSimpler, Label: "Make it simpler"},
+	}
+}
+
+func buildHelperSummary(recommendation Recommendation) helper.Summary {
+	return helper.Summary{
+		Headline: headlineForRecommendation(recommendation),
+		Detail:   detailForSummary(recommendation),
+		Bullets: []string{
+			fmt.Sprintf("daily calories: %d-%d", recommendation.DailyCalories.Min, recommendation.DailyCalories.Max),
+			fmt.Sprintf("strategy flags: %s", joinOrFallback(recommendation.StrategyFlags, "none")),
+			fmt.Sprintf("recent history: %d meal logs across %d day(s)", recommendation.Explanation.Evidence.RecentMealLogCount, recommendation.Explanation.Evidence.RecentLoggedDayCount),
+		},
+		Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+	}
+}
+
+func buildWhySummary(recommendation Recommendation, topic string) (helper.Summary, error) {
+	switch normalizeHelperKey(topic) {
+	case WhyTopicRanges:
+		return helper.Summary{
+			Headline: "Why these nutrition ranges",
+			Detail:   "The deterministic nutrition core chooses conservative calorie and macro ranges from the stored coaching goal, training volume, and recent nutrition history when enough logs exist.",
+			Bullets: []string{
+				fmt.Sprintf("goal key: %s", recommendation.GoalKey),
+				fmt.Sprintf("daily calories: %d-%d", recommendation.DailyCalories.Min, recommendation.DailyCalories.Max),
+				fmt.Sprintf("daily protein grams: %d-%d", recommendation.DailyProteinGrams.Min, recommendation.DailyProteinGrams.Max),
+			},
+			Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+		}, nil
+	case WhyTopicHistory:
+		return helper.Summary{
+			Headline: "How recent history affected it",
+			Detail:   historyDetail(recommendation),
+			Bullets: []string{
+				fmt.Sprintf("recent meal log count: %d", recommendation.Explanation.Evidence.RecentMealLogCount),
+				fmt.Sprintf("recent logged day count: %d", recommendation.Explanation.Evidence.RecentLoggedDayCount),
+				fmt.Sprintf("reason codes: %s", strings.Join(recommendation.Explanation.ReasonCodes, ", ")),
+			},
+			Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+		}, nil
+	case WhyTopicStrategy:
+		return helper.Summary{
+			Headline: "Why these strategy flags",
+			Detail:   "The deterministic nutrition core sets strategy flags from the stored budget, cooking, and template-reuse constraints. They shape helper wording, not durable writes.",
+			Bullets: []string{
+				fmt.Sprintf("strategy flags: %s", joinOrFallback(recommendation.StrategyFlags, "none")),
+				fmt.Sprintf("dietary restrictions: %s", joinOrFallback(recommendation.Explanation.Evidence.DietaryRestrictions, "none")),
+				fmt.Sprintf("cuisine preferences: %s", joinOrFallback(recommendation.Explanation.Evidence.CuisinePreferences, "none")),
+			},
+			Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+		}, nil
+	default:
+		return helper.Summary{}, helper.ErrUnsupportedWhyTopic
+	}
+}
+
+func buildGuidanceProposal(recommendation Recommendation, variation string) GuidanceProposal {
+	normalizedVariation := normalizeHelperKey(variation)
+	if normalizedVariation == "" {
+		normalizedVariation = "default"
+	}
+
+	focusFlags := make([]string, 0, 2)
+	suggestions := []GuidanceSuggestion{
+		{Key: "hold_targets", Detail: "Keep the current calorie and macro ranges unchanged while previewing helper-only guidance."},
+	}
+
+	switch normalizedVariation {
+	case VariationCheaper:
+		focusFlags = append(focusFlags, "budget_first")
+		suggestions = append(suggestions,
+			GuidanceSuggestion{Key: "repeat_budget_friendly", Detail: "Bias choices toward repeatable lower-cost meals rather than widening meal variety."},
+			GuidanceSuggestion{Key: "reuse_existing", Detail: "Prefer reusing saved templates or already-logged meals when they still fit the current ranges."},
+		)
+	case VariationSimpler:
+		focusFlags = append(focusFlags, "assembly_first")
+		suggestions = append(suggestions,
+			GuidanceSuggestion{Key: "lower_prep", Detail: "Bias choices toward low-prep meals that fit the current ranges instead of adding cooking complexity."},
+			GuidanceSuggestion{Key: "reuse_existing", Detail: "Prefer repeated meals or saved templates over adding extra meal-planning overhead."},
+		)
+	default:
+		focusFlags = append(focusFlags, recommendation.StrategyFlags...)
+		suggestions = append(suggestions,
+			GuidanceSuggestion{Key: "follow_core", Detail: "Treat the current deterministic recommendation as the source of truth for non-clinical guidance."},
+		)
+	}
+
+	if containsString(focusFlags, "budget_first") == false && containsString(recommendation.StrategyFlags, "budget_first") {
+		focusFlags = append(focusFlags, "budget_first")
+	}
+	if containsString(focusFlags, "assembly_first") == false && containsString(recommendation.StrategyFlags, "assembly_first") {
+		focusFlags = append(focusFlags, "assembly_first")
+	}
+	if containsString(focusFlags, "template_reuse_first") == false && containsString(recommendation.StrategyFlags, "template_reuse_first") {
+		focusFlags = append(focusFlags, "template_reuse_first")
+	}
+
+	return GuidanceProposal{
+		Variant:           normalizedVariation,
+		FocusFlags:        dedupeAndSort(focusFlags),
+		Suggestions:       suggestions,
+		DailyCalories:     recommendation.DailyCalories,
+		DailyProteinGrams: recommendation.DailyProteinGrams,
+		DailyCarbsGrams:   recommendation.DailyCarbsGrams,
+		DailyFatGrams:     recommendation.DailyFatGrams,
+	}
+}
+
+func buildVariationSummary(recommendation Recommendation, variation string) helper.Summary {
+	proposal := buildGuidanceProposal(recommendation, variation)
+	return helper.Summary{
+		Headline: fmt.Sprintf("Preview a %s nutrition variation", variation),
+		Detail:   "This helper preview keeps the deterministic calorie and macro ranges unchanged while shifting only read-only guidance emphasis.",
+		Bullets: []string{
+			fmt.Sprintf("focus flags: %s", joinOrFallback(proposal.FocusFlags, "none")),
+			fmt.Sprintf("suggestions: %d", len(proposal.Suggestions)),
+			fmt.Sprintf("recommendation kind stays: %s", recommendation.Kind),
+		},
+		Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+	}
+}
+
+func headlineForRecommendation(recommendation Recommendation) string {
+	switch recommendation.Kind {
+	case KindTighten:
+		return "Tighten the current nutrition guidance conservatively"
+	case KindRelax:
+		return "Relax the current nutrition guidance conservatively"
+	case KindStartConservative:
+		return "Start with conservative nutrition guidance"
+	default:
+		return "Hold the current nutrition guidance steady"
+	}
+}
+
+func detailForSummary(recommendation Recommendation) string {
+	if containsString(recommendation.Explanation.ReasonCodes, "sparse_recent_history") {
+		return "Recent meal history is still sparse, so the deterministic nutrition core stays conservative and leans on explicit profile inputs."
+	}
+	if containsString(recommendation.Explanation.ReasonCodes, "recent_history_stabilized") {
+		return "Recent meal history is dense enough to stabilize the deterministic recommendation without turning the helper into a meal-planning engine."
+	}
+	return "The deterministic nutrition core uses explicit profile inputs and recent meal logs only. The helper layer stays read-only and non-clinical."
+}
+
+func historyDetail(recommendation Recommendation) string {
+	if containsString(recommendation.Explanation.ReasonCodes, "sparse_recent_history") {
+		return "The helper stayed conservative because the recent log window is still too sparse to tighten or relax targets aggressively."
+	}
+	return "The helper used recent logged days and aggregate meal history to explain why the deterministic ranges either held, tightened, or relaxed."
+}
+
+func joinOrFallback(values []string, fallback string) string {
+	if len(values) == 0 {
+		return fallback
+	}
+	return strings.Join(values, ", ")
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func isSupportedVariation(value string) bool {
+	switch value {
+	case VariationCheaper, VariationSimpler:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeHelperKey(value string) string {
+	return strings.TrimSpace(strings.ToLower(value))
 }
 
 func baseCalorieRange(goalKey string, daysPerWeek *int, sessionMinutes *int) Range {

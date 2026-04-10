@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/helper"
 	"github.com/ixxet/apollo/internal/profile"
 )
 
@@ -332,13 +333,82 @@ func TestGetRecommendationTightensWhenRecentCaloriesSitAboveConservativeRange(t 
 	}
 }
 
-func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
+func TestHelperReadWhyAndVariationStayReadOnly(t *testing.T) {
+	fixedNow := time.Date(2026, 4, 10, 16, 0, 0, 0, time.UTC)
+	service := NewService(&stubStore{
+		mealLogsWithinRange: []MealLog{
+			{ID: uuid.MustParse("11111111-1111-1111-1111-111111111111"), MealType: MealTypeBreakfast, LoggedAt: fixedNow.AddDate(0, 0, -1), Name: "Breakfast", Calories: intPtr(520)},
+		},
+		mealTemplates: []MealTemplate{
+			{ID: uuid.MustParse("22222222-2222-2222-2222-222222222222"), Name: "Overnight oats", MealType: MealTypeBreakfast, Calories: intPtr(520), ProteinGrams: intPtr(28)},
+		},
+	}, stubProfileReader{
+		memberProfile: profile.MemberProfile{
+			NutritionProfile: profile.NutritionProfile{
+				DietaryRestrictions: []string{"vegetarian"},
+				MealPreference: profile.MealPreference{
+					CuisinePreferences: []string{"mediterranean"},
+				},
+				BudgetPreference:  stringPtr("budget_constrained"),
+				CookingCapability: stringPtr("microwave_only"),
+			},
+		},
+	})
+	service.now = func() time.Time { return fixedNow }
+
+	read, err := service.GetHelperRead(context.Background(), uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+	if err != nil {
+		t.Fatalf("GetHelperRead() error = %v", err)
 	}
-	return false
+	if read.PreviewMode != "read_only" {
+		t.Fatalf("PreviewMode = %q, want read_only", read.PreviewMode)
+	}
+	if read.Proposal.Variant != "default" {
+		t.Fatalf("Proposal.Variant = %q, want default", read.Proposal.Variant)
+	}
+	if len(read.WhyOptions) != 3 {
+		t.Fatalf("len(WhyOptions) = %d, want 3", len(read.WhyOptions))
+	}
+	if len(read.VariationOptions) != 2 {
+		t.Fatalf("len(VariationOptions) = %d, want 2", len(read.VariationOptions))
+	}
+
+	why, err := service.AskWhy(context.Background(), uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), WhyTopicHistory)
+	if err != nil {
+		t.Fatalf("AskWhy() error = %v", err)
+	}
+	if why.Topic != WhyTopicHistory {
+		t.Fatalf("Topic = %q, want %q", why.Topic, WhyTopicHistory)
+	}
+	if why.Summary.Detail == "" {
+		t.Fatalf("Summary.Detail = empty, want non-empty detail")
+	}
+
+	preview, err := service.PreviewVariation(context.Background(), uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), VariationCheaper)
+	if err != nil {
+		t.Fatalf("PreviewVariation() error = %v", err)
+	}
+	if preview.Variation != VariationCheaper {
+		t.Fatalf("Variation = %q, want %q", preview.Variation, VariationCheaper)
+	}
+	if len(preview.Proposal.FocusFlags) == 0 {
+		t.Fatalf("len(FocusFlags) = %d, want > 0", len(preview.Proposal.FocusFlags))
+	}
+	if preview.Recommendation.DailyCalories != read.Recommendation.DailyCalories {
+		t.Fatalf("DailyCalories = %#v, want %#v", preview.Recommendation.DailyCalories, read.Recommendation.DailyCalories)
+	}
+}
+
+func TestHelperActionsRejectUnsupportedTopicsAndVariations(t *testing.T) {
+	service := NewService(&stubStore{}, stubProfileReader{})
+	userID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	if _, err := service.AskWhy(context.Background(), userID, "timeline"); err != helper.ErrUnsupportedWhyTopic {
+		t.Fatalf("AskWhy() error = %v, want %v", err, helper.ErrUnsupportedWhyTopic)
+	}
+	if _, err := service.PreviewVariation(context.Background(), userID, "higher-protein"); err != helper.ErrUnsupportedVariation {
+		t.Fatalf("PreviewVariation() error = %v, want %v", err, helper.ErrUnsupportedVariation)
+	}
 }
 
 func intPtr(value int) *int {
