@@ -6,13 +6,48 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 	"github.com/ory/dockertest/v3"
 )
 
-var lookupHost = net.LookupHost
+type postgresStartupConfig struct {
+	maxWait     time.Duration
+	retryDelay  time.Duration
+	pingTimeout time.Duration
+}
+
+var (
+	lookupHost = net.LookupHost
+
+	newPostgresPool  = pgxpool.New
+	pingPostgresPool = func(ctx context.Context, db *pgxpool.Pool) error {
+		return db.Ping(ctx)
+	}
+	closePostgresPool = func(db *pgxpool.Pool) {
+		db.Close()
+	}
+	nowTime          = time.Now
+	sleepWithContext = func(ctx context.Context, delay time.Duration) error {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		}
+	}
+
+	defaultPostgresStartupConfig = postgresStartupConfig{
+		maxWait:     2 * time.Minute,
+		retryDelay:  time.Second,
+		pingTimeout: 3 * time.Second,
+	}
+)
 
 type PostgresEnv struct {
 	pool        *dockertest.Pool
@@ -53,18 +88,8 @@ func StartPostgres(ctx context.Context) (*PostgresEnv, error) {
 		resource.GetPort("5432/tcp"),
 	)
 
-	var db *pgxpool.Pool
-	if err := pool.Retry(func() error {
-		db, err = pgxpool.New(ctx, databaseURL)
-		if err != nil {
-			return err
-		}
-
-		return db.Ping(ctx)
-	}); err != nil {
-		if db != nil {
-			db.Close()
-		}
+	db, err := waitForPostgres(ctx, databaseURL, defaultPostgresStartupConfig)
+	if err != nil {
 		_ = pool.Purge(resource)
 		return nil, err
 	}
@@ -77,9 +102,41 @@ func StartPostgres(ctx context.Context) (*PostgresEnv, error) {
 	}, nil
 }
 
+func waitForPostgres(ctx context.Context, databaseURL string, cfg postgresStartupConfig) (*pgxpool.Pool, error) {
+	deadline := nowTime().Add(cfg.maxWait)
+	var lastErr error
+
+	for {
+		db, err := newPostgresPool(ctx, databaseURL)
+		if err == nil {
+			pingCtx, cancel := context.WithTimeout(ctx, cfg.pingTimeout)
+			err = pingPostgresPool(pingCtx, db)
+			cancel()
+		}
+		if err == nil {
+			return db, nil
+		}
+
+		lastErr = err
+		if db != nil {
+			closePostgresPool(db)
+		}
+
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !nowTime().Before(deadline) {
+			return nil, fmt.Errorf("postgres did not become ready within %s: %w", cfg.maxWait, lastErr)
+		}
+		if err := sleepWithContext(ctx, cfg.retryDelay); err != nil {
+			return nil, err
+		}
+	}
+}
+
 func (e *PostgresEnv) Close() error {
 	if e.DB != nil {
-		e.DB.Close()
+		closePostgresPool(e.DB)
 	}
 	if e.pool != nil && e.resource != nil {
 		return e.pool.Purge(e.resource)
