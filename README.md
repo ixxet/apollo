@@ -28,12 +28,12 @@ recommendations, and the ARES matchmaking subsystem.
 > internal HTTP while keeping workouts, visits, membership, competition
 > history, and recommendation precedence separate. Tracer 24 is the tagged
 > deterministic coaching line on `v0.15.0`, with `v0.15.1` reserved for the
-> narrow post-closeout hardening patch. The current Tracer 26 repo/runtime
-> closeout line on `main` adds authenticated internal helper reads, bounded
-> `why` flows, and read-only coaching/nutrition variation previews over the
-> settled deterministic coaching and nutrition cores without widening into
-> planner apply, nutrition apply, diagnosis, chatbot-first guidance, or helper-
-> owned decision logic.
+> narrow post-closeout hardening patch. The current Tracer 27 repo/runtime
+> closeout line on `main` adds authenticated facility-scoped presence reads,
+> one explicit tap-link row per member-visible visit, and one explicit
+> facility-scoped streak state plus streak-event line per member/facility over
+> linked visit days only, while keeping departure-close semantics, planner,
+> nutrition, recommendations, and competition truth separate.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -96,6 +96,7 @@ flowchart LR
 | Verification start | `POST /api/v1/auth/verification/start` | Real | Starts registration or passwordless sign-in with student ID + email |
 | Verification consume | `GET/POST /api/v1/auth/verify` | Real | Consumes a stored token, marks it used, verifies email ownership, and issues a signed session cookie |
 | Profile read | `GET /api/v1/profile` | Real | Requires a valid session cookie and returns persisted member profile state |
+| Presence read | `GET /api/v1/presence` | Real in repo/runtime | Requires a valid session cookie and returns facility-scoped member presence, explicit tap-link metadata, recent linked visit truth, and facility streak state over explicit visit rows only |
 | Profile update | `PATCH /api/v1/profile` | Real | Requires a valid session cookie and updates `visibility_mode`, `availability_mode`, bounded non-medical `coaching_profile` inputs, and bounded non-clinical `nutrition_profile` inputs (`dietary_restrictions`, cuisine preferences, `budget_preference`, `cooking_capability`) |
 | Planner exercise catalog | `GET /api/v1/planner/exercises` | Real | Requires a valid session cookie and returns APOLLO-owned exercise definitions with allowed equipment keys |
 | Planner equipment catalog | `GET /api/v1/planner/equipment` | Real | Requires a valid session cookie and returns APOLLO-owned equipment definitions with one bounded `is_machine` flag |
@@ -163,6 +164,8 @@ eligibility, or any social state.
 | `apollo.sessions` | Real | Stores server-side session state keyed by a signed cookie value |
 | `apollo.claimed_tags` | Real | Links ATHENA identity hashes to member accounts |
 | `apollo.visits` | Real | Stores visit open/close history with deterministic departure idempotency |
+| `apollo.visit_tap_links` | Real in repo/runtime | Stores the explicit per-visit linkage that makes a visit member-visible presence truth |
+| `apollo.member_presence_streaks` and `apollo.member_presence_streak_events` | Real in repo/runtime | Store facility-scoped streak state and one append-only event per credited member/facility UTC visit day |
 | `apollo.lobby_memberships` | Real | Stores explicit durable join/leave state separate from eligibility, visits, and workouts |
 | `apollo.workouts` and `apollo.exercises` | Real | Stores explicit workout draft and finished history with ordered exercise rows |
 | `apollo.equipment_definitions`, `apollo.exercise_definitions`, and `apollo.exercise_definition_equipment` | Real | Stores APOLLO-owned exercise-library truth separate from workout history |
@@ -203,6 +206,7 @@ eligibility, or any social state.
 | Deterministic fitness coaching | conservative deterministic coaching recommendation and structured plan-change proposal over planner/profile/workout truth | Tagged | `v0.15.0` | Tracer 24 is the tagged coaching line, and `v0.15.1` is reserved for bounded hardening on that same line |
 | Conservative nutrition substrate | typed nutrition profile inputs, owner-scoped meal template/log truth, and read-only calorie/macro recommendation ranges | Closure-clean on `main` | `v0.16.0` line | Keep it non-clinical, bounded, and separate from planner mutation or chatbot-first flows |
 | Explanation and agent-facing helpers | explanation/summarization helpers plus bounded `why` and read-only variation previews over deterministic core logic | Closure-clean on `main` | `v0.17.0` | Preserve helper subordination to the deterministic domain core |
+| Facility-scoped member presence | facility-scoped presence read, explicit tap-link rows, and facility streak state/events over visit truth | Closure-clean on `main` | `v0.18.0` | Keep presence explicit, facility-scoped, and separate from matchmaking, coaching, nutrition, and role/authz widening |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
@@ -246,6 +250,10 @@ exercise, recommendations, or matchmaking.
   `POST /api/v1/lobby/membership/join|leave` are real and keep lobby
   membership explicit, durable, and separate from eligibility or physical
   presence
+- authenticated `GET /api/v1/presence` is real in repo/runtime and returns
+  facility-scoped presence truth over explicit tap-linked visits only, with
+  one `present` / `not_present` status per facility instead of a fake global
+  current facility
 - authenticated `GET /api/v1/lobby/match-preview` is real and returns a
   deterministic, explainable, read-only preview over explicit joined lobby
   membership only
@@ -336,6 +344,9 @@ exercise, recommendations, or matchmaking.
 - duplicate arrivals, duplicate departures, unknown tags, anonymous events,
   already-open visits, no-open departures, and out-of-order departures all
   resolve deterministically
+- repeated arrival replay for an already linked visit stays deterministic:
+  APOLLO does not create a second tap-link row or a second facility streak
+  event for the same visit day
 - `apollo visit list` reads back recorded visit history for a specific student
 - `apollo sport list`, `apollo sport show`, and `apollo sport capability list`
   are real and keep sport identity, facility support, and static rules/config

@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime closeout line on `main`: Tracer 26 `v0.17.0` line
+Current repo/runtime closeout line on `main`: Tracer 27 `v0.18.0` line
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -40,13 +40,18 @@ Current repo/runtime closeout line on `main`: Tracer 26 `v0.17.0` line
   `main`: authenticated internal helper reads, bounded `why` flows, and
   read-only variation previews over the existing deterministic coaching and
   nutrition cores
+- Tracer 27 member presence runtime is now closure-clean in repo/runtime on
+  `main`: authenticated facility-scoped presence reads over explicit tap-linked
+  visit truth, one durable tap-link row per visit, and one durable
+  facility-scoped streak state plus streak-event line per member/facility over
+  linked visit days only
 - deployment truth is still narrower than the full product surface
 
 ## Release Lines
 
 Tracer 24 remains tagged on `v0.15.0`, with `v0.15.1` reserved for the narrow
 hardening patch on that same line. The current repo/runtime closeout line on
-`main` is Tracer 26 helper truth on the `v0.17.0` line.
+`main` is Tracer 27 presence truth on the `v0.18.0` line.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -76,6 +81,9 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 - do not infer workouts from arrivals or departures
 - do not infer recommendations from arrivals, departures, or visits
 - do not infer coaching or nutrition truth from presence or streak state alone
+- keep presence, tap-link, and streak truth facility-scoped in the current
+  runtime; do not invent one global current facility when multiple facilities
+  have distinct visit truth
 - do not infer lobby membership from eligibility, visits, or physical presence
 - do not infer competition queue or assignment state from lobby membership
   alone
