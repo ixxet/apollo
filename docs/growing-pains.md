@@ -196,3 +196,39 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: if JSON-backed member intent points at relational planner truth, the
   JSON layer must stay typed and catalog-validated instead of becoming a loose
   side channel.
+
+## 2026-04-10
+
+- Symptom: the first Tracer 24 coaching shape was at risk of overclaiming exact
+  progression from workout history into planner truth.
+  Cause: planner sessions are keyed to APOLLO exercise and equipment
+  definitions, but workout history still stores freeform exercise names, so the
+  two domains do not share a canonical per-exercise identity yet.
+  Fix: keep Tracer 24 coaching deterministic and narrow: derive decisions from
+  profile, the target planner week, the latest finished workout, and explicit
+  effort/recovery feedback, then return response-only plan diffs over existing
+  planner items without claiming exact history-to-plan exercise matching.
+  Rule: if execution history and planner truth do not share a canonical entity
+  identity, do not fake exact deterministic progression; narrow the proposal
+  surface until the substrate is actually real.
+
+- Symptom: Tracer 24 was locally valid in runtime, but repo-truth closeout was
+  still blocked at the end.
+  Cause: `README.md` still carried an older planned-release ladder that no
+  longer matched `docs/roadmap.md` or the control-plane implementation board.
+  Fix: land a docs-only follow-up that aligns the APOLLO README planned-release
+  table with the committed Tracer 24 through Tracer 28 ladder before claiming
+  repo-truth closeout.
+  Rule: release-ladder tables are part of repo truth; closeout is not finished
+  until README, roadmap, and control-plane docs all say the same thing.
+
+- Symptom: the first repeated `go test -count=5 ./internal/...` Tracer 24 proof
+  pass surfaced a transient Postgres startup connection-refused failure in the
+  integration-heavy server suite.
+  Cause: Docker-backed test startup can still flake under repeated integration
+  load even when the tracer runtime itself is stable.
+  Fix: rerun the exact proof command before treating it as a product regression,
+  and only widen the fix scope if the failure becomes reproducible.
+  Rule: hardening should distinguish environment flakes from deterministic
+  runtime regressions; repeatability matters before a tracer takes on a new
+  code-side fix.
