@@ -67,4 +67,4 @@ Tracer 25 does not claim:
 - presence/tap-link/streak substrate
 - role/authz and actor-attribution substrate
 - public/social nutrition reads
-- deployment/tag closeout decisions for the `v0.16.0` line
+- deployment closeout truth

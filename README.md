@@ -28,8 +28,9 @@ recommendations, and the ARES matchmaking subsystem.
 > internal HTTP while keeping workouts, visits, membership, competition
 > history, and recommendation precedence separate. Tracer 24 is the tagged
 > deterministic coaching line on `v0.15.0`, with `v0.15.1` reserved for the
-> narrow post-closeout hardening patch. The active Tracer 25 local/runtime line
-> adds bounded non-clinical `nutrition_profile` inputs, owner-scoped meal
+> narrow post-closeout hardening patch. The current Tracer 25 repo/runtime
+> closeout line on `main` adds bounded non-clinical `nutrition_profile` inputs,
+> owner-scoped meal
 > template and meal-log truth, and conservative read-only calorie/macro range
 > recommendations without widening into diagnosis, chatbot-first guidance, or
 > planner mutation.
@@ -119,7 +120,7 @@ flowchart LR
 | Nutrition meal template update | `PUT /api/v1/nutrition/meal-templates/{id}` | Real | Requires a valid session cookie, stays owner-scoped, and rejects duplicate names or empty nutrition payloads cleanly |
 | Nutrition meal log list/create | `GET/POST /api/v1/nutrition/meal-logs` | Real | Requires a valid session cookie and returns or creates owner-scoped meal-log truth with manual or template-backed entries |
 | Nutrition meal log update | `PUT /api/v1/nutrition/meal-logs/{id}` | Real | Requires a valid session cookie, stays owner-scoped, and keeps explicit update payloads deterministic |
-| Nutrition recommendation | `GET /api/v1/recommendations/nutrition` | Real in local/runtime | Requires a valid session cookie and returns conservative non-clinical calorie/macro ranges with thin structured limitations and no planner mutation |
+| Nutrition recommendation | `GET /api/v1/recommendations/nutrition` | Real in repo/runtime | Requires a valid session cookie and returns conservative non-clinical calorie/macro ranges with thin structured limitations and no planner mutation |
 | Logout | `POST /api/v1/auth/logout` | Real | Revokes the current server-side session and clears the cookie |
 | Visit readback | `apollo visit list --student-id ... --format text|json` | Real | Lists visit history for a member |
 | Sport registry read | `apollo sport list --format text|json` | Real | Lists deterministic APOLLO-owned sport definitions for badminton and basketball |
@@ -168,7 +169,7 @@ eligibility, or any social state.
 | `apollo.workout_templates` and `apollo.workout_template_items` | Real | Stores owner-scoped reusable templates/loadouts with catalog-backed item rows |
 | `apollo.planner_weeks`, `apollo.planner_sessions`, and `apollo.planner_session_items` | Real | Stores week-rooted planner truth separate from workouts, visits, and recommendations |
 | `apollo.workout_effort_feedback` and `apollo.workout_recovery_feedback` | Real | Stores one owner-scoped feedback row per finished workout for deterministic coaching ladder inputs |
-| `apollo.nutrition_meal_templates` and `apollo.nutrition_meal_logs` | Real in local/runtime | Stores owner-scoped reusable meal templates plus explicit meal-log history separate from planner, workouts, and persisted recommendation storage |
+| `apollo.nutrition_meal_templates` and `apollo.nutrition_meal_logs` | Real in repo/runtime | Stores owner-scoped reusable meal templates plus explicit meal-log history separate from planner, workouts, and persisted recommendation storage |
 | `apollo.sports` | Real | Stores APOLLO-owned sport definitions and static rule profiles for the current competition substrate line |
 | `apollo.facility_catalog_refs`, `apollo.facility_zone_refs`, `apollo.sport_facility_capabilities`, and `apollo.sport_facility_capability_zones` | Real | Stores bounded facility identifier references plus APOLLO-owned facility-sport support mappings without duplicating ATHENA hours or metadata |
 | `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth without widening into results, ratings, or standings |
@@ -200,7 +201,7 @@ eligibility, or any social state.
 | Results, ratings, and member stats | result capture, ratings, session-scoped standings, and member profile stats | Closure-clean on `main` | `v0.13.0` | Competition history is now owner-scoped authenticated internal HTTP/runtime truth while public/social reads and deployed truth remain deferred |
 | Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Real on `main` | `v0.14.0` | Tracer 23 keeps the line authenticated/internal, backend-first, and separate from workout history and recommendation logic |
 | Deterministic fitness coaching | conservative deterministic coaching recommendation and structured plan-change proposal over planner/profile/workout truth | Tagged | `v0.15.0` | Tracer 24 is the tagged coaching line, and `v0.15.1` is reserved for bounded hardening on that same line |
-| Conservative nutrition substrate | typed nutrition profile inputs, owner-scoped meal template/log truth, and read-only calorie/macro recommendation ranges | Real in local/runtime | `v0.16.0` line | Keep it non-clinical, bounded, and separate from planner mutation or chatbot-first flows |
+| Conservative nutrition substrate | typed nutrition profile inputs, owner-scoped meal template/log truth, and read-only calorie/macro recommendation ranges | Closure-clean on `main` | `v0.16.0` line | Keep it non-clinical, bounded, and separate from planner mutation or chatbot-first flows |
 | Explanation and agent-facing helpers | explanation/summarization helpers over deterministic core logic | Deferred | `v0.17.0` | Preserve as future direction without making the helper layer the decision engine |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
@@ -432,15 +433,14 @@ exercise, recommendations, or matchmaking.
 | `v0.15.0` | `v0.15.0` | Shipped | deterministic coaching substrate over planner/profile/workout truth | nutrition, explanation/helper widening, and deployment closeout |
 | `v0.15.1` | `v0.15.1` | Planned narrow patch line | bounded Tracer 24 hardening only | new product widening |
 
-## Planned Release Lines
+## Release Lines
 
-Current tagged repo/runtime closeout truth on `main` is Tracer 24 coaching on
-the tagged `v0.15.0` line, with `v0.15.1` reserved for the narrow hardening
-patch on that same line. Tracer 25 nutrition runtime is now real locally on the
-`v0.16.0` line, but later tag and broader closeout truth still remain separate
-decisions. Later planned lines begin below.
+Tracer 24 remains the tagged coaching line on `v0.15.0`, with `v0.15.1`
+reserved for the narrow hardening patch on that same line. The current
+repo/runtime closeout truth on `main` is Tracer 25 nutrition on the `v0.16.0`
+line. Later planned lines begin below.
 
-| Planned tag | Intended purpose | Restrictions | What it should not do yet |
+| Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch if repo-local APOLLO truth ever needed backfilled closeout | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
 | `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work, workout instantiation, or recommendation logic |

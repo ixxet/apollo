@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Latest tagged repo/runtime line: Tracer 24 `v0.15.0`
+Current repo/runtime closeout line on `main`: Tracer 25 `v0.16.0` line
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -31,20 +31,20 @@ Latest tagged repo/runtime line: Tracer 24 `v0.15.0`
   are real in repo/runtime on `main` for the tagged `v0.14.0` line
 - Tracer 24 deterministic coaching substrate is tagged on the `v0.15.0` line,
   and `v0.15.1` is the narrow post-closeout hardening patch on that same line
-- Tracer 25 conservative nutrition substrate is now real in local/runtime on
-  `main`: typed non-clinical `nutrition_profile` inputs, owner-scoped meal
-  template and meal-log truth, and deterministic read-only calorie/macro range
-  recommendations over explicit inputs plus recent meal history
+- Tracer 25 conservative nutrition substrate is now closure-clean in
+  repo/runtime on `main`: typed non-clinical `nutrition_profile` inputs,
+  owner-scoped meal template and meal-log truth, and deterministic read-only
+  calorie/macro range recommendations over explicit inputs plus recent meal
+  history
 - deployment truth is still narrower than the full product surface
 
-## Planned Release Lines
+## Release Lines
 
-The current tagged repo/runtime closeout line on `main` is Tracer 24 coaching
-on `v0.15.0`, with `v0.15.1` reserved for the narrow hardening patch on that
-same line. Tracer 25 nutrition substrate is now real locally on the `v0.16.0`
-line, but tag and broader closeout truth still remain separate decisions.
+Tracer 24 remains tagged on `v0.15.0`, with `v0.15.1` reserved for the narrow
+hardening patch on that same line. The current repo/runtime closeout line on
+`main` is Tracer 25 nutrition on the `v0.16.0` line.
 
-| Planned tag | Intended purpose | Restrictions | What it should not do yet |
+| Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch only if repo-local closure ever needs a backfill | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
 | `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work, workout instantiation, or recommendation logic |
