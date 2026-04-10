@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Latest tagged repo/runtime line: Tracer 22 `v0.13.0`
+Latest tagged repo/runtime line: Tracer 23 `v0.14.0`
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -28,14 +28,14 @@ Latest tagged repo/runtime line: Tracer 22 `v0.13.0`
   closure-clean in repo/runtime on `main` for the `v0.13.0` line
 - authenticated internal HTTP planner catalog reads, template/loadout writes,
   week-rooted planner writes, and typed non-medical `coaching_profile` inputs
-  are real in repo/runtime on `main` for the intended `v0.14.0` line
+  are real in repo/runtime on `main` for the tagged `v0.14.0` line
 - deployment truth is still narrower than the full product surface
 
 ## Planned Release Lines
 
-The current repo/runtime closeout line on `main` is Tracer 23 planner,
-template/loadout, and profile substrate for the intended `v0.14.0` release
-line. Later planned lines begin below.
+The current repo/runtime closeout line on `main` is tagged Tracer 23 planner,
+template/loadout, and profile substrate on the `v0.14.0` release line. Later
+planned lines begin below.
 
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |

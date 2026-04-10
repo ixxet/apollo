@@ -379,8 +379,7 @@ exercise, recommendations, or matchmaking.
 ## Planned Release Lines
 
 Current repo/runtime closeout truth on `main` is Tracer 23 planner substrate on
-the intended `v0.14.0` line. Latest tagged truth remains Tracer 22 `v0.13.0`.
-Later planned lines begin below.
+the tagged `v0.14.0` line. Later planned lines begin below.
 
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
