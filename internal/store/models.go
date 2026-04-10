@@ -182,6 +182,36 @@ type ApolloLobbyMembership struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
+type ApolloNutritionMealLog struct {
+	ID               uuid.UUID
+	UserID           uuid.UUID
+	SourceTemplateID pgtype.UUID
+	Name             string
+	MealType         string
+	LoggedAt         pgtype.Timestamptz
+	Calories         *int32
+	ProteinGrams     *int32
+	CarbsGrams       *int32
+	FatGrams         *int32
+	Notes            *string
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+type ApolloNutritionMealTemplate struct {
+	ID           uuid.UUID
+	UserID       uuid.UUID
+	Name         string
+	MealType     string
+	Calories     *int32
+	ProteinGrams *int32
+	CarbsGrams   *int32
+	FatGrams     *int32
+	Notes        *string
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
 type ApolloPlannerSession struct {
 	ID                uuid.UUID
 	PlannerWeekID     uuid.UUID
