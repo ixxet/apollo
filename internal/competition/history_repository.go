@@ -121,7 +121,7 @@ func (r *Repository) ListMemberStatRowsByUserID(ctx context.Context, userID uuid
 	return stats, nil
 }
 
-func (r *Repository) RecordMatchResult(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error {
+func (r *Repository) RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -133,7 +133,7 @@ func (r *Repository) RecordMatchResult(ctx context.Context, ownerUserID uuid.UUI
 	queries := store.New(tx)
 	if _, err := queries.CreateCompetitionMatchResult(ctx, store.CreateCompetitionMatchResultParams{
 		CompetitionMatchID: match.ID,
-		RecordedByUserID:   ownerUserID,
+		RecordedByUserID:   actor.UserID,
 		RecordedAt:         timestamptz(recordedAt),
 	}); err != nil {
 		return err
@@ -164,7 +164,7 @@ func (r *Repository) RecordMatchResult(ctx context.Context, ownerUserID uuid.UUI
 	if incompleteCount == 0 {
 		if _, err := queries.CompleteCompetitionSession(ctx, store.CompleteCompetitionSessionParams{
 			ID:          session.ID,
-			OwnerUserID: ownerUserID,
+			OwnerUserID: session.OwnerUserID,
 			UpdatedAt:   timestamptz(recordedAt),
 		}); err != nil {
 			return err
@@ -172,6 +172,12 @@ func (r *Repository) RecordMatchResult(ctx context.Context, ownerUserID uuid.UUI
 	}
 
 	if err := recomputeCompetitionRatingsTx(ctx, queries, sport.SportKey, recordedAt); err != nil {
+		return err
+	}
+	attribution := newStaffActionAttribution(actor, "competition_match.result_record", recordedAt)
+	attribution.CompetitionSessionID = uuidPtr(session.ID)
+	attribution.CompetitionMatchID = uuidPtr(match.ID)
+	if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
 		return err
 	}
 

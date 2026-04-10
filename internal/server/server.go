@@ -15,6 +15,7 @@ import (
 
 	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/coaching"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
@@ -63,23 +64,23 @@ type PlannerManager interface {
 }
 
 type CompetitionManager interface {
-	ListSessions(ctx context.Context, ownerUserID uuid.UUID) ([]competition.SessionSummary, error)
-	GetSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
+	ListSessions(ctx context.Context) ([]competition.SessionSummary, error)
+	GetSession(ctx context.Context, sessionID uuid.UUID) (competition.Session, error)
 	ListMemberStats(ctx context.Context, userID uuid.UUID) ([]competition.MemberStat, error)
-	CreateSession(ctx context.Context, ownerUserID uuid.UUID, input competition.CreateSessionInput) (competition.Session, error)
-	OpenQueue(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
-	AddQueueMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.QueueMemberInput) (competition.Session, error)
-	RemoveQueueMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, userID uuid.UUID) (competition.Session, error)
-	AssignQueue(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.AssignSessionInput) (competition.Session, error)
-	StartSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
-	ArchiveSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (competition.Session, error)
-	CreateTeam(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.CreateTeamInput) (competition.Team, error)
-	RemoveTeam(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID) error
-	AddRosterMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID, input competition.AddRosterMemberInput) (competition.Team, error)
-	RemoveRosterMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID) error
-	CreateMatch(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input competition.CreateMatchInput) (competition.Match, error)
-	ArchiveMatch(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, matchID uuid.UUID) (competition.Match, error)
-	RecordMatchResult(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, matchID uuid.UUID, input competition.RecordMatchResultInput) (competition.Session, error)
+	CreateSession(ctx context.Context, actor competition.StaffActor, input competition.CreateSessionInput) (competition.Session, error)
+	OpenQueue(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID) (competition.Session, error)
+	AddQueueMember(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, input competition.QueueMemberInput) (competition.Session, error)
+	RemoveQueueMember(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, userID uuid.UUID) (competition.Session, error)
+	AssignQueue(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, input competition.AssignSessionInput) (competition.Session, error)
+	StartSession(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID) (competition.Session, error)
+	ArchiveSession(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID) (competition.Session, error)
+	CreateTeam(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, input competition.CreateTeamInput) (competition.Team, error)
+	RemoveTeam(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, teamID uuid.UUID) error
+	AddRosterMember(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, teamID uuid.UUID, input competition.AddRosterMemberInput) (competition.Team, error)
+	RemoveRosterMember(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID) error
+	CreateMatch(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, input competition.CreateMatchInput) (competition.Match, error)
+	ArchiveMatch(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID) (competition.Match, error)
+	RecordMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, input competition.RecordMatchResultInput) (competition.Session, error)
 }
 
 type EligibilityReader interface {
@@ -227,6 +228,7 @@ const principalContextKey contextKey = "session_principal"
 
 func NewHandler(deps Dependencies) http.Handler {
 	router := chi.NewRouter()
+	trustedSurfaceVerifier := authz.NewTrustedSurfaceVerifierFromEnv()
 	registerWebUIRoutes(router, deps)
 	router.Get("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, healthResponse{
@@ -482,16 +484,15 @@ func NewHandler(deps Dependencies) http.Handler {
 			)
 			writeJSON(w, http.StatusOK, matchPreview)
 		})
-		authenticated.Get("/api/v1/competition/sessions", func(w http.ResponseWriter, r *http.Request) {
-			principal := principalFromContext(r.Context())
-			sessions, err := deps.Competition.ListSessions(r.Context(), principal.UserID)
+		authenticated.Get("/api/v1/competition/sessions", withCompetitionAccess(authz.CapabilityCompetitionRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ competition.StaffActor) {
+			sessions, err := deps.Competition.ListSessions(r.Context())
 			if err != nil {
 				writeCompetitionError(w, err)
 				return
 			}
 
 			writeJSON(w, http.StatusOK, sessions)
-		})
+		}))
 		authenticated.Get("/api/v1/competition/member-stats", func(w http.ResponseWriter, r *http.Request) {
 			principal := principalFromContext(r.Context())
 			memberStats, err := deps.Competition.ListMemberStats(r.Context(), principal.UserID)
@@ -502,15 +503,14 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			writeJSON(w, http.StatusOK, memberStats)
 		})
-		authenticated.Post("/api/v1/competition/sessions", func(w http.ResponseWriter, r *http.Request) {
+		authenticated.Post("/api/v1/competition/sessions", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			var request createCompetitionSessionRequest
 			if err := decodeJSONBody(r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			session, err := deps.Competition.CreateSession(r.Context(), principal.UserID, competition.CreateSessionInput{
+			session, err := deps.Competition.CreateSession(r.Context(), actor, competition.CreateSessionInput{
 				DisplayName:         request.DisplayName,
 				SportKey:            request.SportKey,
 				FacilityKey:         request.FacilityKey,
@@ -523,40 +523,38 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusCreated, session)
-		})
-		authenticated.Get("/api/v1/competition/sessions/{sessionID}", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Get("/api/v1/competition/sessions/{sessionID}", withCompetitionAccess(authz.CapabilityCompetitionRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			session, err := deps.Competition.GetSession(r.Context(), principal.UserID, sessionID)
+			session, err := deps.Competition.GetSession(r.Context(), sessionID)
 			if err != nil {
 				writeCompetitionError(w, err)
 				return
 			}
 
 			writeJSON(w, http.StatusOK, session)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/queue/open", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/queue/open", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			session, err := deps.Competition.OpenQueue(r.Context(), principal.UserID, sessionID)
+			session, err := deps.Competition.OpenQueue(r.Context(), actor, sessionID)
 			if err != nil {
 				writeCompetitionError(w, err)
 				return
 			}
 
 			writeJSON(w, http.StatusOK, session)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/queue/members", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/queue/members", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -569,8 +567,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			session, err := deps.Competition.AddQueueMember(r.Context(), principal.UserID, sessionID, competition.QueueMemberInput{
+			session, err := deps.Competition.AddQueueMember(r.Context(), actor, sessionID, competition.QueueMemberInput{
 				UserID: request.UserID,
 			})
 			if err != nil {
@@ -579,8 +576,8 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, session)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/queue/members/{userID}/remove", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/queue/members/{userID}/remove", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -592,16 +589,15 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			session, err := deps.Competition.RemoveQueueMember(r.Context(), principal.UserID, sessionID, userID)
+			session, err := deps.Competition.RemoveQueueMember(r.Context(), actor, sessionID, userID)
 			if err != nil {
 				writeCompetitionError(w, err)
 				return
 			}
 
 			writeJSON(w, http.StatusOK, session)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/assignment", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/assignment", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -614,8 +610,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			session, err := deps.Competition.AssignQueue(r.Context(), principal.UserID, sessionID, competition.AssignSessionInput{
+			session, err := deps.Competition.AssignQueue(r.Context(), actor, sessionID, competition.AssignSessionInput{
 				ExpectedQueueVersion: request.ExpectedQueueVersion,
 			})
 			if err != nil {
@@ -624,40 +619,38 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, session)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/start", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/start", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			session, err := deps.Competition.StartSession(r.Context(), principal.UserID, sessionID)
+			session, err := deps.Competition.StartSession(r.Context(), actor, sessionID)
 			if err != nil {
 				writeCompetitionError(w, err)
 				return
 			}
 
 			writeJSON(w, http.StatusOK, session)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/archive", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/archive", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			session, err := deps.Competition.ArchiveSession(r.Context(), principal.UserID, sessionID)
+			session, err := deps.Competition.ArchiveSession(r.Context(), actor, sessionID)
 			if err != nil {
 				writeCompetitionError(w, err)
 				return
 			}
 
 			writeJSON(w, http.StatusOK, session)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -670,8 +663,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			team, err := deps.Competition.CreateTeam(r.Context(), principal.UserID, sessionID, competition.CreateTeamInput{
+			team, err := deps.Competition.CreateTeam(r.Context(), actor, sessionID, competition.CreateTeamInput{
 				SideIndex: request.SideIndex,
 			})
 			if err != nil {
@@ -680,8 +672,8 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusCreated, team)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams/{teamID}/remove", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams/{teamID}/remove", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -693,15 +685,14 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			if err := deps.Competition.RemoveTeam(r.Context(), principal.UserID, sessionID, teamID); err != nil {
+			if err := deps.Competition.RemoveTeam(r.Context(), actor, sessionID, teamID); err != nil {
 				writeCompetitionError(w, err)
 				return
 			}
 
 			w.WriteHeader(http.StatusNoContent)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams/{teamID}/members", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams/{teamID}/members", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -719,8 +710,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			team, err := deps.Competition.AddRosterMember(r.Context(), principal.UserID, sessionID, teamID, competition.AddRosterMemberInput{
+			team, err := deps.Competition.AddRosterMember(r.Context(), actor, sessionID, teamID, competition.AddRosterMemberInput{
 				UserID:    request.UserID,
 				SlotIndex: request.SlotIndex,
 			})
@@ -730,8 +720,8 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, team)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams/{teamID}/members/{userID}/remove", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/teams/{teamID}/members/{userID}/remove", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -748,15 +738,14 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			if err := deps.Competition.RemoveRosterMember(r.Context(), principal.UserID, sessionID, teamID, userID); err != nil {
+			if err := deps.Competition.RemoveRosterMember(r.Context(), actor, sessionID, teamID, userID); err != nil {
 				writeCompetitionError(w, err)
 				return
 			}
 
 			w.WriteHeader(http.StatusNoContent)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -769,8 +758,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			match, err := deps.Competition.CreateMatch(r.Context(), principal.UserID, sessionID, competition.CreateMatchInput{
+			match, err := deps.Competition.CreateMatch(r.Context(), actor, sessionID, competition.CreateMatchInput{
 				MatchIndex: request.MatchIndex,
 				SideSlots:  request.SideSlots,
 			})
@@ -780,8 +768,8 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusCreated, match)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/archive", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/archive", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -793,16 +781,15 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			match, err := deps.Competition.ArchiveMatch(r.Context(), principal.UserID, sessionID, matchID)
+			match, err := deps.Competition.ArchiveMatch(r.Context(), actor, sessionID, matchID)
 			if err != nil {
 				writeCompetitionError(w, err)
 				return
 			}
 
 			writeJSON(w, http.StatusOK, match)
-		})
-		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/result", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/result", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			sessionID, err := parseUUIDParam(r, "sessionID")
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -820,8 +807,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			principal := principalFromContext(r.Context())
-			session, err := deps.Competition.RecordMatchResult(r.Context(), principal.UserID, sessionID, matchID, competition.RecordMatchResultInput{
+			session, err := deps.Competition.RecordMatchResult(r.Context(), actor, sessionID, matchID, competition.RecordMatchResultInput{
 				Sides: request.Sides,
 			})
 			if err != nil {
@@ -830,7 +816,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, session)
-		})
+		}))
 		authenticated.Post("/api/v1/lobby/membership/join", func(w http.ResponseWriter, r *http.Request) {
 			principal := principalFromContext(r.Context())
 			lobbyMembership, err := deps.Membership.JoinLobbyMembership(r.Context(), principal.UserID)
@@ -1445,6 +1431,44 @@ func principalFromContext(ctx context.Context) auth.Principal {
 	return principal
 }
 
+func withCompetitionAccess(required authz.Capability, requireTrustedSurface bool, verifier *authz.TrustedSurfaceVerifier, next func(http.ResponseWriter, *http.Request, competition.StaffActor)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		principal := principalFromContext(r.Context())
+		if !authz.HasCapability(principal.Capabilities, required) {
+			writeError(w, http.StatusForbidden, authz.ErrCapabilityDenied)
+			return
+		}
+
+		if requireTrustedSurface {
+			surface, err := verifier.VerifyRequest(r)
+			if err != nil {
+				writeError(w, http.StatusForbidden, err)
+				return
+			}
+
+			principal = principal.WithTrustedSurface(surface)
+			r = r.WithContext(context.WithValue(r.Context(), principalContextKey, principal))
+		}
+
+		next(w, r, competitionActorFromPrincipal(principal, required))
+	}
+}
+
+func competitionActorFromPrincipal(principal auth.Principal, capability authz.Capability) competition.StaffActor {
+	actor := competition.StaffActor{
+		UserID:     principal.UserID,
+		Role:       principal.Role,
+		SessionID:  principal.SessionID,
+		Capability: capability,
+	}
+	if principal.TrustedSurface != nil {
+		actor.TrustedSurfaceKey = principal.TrustedSurface.Key
+		actor.TrustedSurfaceLabel = principal.TrustedSurface.Label
+	}
+
+	return actor
+}
+
 func logWorkoutLifecycle(message string, userID uuid.UUID, workout workouts.Workout) {
 	attrs := []any{
 		"user_id", userID,
@@ -1549,6 +1573,11 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrUserNotFound),
 		errors.Is(err, competition.ErrSportNotFound):
 		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, authz.ErrCapabilityDenied),
+		errors.Is(err, authz.ErrTrustedSurfaceMissing),
+		errors.Is(err, authz.ErrTrustedSurfaceKey),
+		errors.Is(err, authz.ErrTrustedSurfaceInvalid):
+		writeError(w, http.StatusForbidden, err)
 	case errors.Is(err, competition.ErrSessionNameRequired),
 		errors.Is(err, competition.ErrParticipantsPerSide),
 		errors.Is(err, competition.ErrFacilityUnsupported),

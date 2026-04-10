@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/competition"
 )
 
@@ -15,6 +16,7 @@ func TestCompetitionRuntimeSupportsDeterministicSessionTeamRosterMatchRoundTrip(
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-001", "competition-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	_, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-competition-002", "competition-002@example.com")
 	_, memberThree := createVerifiedSessionViaHTTP(t, env, "student-competition-003", "competition-003@example.com")
 	_, memberFour := createVerifiedSessionViaHTTP(t, env, "student-competition-004", "competition-004@example.com")
@@ -118,7 +120,8 @@ func TestCompetitionRuntimeAllowsSameUserAcrossDifferentSessions(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
 
-	ownerCookie, _ := createVerifiedSessionViaHTTP(t, env, "student-competition-cross-001", "competition-cross-001@example.com")
+	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-cross-001", "competition-cross-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	_, member := createVerifiedSessionViaHTTP(t, env, "student-competition-cross-002", "competition-cross-002@example.com")
 
 	firstSessionResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/competition/sessions", `{

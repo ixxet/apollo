@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+
+	"github.com/ixxet/apollo/internal/authz"
 )
 
 func TestCompetitionRuntimeRejectsInvalidBindingsOwnershipAndInvalidTransitions(t *testing.T) {
@@ -11,6 +13,7 @@ func TestCompetitionRuntimeRejectsInvalidBindingsOwnershipAndInvalidTransitions(
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-neg-001", "competition-neg-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	strangerCookie, _ := createVerifiedSessionViaHTTP(t, env, "student-competition-neg-002", "competition-neg-002@example.com")
 	_, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-competition-neg-003", "competition-neg-003@example.com")
 
@@ -111,8 +114,8 @@ func TestCompetitionRuntimeRejectsInvalidBindingsOwnershipAndInvalidTransitions(
 	addRosterMember(t, env, ownerCookie, session.ID.String(), teamTwo.ID.String(), memberTwo.ID.String(), 1)
 
 	unauthorizedSessionRead := env.doRequest(t, http.MethodGet, fmt.Sprintf("/api/v1/competition/sessions/%s", session.ID), nil, strangerCookie)
-	if unauthorizedSessionRead.Code != http.StatusNotFound {
-		t.Fatalf("unauthorizedSessionRead.Code = %d, want %d", unauthorizedSessionRead.Code, http.StatusNotFound)
+	if unauthorizedSessionRead.Code != http.StatusForbidden {
+		t.Fatalf("unauthorizedSessionRead.Code = %d, want %d", unauthorizedSessionRead.Code, http.StatusForbidden)
 	}
 
 	createMatchResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches", session.ID), fmt.Sprintf(`{

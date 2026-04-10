@@ -1,4 +1,4 @@
--- name: ListCompetitionSessionsByOwner :many
+-- name: ListCompetitionSessions :many
 SELECT id,
        owner_user_id,
        display_name,
@@ -12,10 +12,9 @@ SELECT id,
        updated_at,
        archived_at
 FROM apollo.competition_sessions
-WHERE owner_user_id = $1
 ORDER BY created_at DESC, id DESC;
 
--- name: GetCompetitionSessionByIDForOwner :one
+-- name: GetCompetitionSessionByID :one
 SELECT id,
        owner_user_id,
        display_name,
@@ -30,7 +29,6 @@ SELECT id,
        archived_at
 FROM apollo.competition_sessions
 WHERE id = $1
-  AND owner_user_id = $2
 LIMIT 1;
 
 -- name: CreateCompetitionSession :one
@@ -57,6 +55,36 @@ RETURNING id,
           created_at,
           updated_at,
           archived_at;
+
+-- name: CreateCompetitionStaffActionAttribution :one
+INSERT INTO apollo.competition_staff_action_attributions (
+  actor_user_id,
+  actor_role,
+  session_id,
+  capability,
+  trusted_surface_key,
+  trusted_surface_label,
+  action,
+  competition_session_id,
+  competition_session_team_id,
+  competition_match_id,
+  subject_user_id,
+  occurred_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id,
+          actor_user_id,
+          actor_role,
+          session_id,
+          capability,
+          trusted_surface_key,
+          trusted_surface_label,
+          action,
+          competition_session_id,
+          competition_session_team_id,
+          competition_match_id,
+          subject_user_id,
+          occurred_at;
 
 -- name: OpenCompetitionSessionQueue :one
 UPDATE apollo.competition_sessions

@@ -94,36 +94,36 @@ type Store interface {
 	GetLobbyMembershipByUserID(ctx context.Context, userID uuid.UUID) (*store.ApolloLobbyMembership, error)
 	GetSportConfig(ctx context.Context, sportKey string) (*SportConfig, error)
 	ListFacilityCapabilities(ctx context.Context) ([]FacilityCapability, error)
-	ListSessionsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]sessionRecord, error)
-	GetSessionByIDForOwner(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID) (*sessionRecord, error)
-	CreateSession(ctx context.Context, ownerUserID uuid.UUID, input CreateSessionInput) (sessionRecord, error)
-	OpenQueue(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, updatedAt time.Time) (sessionRecord, error)
-	UpdateSessionStatus(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (sessionRecord, error)
-	AddQueueMember(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, joinedAt time.Time) error
-	RemoveQueueMember(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, updatedAt time.Time) error
-	AssignQueue(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error)
+	ListSessions(ctx context.Context) ([]sessionRecord, error)
+	GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*sessionRecord, error)
+	CreateSession(ctx context.Context, actor StaffActor, input CreateSessionInput, createdAt time.Time) (sessionRecord, error)
+	OpenQueue(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error)
+	AddQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, joinedAt time.Time) error
+	RemoveQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, updatedAt time.Time) error
+	AssignQueue(ctx context.Context, actor StaffActor, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error)
+	StartSession(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error)
+	ArchiveSession(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error)
 	CountDraftMatchesBySessionID(ctx context.Context, sessionID uuid.UUID) (int64, error)
 	CountQueueMembersBySessionID(ctx context.Context, sessionID uuid.UUID) (int64, error)
 	ListQueueMembersBySessionID(ctx context.Context, sessionID uuid.UUID) ([]queueRecord, error)
 	ListTeamsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]teamRecord, error)
 	GetTeamByID(ctx context.Context, teamID uuid.UUID) (*teamRecord, error)
-	CreateTeam(ctx context.Context, sessionID uuid.UUID, sideIndex int) (teamRecord, error)
-	DeleteTeam(ctx context.Context, teamID uuid.UUID) (int64, error)
+	CreateTeam(ctx context.Context, actor StaffActor, sessionID uuid.UUID, sideIndex int, createdAt time.Time) (teamRecord, error)
+	DeleteTeam(ctx context.Context, actor StaffActor, sessionID uuid.UUID, teamID uuid.UUID, deletedAt time.Time) (int64, error)
 	CountRosterMembersByTeamID(ctx context.Context, teamID uuid.UUID) (int64, error)
 	SessionHasRosterMemberUser(ctx context.Context, sessionID uuid.UUID, userID uuid.UUID) (bool, error)
 	ListRosterMembersBySessionID(ctx context.Context, sessionID uuid.UUID) ([]rosterRecord, error)
-	CreateRosterMember(ctx context.Context, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID, slotIndex int) (rosterRecord, error)
-	DeleteRosterMember(ctx context.Context, teamID uuid.UUID, userID uuid.UUID) (int64, error)
+	CreateRosterMember(ctx context.Context, actor StaffActor, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID, slotIndex int, createdAt time.Time) (rosterRecord, error)
+	DeleteRosterMember(ctx context.Context, actor StaffActor, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID, deletedAt time.Time) (int64, error)
 	TeamHasMatchReference(ctx context.Context, teamID uuid.UUID) (bool, error)
 	ListMatchesBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchRecord, error)
 	GetMatchByID(ctx context.Context, matchID uuid.UUID) (*matchRecord, error)
-	CreateMatchWithSideSlots(ctx context.Context, sessionID uuid.UUID, matchIndex int, sideSlots []MatchSideInput) (matchRecord, error)
-	ArchiveMatch(ctx context.Context, matchID uuid.UUID, archivedAt time.Time) (matchRecord, error)
-	UpdateMatchStatusesBySessionID(ctx context.Context, sessionID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (int64, error)
+	CreateMatchWithSideSlots(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchIndex int, sideSlots []MatchSideInput, createdAt time.Time) (matchRecord, error)
+	ArchiveMatch(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchID uuid.UUID, archivedAt time.Time) (matchRecord, error)
 	ListMatchSideSlotsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchSideSlotRecord, error)
 	GetMatchResultByMatchID(ctx context.Context, matchID uuid.UUID) (*matchResultRecord, error)
 	ListMatchResultsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchResultSideRecord, error)
-	RecordMatchResult(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error
+	RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error
 	ListMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error)
 	ListMemberStatRowsByUserID(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error)
 }
@@ -385,8 +385,8 @@ func NewService(repository Store) *Service {
 	}
 }
 
-func (s *Service) ListSessions(ctx context.Context, ownerUserID uuid.UUID) ([]SessionSummary, error) {
-	rows, err := s.repository.ListSessionsByOwner(ctx, ownerUserID)
+func (s *Service) ListSessions(ctx context.Context) ([]SessionSummary, error) {
+	rows, err := s.repository.ListSessions(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -399,8 +399,8 @@ func (s *Service) ListSessions(ctx context.Context, ownerUserID uuid.UUID) ([]Se
 	return summaries, nil
 }
 
-func (s *Service) GetSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (Session, error) {
-	session, err := s.repository.GetSessionByIDForOwner(ctx, sessionID, ownerUserID)
+func (s *Service) GetSession(ctx context.Context, sessionID uuid.UUID) (Session, error) {
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -411,7 +411,7 @@ func (s *Service) GetSession(ctx context.Context, ownerUserID uuid.UUID, session
 	return s.loadSessionDetail(ctx, *session)
 }
 
-func (s *Service) CreateSession(ctx context.Context, ownerUserID uuid.UUID, input CreateSessionInput) (Session, error) {
+func (s *Service) CreateSession(ctx context.Context, actor StaffActor, input CreateSessionInput) (Session, error) {
 	displayName := strings.TrimSpace(input.DisplayName)
 	if displayName == "" {
 		return Session{}, ErrSessionNameRequired
@@ -433,13 +433,13 @@ func (s *Service) CreateSession(ctx context.Context, ownerUserID uuid.UUID, inpu
 		return Session{}, err
 	}
 
-	created, err := s.repository.CreateSession(ctx, ownerUserID, CreateSessionInput{
+	created, err := s.repository.CreateSession(ctx, actor, CreateSessionInput{
 		DisplayName:         displayName,
 		SportKey:            sport.SportKey,
 		FacilityKey:         strings.TrimSpace(input.FacilityKey),
 		ZoneKey:             normalizedZone,
 		ParticipantsPerSide: input.ParticipantsPerSide,
-	})
+	}, s.now().UTC())
 	if err != nil {
 		if isUniqueViolation(err) {
 			return Session{}, ErrDuplicateSession
@@ -450,8 +450,8 @@ func (s *Service) CreateSession(ctx context.Context, ownerUserID uuid.UUID, inpu
 	return s.loadSessionDetail(ctx, created)
 }
 
-func (s *Service) OpenQueue(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (Session, error) {
-	session, err := s.repository.GetSessionByIDForOwner(ctx, sessionID, ownerUserID)
+func (s *Service) OpenQueue(ctx context.Context, actor StaffActor, sessionID uuid.UUID) (Session, error) {
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -477,7 +477,7 @@ func (s *Service) OpenQueue(ctx context.Context, ownerUserID uuid.UUID, sessionI
 		return Session{}, err
 	}
 
-	opened, err := s.repository.OpenQueue(ctx, sessionID, ownerUserID, s.now().UTC())
+	opened, err := s.repository.OpenQueue(ctx, actor, *session, s.now().UTC())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Session{}, ErrInvalidSessionTransition
@@ -488,8 +488,8 @@ func (s *Service) OpenQueue(ctx context.Context, ownerUserID uuid.UUID, sessionI
 	return s.loadSessionDetail(ctx, opened)
 }
 
-func (s *Service) AddQueueMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input QueueMemberInput) (Session, error) {
-	session, err := s.repository.GetSessionByIDForOwner(ctx, sessionID, ownerUserID)
+func (s *Service) AddQueueMember(ctx context.Context, actor StaffActor, sessionID uuid.UUID, input QueueMemberInput) (Session, error) {
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -528,7 +528,7 @@ func (s *Service) AddQueueMember(ctx context.Context, ownerUserID uuid.UUID, ses
 		return Session{}, err
 	}
 
-	if err := s.repository.AddQueueMember(ctx, session.ID, ownerUserID, input.UserID, s.now().UTC()); err != nil {
+	if err := s.repository.AddQueueMember(ctx, actor, *session, input.UserID, s.now().UTC()); err != nil {
 		switch {
 		case isUniqueConstraint(err, competitionSessionQueueMembersPrimaryKey), isUniqueViolation(err):
 			return Session{}, ErrQueueMemberAlreadyJoined
@@ -539,7 +539,7 @@ func (s *Service) AddQueueMember(ctx context.Context, ownerUserID uuid.UUID, ses
 		}
 	}
 
-	refreshed, err := s.repository.GetSessionByIDForOwner(ctx, session.ID, ownerUserID)
+	refreshed, err := s.repository.GetSessionByID(ctx, session.ID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -550,8 +550,8 @@ func (s *Service) AddQueueMember(ctx context.Context, ownerUserID uuid.UUID, ses
 	return s.loadSessionDetail(ctx, *refreshed)
 }
 
-func (s *Service) RemoveQueueMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, userID uuid.UUID) (Session, error) {
-	session, err := s.repository.GetSessionByIDForOwner(ctx, sessionID, ownerUserID)
+func (s *Service) RemoveQueueMember(ctx context.Context, actor StaffActor, sessionID uuid.UUID, userID uuid.UUID) (Session, error) {
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -565,7 +565,7 @@ func (s *Service) RemoveQueueMember(ctx context.Context, ownerUserID uuid.UUID, 
 		return Session{}, ErrQueueClosed
 	}
 
-	if err := s.repository.RemoveQueueMember(ctx, session.ID, ownerUserID, userID, s.now().UTC()); err != nil {
+	if err := s.repository.RemoveQueueMember(ctx, actor, *session, userID, s.now().UTC()); err != nil {
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			return Session{}, ErrQueueMemberNotFound
@@ -574,7 +574,7 @@ func (s *Service) RemoveQueueMember(ctx context.Context, ownerUserID uuid.UUID, 
 		}
 	}
 
-	refreshed, err := s.repository.GetSessionByIDForOwner(ctx, session.ID, ownerUserID)
+	refreshed, err := s.repository.GetSessionByID(ctx, session.ID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -585,12 +585,12 @@ func (s *Service) RemoveQueueMember(ctx context.Context, ownerUserID uuid.UUID, 
 	return s.loadSessionDetail(ctx, *refreshed)
 }
 
-func (s *Service) AssignQueue(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input AssignSessionInput) (Session, error) {
+func (s *Service) AssignQueue(ctx context.Context, actor StaffActor, sessionID uuid.UUID, input AssignSessionInput) (Session, error) {
 	if input.ExpectedQueueVersion <= 0 {
 		return Session{}, ErrQueueVersionRequired
 	}
 
-	session, err := s.repository.GetSessionByIDForOwner(ctx, sessionID, ownerUserID)
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -633,7 +633,7 @@ func (s *Service) AssignQueue(ctx context.Context, ownerUserID uuid.UUID, sessio
 		}
 	}
 
-	assigned, err := s.repository.AssignQueue(ctx, ownerUserID, *session, input, *sport, queueMembers, s.now().UTC())
+	assigned, err := s.repository.AssignQueue(ctx, actor, *session, input, *sport, queueMembers, s.now().UTC())
 	if err != nil {
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -646,8 +646,8 @@ func (s *Service) AssignQueue(ctx context.Context, ownerUserID uuid.UUID, sessio
 	return s.loadSessionDetail(ctx, assigned)
 }
 
-func (s *Service) StartSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (Session, error) {
-	session, err := s.repository.GetSessionByIDForOwner(ctx, sessionID, ownerUserID)
+func (s *Service) StartSession(ctx context.Context, actor StaffActor, sessionID uuid.UUID) (Session, error) {
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -661,15 +661,7 @@ func (s *Service) StartSession(ctx context.Context, ownerUserID uuid.UUID, sessi
 		return Session{}, ErrInvalidSessionTransition
 	}
 
-	updatedMatches, err := s.repository.UpdateMatchStatusesBySessionID(ctx, session.ID, MatchStatusAssigned, MatchStatusInProgress, s.now().UTC())
-	if err != nil {
-		return Session{}, err
-	}
-	if updatedMatches == 0 {
-		return Session{}, ErrMatchNotFound
-	}
-
-	started, err := s.repository.UpdateSessionStatus(ctx, session.ID, ownerUserID, SessionStatusAssigned, SessionStatusInProgress, s.now().UTC())
+	started, err := s.repository.StartSession(ctx, actor, *session, s.now().UTC())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Session{}, ErrInvalidSessionTransition
@@ -680,8 +672,8 @@ func (s *Service) StartSession(ctx context.Context, ownerUserID uuid.UUID, sessi
 	return s.loadSessionDetail(ctx, started)
 }
 
-func (s *Service) ArchiveSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (Session, error) {
-	session, err := s.repository.GetSessionByIDForOwner(ctx, sessionID, ownerUserID)
+func (s *Service) ArchiveSession(ctx context.Context, actor StaffActor, sessionID uuid.UUID) (Session, error) {
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -692,7 +684,6 @@ func (s *Service) ArchiveSession(ctx context.Context, ownerUserID uuid.UUID, ses
 		return Session{}, ErrSessionArchived
 	}
 
-	now := s.now().UTC()
 	switch session.Status {
 	case SessionStatusDraft:
 		draftMatches, countErr := s.repository.CountDraftMatchesBySessionID(ctx, sessionID)
@@ -711,28 +702,14 @@ func (s *Service) ArchiveSession(ctx context.Context, ownerUserID uuid.UUID, ses
 			return Session{}, ErrQueueNotEmpty
 		}
 	case SessionStatusAssigned:
-		updatedMatches, updateErr := s.repository.UpdateMatchStatusesBySessionID(ctx, session.ID, MatchStatusAssigned, MatchStatusArchived, now)
-		if updateErr != nil {
-			return Session{}, updateErr
-		}
-		if updatedMatches == 0 {
-			return Session{}, ErrMatchNotFound
-		}
 	case SessionStatusInProgress:
-		updatedMatches, updateErr := s.repository.UpdateMatchStatusesBySessionID(ctx, session.ID, MatchStatusInProgress, MatchStatusArchived, now)
-		if updateErr != nil {
-			return Session{}, updateErr
-		}
-		if updatedMatches == 0 {
-			return Session{}, ErrMatchNotFound
-		}
 	case SessionStatusCompleted:
 		// Completed sessions may be archived without mutating completed matches.
 	default:
 		return Session{}, ErrInvalidSessionTransition
 	}
 
-	archived, err := s.repository.UpdateSessionStatus(ctx, sessionID, ownerUserID, session.Status, SessionStatusArchived, now)
+	archived, err := s.repository.ArchiveSession(ctx, actor, *session, s.now().UTC())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Session{}, ErrInvalidSessionTransition
@@ -743,17 +720,17 @@ func (s *Service) ArchiveSession(ctx context.Context, ownerUserID uuid.UUID, ses
 	return s.loadSessionDetail(ctx, archived)
 }
 
-func (s *Service) CreateTeam(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input CreateTeamInput) (Team, error) {
+func (s *Service) CreateTeam(ctx context.Context, actor StaffActor, sessionID uuid.UUID, input CreateTeamInput) (Team, error) {
 	if input.SideIndex <= 0 {
 		return Team{}, ErrTeamSideIndexInvalid
 	}
 
-	session, err := s.requireDraftSession(ctx, ownerUserID, sessionID)
+	session, err := s.requireDraftSession(ctx, sessionID)
 	if err != nil {
 		return Team{}, err
 	}
 
-	team, err := s.repository.CreateTeam(ctx, session.ID, input.SideIndex)
+	team, err := s.repository.CreateTeam(ctx, actor, session.ID, input.SideIndex, s.now().UTC())
 	if err != nil {
 		if isUniqueViolation(err) {
 			return Team{}, ErrDuplicateTeam
@@ -769,8 +746,8 @@ func (s *Service) CreateTeam(ctx context.Context, ownerUserID uuid.UUID, session
 	return findTeam(detail.Teams, team.ID)
 }
 
-func (s *Service) RemoveTeam(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID) error {
-	session, err := s.requireDraftSession(ctx, ownerUserID, sessionID)
+func (s *Service) RemoveTeam(ctx context.Context, actor StaffActor, sessionID uuid.UUID, teamID uuid.UUID) error {
+	session, err := s.requireDraftSession(ctx, sessionID)
 	if err != nil {
 		return err
 	}
@@ -791,7 +768,7 @@ func (s *Service) RemoveTeam(ctx context.Context, ownerUserID uuid.UUID, session
 		return ErrTeamReferencedByMatch
 	}
 
-	deleted, err := s.repository.DeleteTeam(ctx, teamID)
+	deleted, err := s.repository.DeleteTeam(ctx, actor, session.ID, teamID, s.now().UTC())
 	if err != nil {
 		return err
 	}
@@ -802,12 +779,12 @@ func (s *Service) RemoveTeam(ctx context.Context, ownerUserID uuid.UUID, session
 	return nil
 }
 
-func (s *Service) AddRosterMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID, input AddRosterMemberInput) (Team, error) {
+func (s *Service) AddRosterMember(ctx context.Context, actor StaffActor, sessionID uuid.UUID, teamID uuid.UUID, input AddRosterMemberInput) (Team, error) {
 	if input.SlotIndex <= 0 {
 		return Team{}, ErrRosterSlotIndexInvalid
 	}
 
-	session, err := s.requireDraftSession(ctx, ownerUserID, sessionID)
+	session, err := s.requireDraftSession(ctx, sessionID)
 	if err != nil {
 		return Team{}, err
 	}
@@ -855,7 +832,7 @@ func (s *Service) AddRosterMember(ctx context.Context, ownerUserID uuid.UUID, se
 		return Team{}, ErrTeamSizeMismatch
 	}
 
-	if _, err := s.repository.CreateRosterMember(ctx, session.ID, teamID, input.UserID, input.SlotIndex); err != nil {
+	if _, err := s.repository.CreateRosterMember(ctx, actor, session.ID, teamID, input.UserID, input.SlotIndex, s.now().UTC()); err != nil {
 		switch {
 		case isUniqueConstraint(err, competitionTeamRosterMembersPrimaryKey, competitionTeamRosterMembersSessionUserUnique):
 			return Team{}, ErrRosterConflict
@@ -874,8 +851,8 @@ func (s *Service) AddRosterMember(ctx context.Context, ownerUserID uuid.UUID, se
 	return findTeam(detail.Teams, teamID)
 }
 
-func (s *Service) RemoveRosterMember(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID) error {
-	session, err := s.requireDraftSession(ctx, ownerUserID, sessionID)
+func (s *Service) RemoveRosterMember(ctx context.Context, actor StaffActor, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID) error {
+	session, err := s.requireDraftSession(ctx, sessionID)
 	if err != nil {
 		return err
 	}
@@ -896,7 +873,7 @@ func (s *Service) RemoveRosterMember(ctx context.Context, ownerUserID uuid.UUID,
 		return ErrTeamReferencedByMatch
 	}
 
-	deleted, err := s.repository.DeleteRosterMember(ctx, teamID, userID)
+	deleted, err := s.repository.DeleteRosterMember(ctx, actor, session.ID, teamID, userID, s.now().UTC())
 	if err != nil {
 		return err
 	}
@@ -907,12 +884,12 @@ func (s *Service) RemoveRosterMember(ctx context.Context, ownerUserID uuid.UUID,
 	return nil
 }
 
-func (s *Service) CreateMatch(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, input CreateMatchInput) (Match, error) {
+func (s *Service) CreateMatch(ctx context.Context, actor StaffActor, sessionID uuid.UUID, input CreateMatchInput) (Match, error) {
 	if input.MatchIndex <= 0 {
 		return Match{}, ErrMatchIndexInvalid
 	}
 
-	session, err := s.requireDraftSession(ctx, ownerUserID, sessionID)
+	session, err := s.requireDraftSession(ctx, sessionID)
 	if err != nil {
 		return Match{}, err
 	}
@@ -954,7 +931,7 @@ func (s *Service) CreateMatch(ctx context.Context, ownerUserID uuid.UUID, sessio
 		}
 	}
 
-	match, err := s.repository.CreateMatchWithSideSlots(ctx, session.ID, input.MatchIndex, input.SideSlots)
+	match, err := s.repository.CreateMatchWithSideSlots(ctx, actor, session.ID, input.MatchIndex, input.SideSlots, s.now().UTC())
 	if err != nil {
 		if isUniqueViolation(err) {
 			return Match{}, ErrDuplicateMatch
@@ -970,8 +947,8 @@ func (s *Service) CreateMatch(ctx context.Context, ownerUserID uuid.UUID, sessio
 	return findMatch(detail.Matches, match.ID)
 }
 
-func (s *Service) ArchiveMatch(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, matchID uuid.UUID) (Match, error) {
-	session, err := s.requireDraftSession(ctx, ownerUserID, sessionID)
+func (s *Service) ArchiveMatch(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchID uuid.UUID) (Match, error) {
+	session, err := s.requireDraftSession(ctx, sessionID)
 	if err != nil {
 		return Match{}, err
 	}
@@ -987,7 +964,7 @@ func (s *Service) ArchiveMatch(ctx context.Context, ownerUserID uuid.UUID, sessi
 		return Match{}, ErrMatchArchived
 	}
 
-	if _, err := s.repository.ArchiveMatch(ctx, matchID, s.now().UTC()); err != nil {
+	if _, err := s.repository.ArchiveMatch(ctx, actor, session.ID, matchID, s.now().UTC()); err != nil {
 		return Match{}, err
 	}
 
@@ -999,8 +976,8 @@ func (s *Service) ArchiveMatch(ctx context.Context, ownerUserID uuid.UUID, sessi
 	return findMatch(detail.Matches, matchID)
 }
 
-func (s *Service) requireDraftSession(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID) (sessionRecord, error) {
-	session, err := s.repository.GetSessionByIDForOwner(ctx, sessionID, ownerUserID)
+func (s *Service) requireDraftSession(ctx context.Context, sessionID uuid.UUID) (sessionRecord, error) {
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return sessionRecord{}, err
 	}

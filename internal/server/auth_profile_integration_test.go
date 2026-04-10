@@ -18,6 +18,7 @@ import (
 
 	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/coaching"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
@@ -54,11 +55,13 @@ func (s *integrationEmailSender) lastToken(t *testing.T) string {
 }
 
 type authProfileServerEnv struct {
-	db      *testutil.PostgresEnv
-	handler http.Handler
-	sender  *integrationEmailSender
-	cookies *auth.SessionCookieManager
-	queries *store.Queries
+	db                  *testutil.PostgresEnv
+	handler             http.Handler
+	sender              *integrationEmailSender
+	cookies             *auth.SessionCookieManager
+	queries             *store.Queries
+	trustedSurfaceKey   string
+	trustedSurfaceToken string
 }
 
 func TestRegistrationVerificationAndProfileRoundTrip(t *testing.T) {
@@ -294,6 +297,7 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	if err := testutil.ApplyApolloSchema(ctx, db.DB); err != nil {
 		t.Fatalf("ApplyApolloSchema() error = %v", err)
 	}
+	t.Setenv(authz.TrustedSurfaceConfigEnv, "staff-console=staff-secret")
 
 	cookies, err := auth.NewSessionCookieManager("apollo_session", "0123456789abcdef0123456789abcdef", true)
 	if err != nil {
@@ -336,9 +340,11 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 			Nutrition:       nutritionService,
 			Workouts:        workoutService,
 		}),
-		sender:  sender,
-		cookies: cookies,
-		queries: store.New(db.DB),
+		sender:              sender,
+		cookies:             cookies,
+		queries:             store.New(db.DB),
+		trustedSurfaceKey:   "staff-console",
+		trustedSurfaceToken: "staff-secret",
 	}
 }
 
@@ -359,6 +365,24 @@ func (e *authProfileServerEnv) doJSONRequest(t *testing.T, method string, path s
 func (e *authProfileServerEnv) doRequest(t *testing.T, method string, path string, body *bytes.Buffer, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 
+	return e.doRequestInternal(t, method, path, body, true, nil, cookies...)
+}
+
+func (e *authProfileServerEnv) doRequestWithoutTrustedSurface(t *testing.T, method string, path string, body *bytes.Buffer, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+
+	return e.doRequestInternal(t, method, path, body, false, nil, cookies...)
+}
+
+func (e *authProfileServerEnv) doRequestWithHeaders(t *testing.T, method string, path string, body *bytes.Buffer, headers map[string]string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+
+	return e.doRequestInternal(t, method, path, body, false, headers, cookies...)
+}
+
+func (e *authProfileServerEnv) doRequestInternal(t *testing.T, method string, path string, body *bytes.Buffer, autoTrustedSurface bool, headers map[string]string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+
 	var reader *bytes.Buffer
 	if body == nil {
 		reader = bytes.NewBuffer(nil)
@@ -369,6 +393,13 @@ func (e *authProfileServerEnv) doRequest(t *testing.T, method string, path strin
 	request := httptest.NewRequest(method, path, reader)
 	if method == http.MethodPost || method == http.MethodPatch || method == http.MethodPut {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	if autoTrustedSurface && method == http.MethodPost && strings.HasPrefix(path, "/api/v1/competition/") {
+		request.Header.Set(authz.TrustedSurfaceHeader, e.trustedSurfaceKey)
+		request.Header.Set(authz.TrustedSurfaceTokenHeader, e.trustedSurfaceToken)
+	}
+	for key, value := range headers {
+		request.Header.Set(key, value)
 	}
 	for _, cookie := range cookies {
 		request.AddCookie(cookie)
@@ -441,6 +472,30 @@ func createVerifiedUser(t *testing.T, env *authProfileServerEnv, studentID strin
 		t.Fatalf("GetUserByID() error = %v", err)
 	}
 	return store.ApolloUserFromGetUserByIDRow(verifiedUser)
+}
+
+func setUserRole(t *testing.T, env *authProfileServerEnv, userID uuid.UUID, role authz.Role) store.ApolloUser {
+	t.Helper()
+
+	row, err := env.queries.SetUserRole(context.Background(), store.SetUserRoleParams{
+		ID:   userID,
+		Role: string(role),
+	})
+	if err != nil {
+		t.Fatalf("SetUserRole() error = %v", err)
+	}
+
+	return store.ApolloUser{
+		ID:              row.ID,
+		StudentID:       row.StudentID,
+		DisplayName:     row.DisplayName,
+		Email:           row.Email,
+		Role:            row.Role,
+		Preferences:     row.Preferences,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
+		EmailVerifiedAt: row.EmailVerifiedAt,
+	}
 }
 
 func countRows(t *testing.T, env *authProfileServerEnv, table string, userID uuid.UUID) int {

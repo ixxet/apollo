@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/competition"
 )
 
@@ -18,6 +19,7 @@ func TestCompetitionHistoryRuntimeRecordsResultsCompletesSessionsAndExposesDeriv
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-history-001", "competition-history-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-competition-history-002", "competition-history-002@example.com")
 
 	for _, cookie := range []*http.Cookie{ownerCookie, memberTwoCookie} {
@@ -101,6 +103,7 @@ func TestCompetitionHistoryRuntimeRejectsInvalidResultWrites(t *testing.T) {
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-history-neg-001", "competition-history-neg-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	strangerCookie, _ := createVerifiedSessionViaHTTP(t, env, "student-competition-history-neg-002", "competition-history-neg-002@example.com")
 	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-competition-history-neg-003", "competition-history-neg-003@example.com")
 
@@ -119,8 +122,8 @@ func TestCompetitionHistoryRuntimeRejectsInvalidResultWrites(t *testing.T) {
 	startedSession := startCompetitionSession(t, env, ownerCookie, queuedSession.ID.String())
 
 	wrongOwnerResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", startedSession.ID, startedSession.Matches[0].ID), buildResultRequestBody(startedSession.Matches[0].SideSlots, []string{"win", "loss"}), strangerCookie)
-	if wrongOwnerResponse.Code != http.StatusNotFound {
-		t.Fatalf("wrongOwnerResponse.Code = %d, want %d", wrongOwnerResponse.Code, http.StatusNotFound)
+	if wrongOwnerResponse.Code != http.StatusForbidden {
+		t.Fatalf("wrongOwnerResponse.Code = %d, want %d", wrongOwnerResponse.Code, http.StatusForbidden)
 	}
 
 	invalidCountResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", startedSession.ID, startedSession.Matches[0].ID), `{"sides":[{"side_index":1,"competition_session_team_id":"`+startedSession.Matches[0].SideSlots[0].TeamID.String()+`","outcome":"win"}]}`, ownerCookie)
@@ -170,6 +173,7 @@ func TestCompetitionHistoryRuntimeSeparatesRatingsBySportAndMode(t *testing.T) {
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-history-mode-001", "competition-history-mode-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-competition-history-mode-002", "competition-history-mode-002@example.com")
 	memberThreeCookie, memberThree := createVerifiedSessionViaHTTP(t, env, "student-competition-history-mode-003", "competition-history-mode-003@example.com")
 	memberFourCookie, memberFour := createVerifiedSessionViaHTTP(t, env, "student-competition-history-mode-004", "competition-history-mode-004@example.com")

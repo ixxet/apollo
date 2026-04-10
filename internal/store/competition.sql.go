@@ -456,6 +456,86 @@ func (q *Queries) CreateCompetitionSessionTeam(ctx context.Context, arg CreateCo
 	return i, err
 }
 
+const createCompetitionStaffActionAttribution = `-- name: CreateCompetitionStaffActionAttribution :one
+INSERT INTO apollo.competition_staff_action_attributions (
+  actor_user_id,
+  actor_role,
+  session_id,
+  capability,
+  trusted_surface_key,
+  trusted_surface_label,
+  action,
+  competition_session_id,
+  competition_session_team_id,
+  competition_match_id,
+  subject_user_id,
+  occurred_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id,
+          actor_user_id,
+          actor_role,
+          session_id,
+          capability,
+          trusted_surface_key,
+          trusted_surface_label,
+          action,
+          competition_session_id,
+          competition_session_team_id,
+          competition_match_id,
+          subject_user_id,
+          occurred_at
+`
+
+type CreateCompetitionStaffActionAttributionParams struct {
+	ActorUserID              uuid.UUID
+	ActorRole                string
+	SessionID                uuid.UUID
+	Capability               string
+	TrustedSurfaceKey        string
+	TrustedSurfaceLabel      *string
+	Action                   string
+	CompetitionSessionID     pgtype.UUID
+	CompetitionSessionTeamID pgtype.UUID
+	CompetitionMatchID       pgtype.UUID
+	SubjectUserID            pgtype.UUID
+	OccurredAt               pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionStaffActionAttribution(ctx context.Context, arg CreateCompetitionStaffActionAttributionParams) (ApolloCompetitionStaffActionAttribution, error) {
+	row := q.db.QueryRow(ctx, createCompetitionStaffActionAttribution,
+		arg.ActorUserID,
+		arg.ActorRole,
+		arg.SessionID,
+		arg.Capability,
+		arg.TrustedSurfaceKey,
+		arg.TrustedSurfaceLabel,
+		arg.Action,
+		arg.CompetitionSessionID,
+		arg.CompetitionSessionTeamID,
+		arg.CompetitionMatchID,
+		arg.SubjectUserID,
+		arg.OccurredAt,
+	)
+	var i ApolloCompetitionStaffActionAttribution
+	err := row.Scan(
+		&i.ID,
+		&i.ActorUserID,
+		&i.ActorRole,
+		&i.SessionID,
+		&i.Capability,
+		&i.TrustedSurfaceKey,
+		&i.TrustedSurfaceLabel,
+		&i.Action,
+		&i.CompetitionSessionID,
+		&i.CompetitionSessionTeamID,
+		&i.CompetitionMatchID,
+		&i.SubjectUserID,
+		&i.OccurredAt,
+	)
+	return i, err
+}
+
 const createCompetitionTeamRosterMember = `-- name: CreateCompetitionTeamRosterMember :one
 INSERT INTO apollo.competition_team_roster_members (
   competition_session_id,
@@ -588,7 +668,7 @@ func (q *Queries) GetCompetitionMatchByID(ctx context.Context, id uuid.UUID) (Ap
 	return i, err
 }
 
-const getCompetitionSessionByIDForOwner = `-- name: GetCompetitionSessionByIDForOwner :one
+const getCompetitionSessionByID = `-- name: GetCompetitionSessionByID :one
 SELECT id,
        owner_user_id,
        display_name,
@@ -603,16 +683,10 @@ SELECT id,
        archived_at
 FROM apollo.competition_sessions
 WHERE id = $1
-  AND owner_user_id = $2
 LIMIT 1
 `
 
-type GetCompetitionSessionByIDForOwnerParams struct {
-	ID          uuid.UUID
-	OwnerUserID uuid.UUID
-}
-
-type GetCompetitionSessionByIDForOwnerRow struct {
+type GetCompetitionSessionByIDRow struct {
 	ID                  uuid.UUID
 	OwnerUserID         uuid.UUID
 	DisplayName         string
@@ -627,9 +701,9 @@ type GetCompetitionSessionByIDForOwnerRow struct {
 	ArchivedAt          pgtype.Timestamptz
 }
 
-func (q *Queries) GetCompetitionSessionByIDForOwner(ctx context.Context, arg GetCompetitionSessionByIDForOwnerParams) (GetCompetitionSessionByIDForOwnerRow, error) {
-	row := q.db.QueryRow(ctx, getCompetitionSessionByIDForOwner, arg.ID, arg.OwnerUserID)
-	var i GetCompetitionSessionByIDForOwnerRow
+func (q *Queries) GetCompetitionSessionByID(ctx context.Context, id uuid.UUID) (GetCompetitionSessionByIDRow, error) {
+	row := q.db.QueryRow(ctx, getCompetitionSessionByID, id)
+	var i GetCompetitionSessionByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerUserID,
@@ -834,7 +908,7 @@ func (q *Queries) ListCompetitionSessionTeamsBySessionID(ctx context.Context, co
 	return items, nil
 }
 
-const listCompetitionSessionsByOwner = `-- name: ListCompetitionSessionsByOwner :many
+const listCompetitionSessions = `-- name: ListCompetitionSessions :many
 SELECT id,
        owner_user_id,
        display_name,
@@ -848,11 +922,10 @@ SELECT id,
        updated_at,
        archived_at
 FROM apollo.competition_sessions
-WHERE owner_user_id = $1
 ORDER BY created_at DESC, id DESC
 `
 
-type ListCompetitionSessionsByOwnerRow struct {
+type ListCompetitionSessionsRow struct {
 	ID                  uuid.UUID
 	OwnerUserID         uuid.UUID
 	DisplayName         string
@@ -867,15 +940,15 @@ type ListCompetitionSessionsByOwnerRow struct {
 	ArchivedAt          pgtype.Timestamptz
 }
 
-func (q *Queries) ListCompetitionSessionsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]ListCompetitionSessionsByOwnerRow, error) {
-	rows, err := q.db.Query(ctx, listCompetitionSessionsByOwner, ownerUserID)
+func (q *Queries) ListCompetitionSessions(ctx context.Context) ([]ListCompetitionSessionsRow, error) {
+	rows, err := q.db.Query(ctx, listCompetitionSessions)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListCompetitionSessionsByOwnerRow
+	var items []ListCompetitionSessionsRow
 	for rows.Next() {
-		var i ListCompetitionSessionsByOwnerRow
+		var i ListCompetitionSessionsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.OwnerUserID,

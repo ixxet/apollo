@@ -15,8 +15,8 @@ const (
 	matchOutcomeDraw = "draw"
 )
 
-func (s *Service) RecordMatchResult(ctx context.Context, ownerUserID uuid.UUID, sessionID uuid.UUID, matchID uuid.UUID, input RecordMatchResultInput) (Session, error) {
-	session, err := s.repository.GetSessionByIDForOwner(ctx, sessionID, ownerUserID)
+func (s *Service) RecordMatchResult(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchID uuid.UUID, input RecordMatchResultInput) (Session, error) {
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return Session{}, err
 	}
@@ -74,7 +74,7 @@ func (s *Service) RecordMatchResult(ctx context.Context, ownerUserID uuid.UUID, 
 		return Session{}, err
 	}
 
-	if err := s.repository.RecordMatchResult(ctx, ownerUserID, *session, *sport, *match, input, s.now().UTC()); err != nil {
+	if err := s.repository.RecordMatchResult(ctx, actor, *session, *sport, *match, input, s.now().UTC()); err != nil {
 		switch {
 		case isUniqueViolation(err):
 			return Session{}, ErrMatchResultRecorded
@@ -85,7 +85,7 @@ func (s *Service) RecordMatchResult(ctx context.Context, ownerUserID uuid.UUID, 
 		}
 	}
 
-	refreshed, err := s.repository.GetSessionByIDForOwner(ctx, session.ID, ownerUserID)
+	refreshed, err := s.repository.GetSessionByID(ctx, session.ID)
 	if err != nil {
 		return Session{}, err
 	}

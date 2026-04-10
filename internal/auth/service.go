@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/store"
 )
 
@@ -62,7 +63,7 @@ type Clock func() time.Time
 type Store interface {
 	StartVerification(ctx context.Context, studentID string, email string, displayName string, tokenHash string, expiresAt time.Time) (*store.ApolloUser, *store.ApolloEmailVerificationToken, error)
 	VerifyTokenAndCreateSession(ctx context.Context, tokenHash string, now time.Time, sessionExpiresAt time.Time) (*store.ApolloUser, *store.ApolloSession, error)
-	LookupSession(ctx context.Context, sessionID uuid.UUID, now time.Time) (*store.ApolloSession, error)
+	LookupSession(ctx context.Context, sessionID uuid.UUID, now time.Time) (*AuthenticatedSession, error)
 	RevokeSession(ctx context.Context, sessionID uuid.UUID, revokedAt time.Time) error
 }
 
@@ -87,8 +88,22 @@ type VerifiedSession struct {
 }
 
 type Principal struct {
+	SessionID      uuid.UUID
+	UserID         uuid.UUID
+	Role           authz.Role
+	Capabilities   []authz.Capability
+	TrustedSurface *authz.TrustedSurface
+}
+
+type AuthenticatedSession struct {
 	SessionID uuid.UUID
 	UserID    uuid.UUID
+	Role      authz.Role
+}
+
+func (p Principal) WithTrustedSurface(surface *authz.TrustedSurface) Principal {
+	p.TrustedSurface = surface
+	return p
 }
 
 func NewService(repository Store, cookies *SessionCookieManager, sender EmailSender, verificationTokenTTL time.Duration, sessionTTL time.Duration) *Service {
@@ -165,8 +180,10 @@ func (s *Service) AuthenticateSession(ctx context.Context, cookieValue string) (
 	}
 
 	return Principal{
-		SessionID: session.ID,
-		UserID:    session.UserID,
+		SessionID:    session.SessionID,
+		UserID:       session.UserID,
+		Role:         session.Role,
+		Capabilities: authz.CapabilitiesForRole(session.Role),
 	}, nil
 }
 

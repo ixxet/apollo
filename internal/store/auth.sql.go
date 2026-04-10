@@ -84,7 +84,7 @@ INSERT INTO apollo.users (
   email
 )
 VALUES ($1, $2, $3)
-RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
+RETURNING id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
 `
 
 type CreateUserParams struct {
@@ -98,6 +98,7 @@ type CreateUserRow struct {
 	StudentID       string
 	DisplayName     string
 	Email           string
+	Role            string
 	Preferences     []byte
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
@@ -112,6 +113,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateU
 		&i.StudentID,
 		&i.DisplayName,
 		&i.Email,
+		&i.Role,
 		&i.Preferences,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -173,8 +175,45 @@ func (q *Queries) GetSessionByID(ctx context.Context, id uuid.UUID) (ApolloSessi
 	return i, err
 }
 
+const getSessionPrincipalByID = `-- name: GetSessionPrincipalByID :one
+SELECT s.id,
+       s.user_id,
+       u.role,
+       s.expires_at,
+       s.revoked_at,
+       s.created_at
+FROM apollo.sessions AS s
+INNER JOIN apollo.users AS u
+  ON u.id = s.user_id
+WHERE s.id = $1
+LIMIT 1
+`
+
+type GetSessionPrincipalByIDRow struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	Role      string
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) GetSessionPrincipalByID(ctx context.Context, id uuid.UUID) (GetSessionPrincipalByIDRow, error) {
+	row := q.db.QueryRow(ctx, getSessionPrincipalByID, id)
+	var i GetSessionPrincipalByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Role,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
+SELECT id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE email = $1
 LIMIT 1
@@ -185,6 +224,7 @@ type GetUserByEmailRow struct {
 	StudentID       string
 	DisplayName     string
 	Email           string
+	Role            string
 	Preferences     []byte
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
@@ -199,6 +239,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 		&i.StudentID,
 		&i.DisplayName,
 		&i.Email,
+		&i.Role,
 		&i.Preferences,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -208,7 +249,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
+SELECT id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE id = $1
 LIMIT 1
@@ -219,6 +260,7 @@ type GetUserByIDRow struct {
 	StudentID       string
 	DisplayName     string
 	Email           string
+	Role            string
 	Preferences     []byte
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
@@ -233,6 +275,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow
 		&i.StudentID,
 		&i.DisplayName,
 		&i.Email,
+		&i.Role,
 		&i.Preferences,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -242,7 +285,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (GetUserByIDRow
 }
 
 const getUserByStudentID = `-- name: GetUserByStudentID :one
-SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
+SELECT id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE student_id = $1
 LIMIT 1
@@ -253,6 +296,7 @@ type GetUserByStudentIDRow struct {
 	StudentID       string
 	DisplayName     string
 	Email           string
+	Role            string
 	Preferences     []byte
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
@@ -267,6 +311,7 @@ func (q *Queries) GetUserByStudentID(ctx context.Context, studentID string) (Get
 		&i.StudentID,
 		&i.DisplayName,
 		&i.Email,
+		&i.Role,
 		&i.Preferences,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -309,7 +354,7 @@ UPDATE apollo.users
 SET email_verified_at = COALESCE(email_verified_at, $2),
     updated_at = $2
 WHERE id = $1
-RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
+RETURNING id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
 `
 
 type MarkUserEmailVerifiedParams struct {
@@ -322,6 +367,7 @@ type MarkUserEmailVerifiedRow struct {
 	StudentID       string
 	DisplayName     string
 	Email           string
+	Role            string
 	Preferences     []byte
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
@@ -336,6 +382,7 @@ func (q *Queries) MarkUserEmailVerified(ctx context.Context, arg MarkUserEmailVe
 		&i.StudentID,
 		&i.DisplayName,
 		&i.Email,
+		&i.Role,
 		&i.Preferences,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -361,12 +408,54 @@ func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) er
 	return err
 }
 
+const setUserRole = `-- name: SetUserRole :one
+UPDATE apollo.users
+SET role = $2,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
+`
+
+type SetUserRoleParams struct {
+	ID   uuid.UUID
+	Role string
+}
+
+type SetUserRoleRow struct {
+	ID              uuid.UUID
+	StudentID       string
+	DisplayName     string
+	Email           string
+	Role            string
+	Preferences     []byte
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	EmailVerifiedAt pgtype.Timestamptz
+}
+
+func (q *Queries) SetUserRole(ctx context.Context, arg SetUserRoleParams) (SetUserRoleRow, error) {
+	row := q.db.QueryRow(ctx, setUserRole, arg.ID, arg.Role)
+	var i SetUserRoleRow
+	err := row.Scan(
+		&i.ID,
+		&i.StudentID,
+		&i.DisplayName,
+		&i.Email,
+		&i.Role,
+		&i.Preferences,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EmailVerifiedAt,
+	)
+	return i, err
+}
+
 const updateUserPreferences = `-- name: UpdateUserPreferences :one
 UPDATE apollo.users
 SET preferences = $2,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
+RETURNING id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
 `
 
 type UpdateUserPreferencesParams struct {
@@ -379,6 +468,7 @@ type UpdateUserPreferencesRow struct {
 	StudentID       string
 	DisplayName     string
 	Email           string
+	Role            string
 	Preferences     []byte
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
@@ -393,6 +483,7 @@ func (q *Queries) UpdateUserPreferences(ctx context.Context, arg UpdateUserPrefe
 		&i.StudentID,
 		&i.DisplayName,
 		&i.Email,
+		&i.Role,
 		&i.Preferences,
 		&i.CreatedAt,
 		&i.UpdatedAt,

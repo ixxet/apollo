@@ -16,6 +16,13 @@ INSERT INTO apollo.sessions (
 VALUES ($1, $2)
 RETURNING id, user_id, expires_at, revoked_at, created_at;
 
+-- name: SetUserRole :one
+UPDATE apollo.users
+SET role = $2,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at;
+
 -- name: CreateUser :one
 INSERT INTO apollo.users (
   student_id,
@@ -23,7 +30,7 @@ INSERT INTO apollo.users (
   email
 )
 VALUES ($1, $2, $3)
-RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at;
+RETURNING id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at;
 
 -- name: DeletePendingEmailVerificationTokensByUserID :exec
 DELETE FROM apollo.email_verification_tokens
@@ -42,20 +49,33 @@ FROM apollo.sessions
 WHERE id = $1
 LIMIT 1;
 
+-- name: GetSessionPrincipalByID :one
+SELECT s.id,
+       s.user_id,
+       u.role,
+       s.expires_at,
+       s.revoked_at,
+       s.created_at
+FROM apollo.sessions AS s
+INNER JOIN apollo.users AS u
+  ON u.id = s.user_id
+WHERE s.id = $1
+LIMIT 1;
+
 -- name: GetUserByEmail :one
-SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
+SELECT id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE email = $1
 LIMIT 1;
 
 -- name: GetUserByID :one
-SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
+SELECT id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE id = $1
 LIMIT 1;
 
 -- name: GetUserByStudentID :one
-SELECT id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at
+SELECT id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at
 FROM apollo.users
 WHERE student_id = $1
 LIMIT 1;
@@ -73,7 +93,7 @@ UPDATE apollo.users
 SET email_verified_at = COALESCE(email_verified_at, $2),
     updated_at = $2
 WHERE id = $1
-RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at;
+RETURNING id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at;
 
 -- name: RevokeSession :exec
 UPDATE apollo.sessions
@@ -86,4 +106,4 @@ UPDATE apollo.users
 SET preferences = $2,
     updated_at = NOW()
 WHERE id = $1
-RETURNING id, student_id, display_name, email, preferences, created_at, updated_at, email_verified_at;
+RETURNING id, student_id, display_name, email, role, preferences, created_at, updated_at, email_verified_at;

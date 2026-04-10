@@ -27,13 +27,14 @@ recommendations, and the ARES matchmaking subsystem.
 > and typed non-medical `coaching_profile` inputs through authenticated
 > internal HTTP while keeping workouts, visits, membership, competition
 > history, and recommendation precedence separate. Tracer 24 is the tagged
-> deterministic coaching line on `v0.15.0`, with `v0.15.1` reserved for the
-> narrow post-closeout hardening patch. The current Tracer 27 repo/runtime
-> closeout line on `main` adds authenticated facility-scoped presence reads,
-> one explicit tap-link row per member-visible visit, and one explicit
-> facility-scoped streak state plus streak-event line per member/facility over
-> linked visit days only, while keeping departure-close semantics, planner,
-> nutrition, recommendations, and competition truth separate.
+> deterministic coaching line on `v0.15.0`, with `v0.15.1` kept as the narrow
+> post-closeout hardening patch on that same line. The current Tracer 28
+> repo/runtime closeout line on `main` now also adds explicit principal roles,
+> deterministic competition capabilities, trusted-surface-gated privileged
+> competition mutations, and durable actor attribution over the existing
+> APOLLO competition control boundary while keeping departure-close semantics,
+> planner, nutrition, recommendations, member self-service surfaces, and
+> deployment truth separate.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -43,7 +44,7 @@ summary, read and mutate workouts, finish a workout, and read one deterministic
 recommendation through a minimal embedded web shell without changing the server
 ownership model or widening deployment truth. Phase 2 keeps that posture:
 backend and API/CLI truth may keep growing, but meaningful frontend widening
-stays deferred until after `Tracer 25`.
+stays deferred through all of Phase 2.
 
 ## Start Here
 
@@ -127,13 +128,13 @@ flowchart LR
 | Sport registry read | `apollo sport list --format text|json` | Real | Lists deterministic APOLLO-owned sport definitions for badminton and basketball |
 | Sport detail read | `apollo sport show --sport-key <key> --format text|json` | Real | Returns one sport definition plus its facility-sport capability rows |
 | Facility-sport capability read | `apollo sport capability list [--sport-key ...] [--facility-key ...] --format text|json` | Real | Lists deterministic APOLLO-owned facility-sport capability mappings without scheduling or live availability claims |
-| Competition session list/create | `GET/POST /api/v1/competition/sessions` | Real | Authenticated owner-scoped read/create for APOLLO-local competition session containers |
-| Competition session detail | `GET /api/v1/competition/sessions/{id}` | Real | Authenticated owner-scoped detail for one session container, including queue state, teams, roster rows, and match containers |
-| Competition team / roster / match writes | `POST /api/v1/competition/sessions/{id}/teams`, `.../teams/{teamID}/members`, `.../matches`, and archive/remove actions | Real | Authenticated owner-scoped draft/container writes remain real; live execution stays on dedicated queue, assignment, start, and archive routes |
-| Competition queue open | `POST /api/v1/competition/sessions/{id}/queue/open` | Real | Authenticated owner-scoped transition from `draft` to `queue_open` with APOLLO-owned queue versioning |
-| Competition queue join / remove | `POST /api/v1/competition/sessions/{id}/queue/members`, `POST /api/v1/competition/sessions/{id}/queue/members/{userID}/remove` | Real | Authenticated owner-scoped queue state over explicit joined lobby membership plus current eligibility; preview and membership remain separate |
-| Competition assignment | `POST /api/v1/competition/sessions/{id}/assignment` | Real | Authenticated owner-scoped deterministic assignment from queued eligible members into session teams, roster rows, and one assigned match |
-| Competition lifecycle control | `POST /api/v1/competition/sessions/{id}/start` and session archive actions | Real | Authenticated owner-scoped lifecycle control for `assigned -> in_progress -> archived`, plus bounded archive paths from earlier states when legal |
+| Competition session list | `GET /api/v1/competition/sessions` | Real in repo/runtime | Authenticated competition staff read requiring explicit `competition_read` capability |
+| Competition session detail | `GET /api/v1/competition/sessions/{id}` | Real in repo/runtime | Authenticated competition staff detail read requiring explicit `competition_read` capability |
+| Competition member stats | `GET /api/v1/competition/member-stats` | Real | Authenticated self-scoped member stats remain separate from staff competition authz |
+| Competition session create | `POST /api/v1/competition/sessions` | Real in repo/runtime | Requires `competition_structure_manage` plus trusted-surface proof and writes durable actor attribution on success |
+| Competition team / roster / match structure writes | `POST /api/v1/competition/sessions/{id}/teams`, `.../teams/{teamID}/members`, `.../matches`, and archive/remove actions | Real in repo/runtime | Structure mutations require `competition_structure_manage` plus trusted-surface proof; provenance columns remain domain truth, not the sole authz key |
+| Competition queue open / join / remove | `POST /api/v1/competition/sessions/{id}/queue/open`, `.../queue/members`, and `.../queue/members/{userID}/remove` | Real in repo/runtime | Live-manage mutations require `competition_live_manage` plus trusted-surface proof over explicit joined lobby membership plus current eligibility |
+| Competition assignment / lifecycle / result | `POST /api/v1/competition/sessions/{id}/assignment`, `.../start`, `.../archive`, and `.../matches/{matchID}/result` | Real in repo/runtime | Deterministic live-manage mutations require `competition_live_manage` plus trusted-surface proof; stale queue/state replay still fails safely |
 | Event consumer | `apollo serve` with `APOLLO_NATS_URL` | Real | Consumes `athena.identified_presence.arrived` and `athena.identified_presence.departed` from NATS |
 | Recommendation storage | `apollo.recommendations` | Schema authored | Tracer 7 does not persist recommendation reads yet |
 | Match preview runtime | `GET /api/v1/lobby/match-preview` | Real | ARES preview logic is active as a read-only runtime over explicit lobby membership only |
@@ -145,10 +146,10 @@ flowchart LR
 | member profile and preference state | raw facility presence truth |
 | derived lobby eligibility and explicit lobby membership intent | invites or match formation |
 | visit history as member-facing context | occupancy counting |
-| workout history | staff operations workflows |
+| workout history | broad staff product workflows outside the bounded competition control boundary |
 | deterministic recommendation and coaching context | the shared wire contract definitions |
 | sport registry, facility-sport capability, and static sport rules/config | facility hours, closures, scheduling, and live availability |
-| competition session / team / roster / match containers plus session queue, assignment, and lifecycle truth | results, ratings, standings, rivalry/badge logic, and public competition reads |
+| competition session / team / roster / match containers, queue/assignment/lifecycle truth, result capture, ratings, standings, self-scoped member stats, and the bounded competition staff authz substrate | public competition reads, role-management product flows, facility-scoped staffing, persistent approval objects, rivalry/badge logic, and broad social competition surfaces |
 | explicit matchmaking intent and deterministic ARES preview | tool routing, invites, notifications, and global approval policy |
 
 APOLLO owns member intent. That is the key boundary. Presence can affect member
@@ -159,7 +160,7 @@ eligibility, or any social state.
 
 | Area | Status | Current Runtime Use |
 | --- | --- | --- |
-| `apollo.users` | Real | Member records now support visit linkage, email verification state, and flexible profile preferences |
+| `apollo.users` | Real | Member records now support visit linkage, email verification state, one explicit APOLLO-global role, and flexible profile preferences |
 | `apollo.email_verification_tokens` | Real | Stores hashed verification tokens with expiry and single-use semantics |
 | `apollo.sessions` | Real | Stores server-side session state keyed by a signed cookie value |
 | `apollo.claimed_tags` | Real | Links ATHENA identity hashes to member accounts |
@@ -175,7 +176,8 @@ eligibility, or any social state.
 | `apollo.nutrition_meal_templates` and `apollo.nutrition_meal_logs` | Real in repo/runtime | Stores owner-scoped reusable meal templates plus explicit meal-log history separate from planner, workouts, and persisted recommendation storage |
 | `apollo.sports` | Real | Stores APOLLO-owned sport definitions and static rule profiles for the current competition substrate line |
 | `apollo.facility_catalog_refs`, `apollo.facility_zone_refs`, `apollo.sport_facility_capabilities`, and `apollo.sport_facility_capability_zones` | Real | Stores bounded facility identifier references plus APOLLO-owned facility-sport support mappings without duplicating ATHENA hours or metadata |
-| `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth without widening into results, ratings, or standings |
+| `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth separate from downstream result, rating, and standing projections |
+| `apollo.competition_staff_action_attributions` | Real in repo/runtime | Stores durable actor/session/role/capability/trusted-surface attribution for successful staff-sensitive competition mutations |
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
 | `apollo.recommendations` | Schema authored | Tracer 7 recommendation reads are derived at read time; persisted recommendation records remain deferred |
 | `users.preferences` JSONB | Real schema, bounded runtime use | Stores `visibility_mode`, `availability_mode`, typed non-medical `coaching_profile` inputs, and typed non-clinical `nutrition_profile` inputs while durable planner and nutrition runtime truth stays relational |
@@ -201,12 +203,13 @@ eligibility, or any social state.
 | Sport and facility-sport registry | sport catalog, facility-sport capability mapping, and basic sport rules/config for at least two sports | Shipped | `v0.10.0` | CLI-only substrate read over seeded registry tables; deployment truth and public surfaces remain deferred |
 | Team / session substrate | session-rooted team, roster, session, and match container primitives | Shipped | `v0.11.0` | Tracer 20 settled the bounded competition container model before execution widening |
 | Matchmaking lifecycle | queue, assignment, and session lifecycle truth | Shipped | `v0.12.0` | Tagged Tracer 21 release line adds authenticated internal HTTP execution truth without widening into results, rivalry, badges, or public reads |
-| Results, ratings, and member stats | result capture, ratings, session-scoped standings, and member profile stats | Closure-clean on `main` | `v0.13.0` | Competition history is now owner-scoped authenticated internal HTTP/runtime truth while public/social reads and deployed truth remain deferred |
+| Results, ratings, and member stats | result capture, ratings, session-scoped standings, and member profile stats | Closure-clean on `main` | `v0.13.0` | Competition history is now authenticated internal HTTP/runtime truth while public/social reads and deployed truth remain deferred |
 | Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Real on `main` | `v0.14.0` | Tracer 23 keeps the line authenticated/internal, backend-first, and separate from workout history and recommendation logic |
-| Deterministic fitness coaching | conservative deterministic coaching recommendation and structured plan-change proposal over planner/profile/workout truth | Tagged | `v0.15.0` | Tracer 24 is the tagged coaching line, and `v0.15.1` is reserved for bounded hardening on that same line |
+| Deterministic fitness coaching | conservative deterministic coaching recommendation and structured plan-change proposal over planner/profile/workout truth | Tagged | `v0.15.0` | Tracer 24 is the tagged coaching line, and `v0.15.1` is the bounded hardening patch on that same line |
 | Conservative nutrition substrate | typed nutrition profile inputs, owner-scoped meal template/log truth, and read-only calorie/macro recommendation ranges | Closure-clean on `main` | `v0.16.0` line | Keep it non-clinical, bounded, and separate from planner mutation or chatbot-first flows |
 | Explanation and agent-facing helpers | explanation/summarization helpers plus bounded `why` and read-only variation previews over deterministic core logic | Closure-clean on `main` | `v0.17.0` | Preserve helper subordination to the deterministic domain core |
 | Facility-scoped member presence | facility-scoped presence read, explicit tap-link rows, and facility streak state/events over visit truth | Closure-clean on `main` | `v0.18.0` | Keep presence explicit, facility-scoped, and separate from matchmaking, coaching, nutrition, and role/authz widening |
+| Role/authz and staff boundary substrate | explicit principal roles, deterministic competition capabilities, trusted-surface-gated privileged staff mutations, and durable actor attribution | Closure-clean on `main` | `v0.19.0` | Keep authority explicit and reviewable without widening into role-management product flows, persistent approvals, or deployment claims |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
@@ -353,20 +356,31 @@ exercise, recommendations, or matchmaking.
   deterministic and read-only
 - authenticated `GET/POST /api/v1/competition/sessions`, nested team/roster
   writes, match container writes, queue open/join/remove, deterministic
-  assignment, start, and archive actions are real and keep competition session
-  truth separate from auth sessions, lobby membership, and ARES preview
+  assignment, start, archive, and result actions are real and keep competition
+  session truth separate from auth sessions, lobby membership, and ARES preview
+- authenticated session principals now carry one explicit APOLLO-global role,
+  one deterministic competition capability set derived from that role, and
+  optional trusted-surface context for privileged competition mutations
 - competition session writes bind to sport registry and facility capability
   truth, but do not assume hours, closures, scheduling, or live availability
-- competition team and roster writes remain session-rooted and owner-scoped:
-  manual container edits stay bounded to `draft` sessions only
+- competition staff reads now require explicit `competition_read` capability
+  instead of owner-scoped filtering over `competition_sessions.owner_user_id`
+- competition structure writes remain session-rooted and capability-scoped:
+  manual container edits stay bounded to `draft` sessions and require
+  `competition_structure_manage` plus trusted-surface proof
 - competition queue state is session-rooted, APOLLO-owned, and versioned: it
-  requires explicit joined lobby membership plus current eligibility, and it
-  does not reuse lobby membership itself as final assignment truth
+  requires explicit joined lobby membership plus current eligibility, does not
+  reuse lobby membership itself as final assignment truth, and privileged
+  queue/lifecycle/result mutations require `competition_live_manage` plus
+  trusted-surface proof
 - competition assignment is deterministic and side-effect bounded: it seeds
   team, roster, and match container truth from the queue without mutating ARES
   preview, visits, workouts, recommendations, or profile state
 - competition lifecycle transitions are explicit and bounded to
   `draft -> queue_open -> assigned -> in_progress -> archived`
+- successful staff-sensitive competition mutations now write durable actor
+  attribution rows carrying actor user/session/role, capability,
+  trusted-surface key, action, and relevant competition target ids
 - the bounded live cluster deployment now proves APOLLO can boot its schema,
   connect to in-cluster NATS, and persist the live ATHENA identified
   arrival/departure-close boundary into Postgres
@@ -385,9 +399,10 @@ exercise, recommendations, or matchmaking.
 - visit recording and visit closing remain separate from auth and profile state
 - the live cluster proof is still only the visit-ingest boundary; it does not
   widen APOLLO into a broader product deployment
-- deterministic recommendation reads are now in the active tracer scope
+- deterministic recommendation reads remain real and side-effect free
 - competition execution surfaces are authenticated internal HTTP only and stay
-  owner-scoped, local/runtime-only, and separate from the thin member shell
+  role/capability-scoped, trusted-surface-gated for privileged mutations,
+  local/runtime-only, and separate from the thin member shell
 - ARES preview stays read-only and side-effect free even though real queue,
   assignment, lifecycle, and competition-history runtime now exist elsewhere in
   APOLLO
@@ -395,8 +410,8 @@ exercise, recommendations, or matchmaking.
   plan apply path, no diagnosis, no helper-owned decision core, and no public
   or social nutrition surface land in Tracer 25
 - recommendation persistence, generated plans, invites, notifications,
-  rivalry/badge logic, public competition reads, and deployment widening are
-  still outside the active tracer scope
+  rivalry/badge logic, public competition reads, and deployment widening remain
+  deferred beyond Tracer 28
 
 ### Authored in schema, not yet active in runtime
 
@@ -442,14 +457,18 @@ exercise, recommendations, or matchmaking.
 | `v0.13.0` | `v0.13.0` | Shipped | result capture, ratings, session-scoped standings, and self-scoped member stats | public competition reads, broader ARES history, and deployment widening |
 | `v0.14.0` | `v0.14.0` | Shipped | planner, exercise library, templates/loadouts, and richer profile inputs | coaching logic, nutrition, and meaningful frontend widening |
 | `v0.15.0` | `v0.15.0` | Shipped | deterministic coaching substrate over planner/profile/workout truth | nutrition, explanation/helper widening, and deployment closeout |
-| `v0.15.1` | `v0.15.1` | Planned narrow patch line | bounded Tracer 24 hardening only | new product widening |
+| `v0.15.1` | `v0.15.1` | Shipped | bounded Tracer 24 hardening only | new product widening |
+| `v0.16.0` | `v0.16.0` | Shipped | conservative nutrition substrate | diagnosis, obsessive nutrition sprawl, helper-first AI, and deployment widening |
+| `v0.17.0` | `v0.17.0` | Shipped | explanation, bounded AI helpers, and thin agent-facing helper reads | helper persistence, model-backed calls, public social widening, and deployment widening |
+| `v0.18.0` | `v0.18.0` | Shipped | facility-scoped member presence, explicit tap-link truth, and facility-scoped streak state/events | fake counters, cross-facility merging, role/authz widening, and deployment widening |
+| `v0.19.0` | - | Closure-clean on `main` | explicit role/authz, trusted-surface-gated competition staff mutations, and durable actor attribution over the existing competition control boundary | role-management product flows, facility-scoped staffing, persistent approvals, ATHENA ingress storage, `ashton-proto` widening, and deployment widening |
 
 ## Release Lines
 
-Tracer 24 remains the tagged coaching line on `v0.15.0`, with `v0.15.1`
-reserved for the narrow hardening patch on that same line. The current
-repo/runtime closeout truth on `main` is Tracer 26 helper truth on the
-`v0.17.0` line. Later planned lines begin below.
+Tracer 24 remains the tagged coaching line on `v0.15.0`, and `v0.15.1`
+remains the narrow hardening patch on that same line. The current
+repo/runtime closeout truth on `main` is Tracer 28 authz/staff-boundary truth
+on the `v0.19.0` line. Later planned lines begin below.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -477,6 +496,7 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 | --- | --- |
 | `cmd/apollo/` | CLI entrypoint and serve command |
 | `internal/auth/` | verification token lifecycle, server-side sessions, and signed cookie handling |
+| `internal/authz/` | explicit role, capability, and trusted-surface helpers for bounded competition staff authz |
 | `internal/eligibility/` | derived open-lobby eligibility from authenticated member state |
 | `internal/ares/` | deterministic read-only match preview service and repository over explicit joined lobby membership |
 | `internal/membership/` | explicit lobby membership repository and service over durable member intent |
@@ -488,7 +508,7 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 | `internal/visits/` | visit service and repository boundary |
 | `internal/workouts/` | workout repository and service for explicit member-owned workout history |
 | `internal/recommendations/` | deterministic workout recommendation service and repository |
-| `internal/competition/` | session-rooted competition queue, assignment, lifecycle, and container repository/service over sport/facility truth plus auth ownership |
+| `internal/competition/` | session-rooted competition queue, assignment, lifecycle, result, container, and actor-attribution repository/service over sport/facility truth plus explicit role/capability authz |
 | `internal/server/web/` | embedded member-shell HTML, CSS, JS, and browser-side tests for the thin APOLLO web shell |
 | `internal/store/` | sqlc-generated models and query bindings |
 | `internal/sports/` | sport registry and facility-sport capability repository and service |
@@ -528,10 +548,11 @@ operations system. Even in its current narrow form, it already shows contract
 discipline, first-party auth taste, deterministic failure handling, relational
 schema design, event-driven ingestion, and a strong boundary between presence,
 profile state, workout history, recommendation logic, and matchmaking intent.
-The current tracer now also proves one bounded competition execution runtime:
-owner-scoped queue state, deterministic assignment into session-bound
-containers, explicit lifecycle transitions, immutable result capture,
-sport-and-mode-scoped ratings, session-scoped standings, and self-scoped member
-stats over authenticated internal HTTP. The thin member shell remains narrow
-and separate; public competition truth, social widening, and deployment
-widening are still deferred.
+The current tracer now also proves one bounded competition authority/runtime
+line: explicit role/capability-bound competition staff reads, trusted-surface-
+gated privileged mutations, durable actor attribution, deterministic
+assignment/lifecycle truth, immutable result capture, sport-and-mode-scoped
+ratings, session-scoped standings, and self-scoped member stats over
+authenticated internal HTTP. The thin member shell remains narrow and
+separate; public competition truth, social widening, role-management product
+flows, and deployment widening are still deferred.

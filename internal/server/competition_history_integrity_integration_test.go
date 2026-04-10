@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/ixxet/apollo/internal/authz"
 )
 
 func TestCompetitionHistoryRuntimeDoesNotMutateAresMembershipOrOtherDomains(t *testing.T) {
@@ -14,6 +16,7 @@ func TestCompetitionHistoryRuntimeDoesNotMutateAresMembershipOrOtherDomains(t *t
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-history-integrity-001", "competition-history-integrity-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-competition-history-integrity-002", "competition-history-integrity-002@example.com")
 
 	for _, cookie := range []*http.Cookie{ownerCookie, memberTwoCookie} {

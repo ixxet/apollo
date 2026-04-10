@@ -199,6 +199,30 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
 
 ## 2026-04-10
 
+- Symptom: the first Tracer 28 pass was at risk of pretending
+  `competition_sessions.owner_user_id` was still the honest authorization key
+  just because earlier competition runtime slices were owner-scoped.
+  Cause: the existing session, queue, team, roster, and match substrate already
+  used `owner_user_id` throughout repository filters, which made it tempting to
+  preserve that as the actual authority model and only rename it in docs.
+  Fix: keep `owner_user_id` as provenance only, add explicit APOLLO-local role
+  and capability truth on the authenticated principal, and move staff
+  competition access checks onto centralized capability plus trusted-surface
+  proof.
+  Rule: once a tracer claims explicit authz, provenance columns may remain
+  useful domain truth, but they must stop being the sole authorization key.
+
+- Symptom: Tracer 28 trusted-surface work was at risk of widening into a fake
+  approved-device product with its own registry and lifecycle semantics.
+  Cause: staff mutation second-factor requirements naturally suggested labels,
+  device concepts, rotation flows, and broader machine governance beyond the
+  tracer boundary.
+  Fix: keep the primitive APOLLO-local and config-backed only: one request-time
+  header/token proof for privileged competition mutations, with actor
+  attribution carrying the trusted-surface key used on success.
+  Rule: when a tracer only needs bounded second-factor proof, do not invent a
+  full device-registry product around it.
+
 - Symptom: the first Tracer 24 coaching shape was at risk of overclaiming exact
   progression from workout history into planner truth.
   Cause: planner sessions are keyed to APOLLO exercise and equipment

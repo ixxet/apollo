@@ -21,3 +21,4 @@ verified versus unverified truth, carry-forward gaps, and a clear verdict.
 - [Tracer 25](tracer-25.md)
 - [Tracer 26](tracer-26.md)
 - [Tracer 27](tracer-27.md)
+- [Tracer 28](tracer-28.md)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/competition"
 )
 
@@ -16,6 +17,7 @@ func TestCompetitionExecutionRuntimeSupportsDeterministicQueueAssignmentAndLifec
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-exec-001", "competition-exec-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-competition-exec-002", "competition-exec-002@example.com")
 	memberThreeCookie, memberThree := createVerifiedSessionViaHTTP(t, env, "student-competition-exec-003", "competition-exec-003@example.com")
 	memberFourCookie, memberFour := createVerifiedSessionViaHTTP(t, env, "student-competition-exec-004", "competition-exec-004@example.com")
@@ -136,6 +138,7 @@ func TestCompetitionExecutionRuntimeRejectsStaleQueueStateReplayAndOwnershipFail
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-neg-021", "competition-neg-021@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	strangerCookie, _ := createVerifiedSessionViaHTTP(t, env, "student-competition-neg-022", "competition-neg-022@example.com")
 	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-competition-neg-023", "competition-neg-023@example.com")
 	memberThreeCookie, memberThree := createVerifiedSessionViaHTTP(t, env, "student-competition-neg-024", "competition-neg-024@example.com")
@@ -160,8 +163,8 @@ func TestCompetitionExecutionRuntimeRejectsStaleQueueStateReplayAndOwnershipFail
 	session = openCompetitionQueue(t, env, ownerCookie, session.ID.String())
 
 	unauthorizedQueueResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/queue/members", session.ID), fmt.Sprintf(`{"user_id":"%s"}`, owner.ID), strangerCookie)
-	if unauthorizedQueueResponse.Code != http.StatusNotFound {
-		t.Fatalf("unauthorizedQueueResponse.Code = %d, want %d", unauthorizedQueueResponse.Code, http.StatusNotFound)
+	if unauthorizedQueueResponse.Code != http.StatusForbidden {
+		t.Fatalf("unauthorizedQueueResponse.Code = %d, want %d", unauthorizedQueueResponse.Code, http.StatusForbidden)
 	}
 
 	startBeforeAssignResponse := env.doRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/start", session.ID), nil, ownerCookie)
@@ -235,8 +238,8 @@ func TestCompetitionExecutionRuntimeRejectsStaleQueueStateReplayAndOwnershipFail
 	}
 
 	strangerArchiveResponse := env.doRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/archive", assignedSession.ID), nil, strangerCookie)
-	if strangerArchiveResponse.Code != http.StatusNotFound {
-		t.Fatalf("strangerArchiveResponse.Code = %d, want %d", strangerArchiveResponse.Code, http.StatusNotFound)
+	if strangerArchiveResponse.Code != http.StatusForbidden {
+		t.Fatalf("strangerArchiveResponse.Code = %d, want %d", strangerArchiveResponse.Code, http.StatusForbidden)
 	}
 }
 
@@ -245,6 +248,7 @@ func TestCompetitionExecutionRuntimeSupportsQueueRemoveOverHTTP(t *testing.T) {
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-competition-remove-031", "competition-remove-031@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-competition-remove-032", "competition-remove-032@example.com")
 
 	for _, cookie := range []*http.Cookie{ownerCookie, memberTwoCookie} {

@@ -116,6 +116,22 @@ type ApolloCompetitionSessionTeam struct {
 	CreatedAt            pgtype.Timestamptz
 }
 
+type ApolloCompetitionStaffActionAttribution struct {
+	ID                       uuid.UUID
+	ActorUserID              uuid.UUID
+	ActorRole                string
+	SessionID                uuid.UUID
+	Capability               string
+	TrustedSurfaceKey        string
+	TrustedSurfaceLabel      *string
+	Action                   string
+	CompetitionSessionID     pgtype.UUID
+	CompetitionSessionTeamID pgtype.UUID
+	CompetitionMatchID       pgtype.UUID
+	SubjectUserID            pgtype.UUID
+	OccurredAt               pgtype.Timestamptz
+}
+
 type ApolloCompetitionTeamRosterMember struct {
 	CompetitionSessionID     uuid.UUID
 	CompetitionSessionTeamID uuid.UUID
@@ -315,6 +331,7 @@ type ApolloUser struct {
 	CreatedAt       pgtype.Timestamptz
 	EmailVerifiedAt pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	Role            string
 }
 
 type ApolloVisit struct {

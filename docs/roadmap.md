@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime closeout line on `main`: Tracer 27 `v0.18.0` line
+Current repo/runtime closeout line on `main`: Tracer 28 `v0.19.0` line
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -45,13 +45,20 @@ Current repo/runtime closeout line on `main`: Tracer 27 `v0.18.0` line
   visit truth, one durable tap-link row per visit, and one durable
   facility-scoped streak state plus streak-event line per member/facility over
   linked visit days only
+- Tracer 28 role/authz runtime is now closure-clean in repo/runtime on `main`:
+  authenticated session principals carry one explicit APOLLO-global role plus
+  one deterministic competition capability set derived from that role,
+  competition staff reads require explicit capability truth, privileged
+  competition mutations require trusted-surface proof, successful staff-
+  sensitive competition mutations write durable actor attribution, and member
+  self-service surfaces remain separate and unchanged
 - deployment truth is still narrower than the full product surface
 
 ## Release Lines
 
-Tracer 24 remains tagged on `v0.15.0`, with `v0.15.1` reserved for the narrow
+Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime closeout line on
-`main` is Tracer 27 presence truth on the `v0.18.0` line.
+`main` is Tracer 28 authz/staff-boundary truth on the `v0.19.0` line.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |

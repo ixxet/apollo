@@ -3,6 +3,7 @@ package competition
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,8 +93,8 @@ func (r *Repository) ListFacilityCapabilities(ctx context.Context) ([]FacilityCa
 	return capabilities, nil
 }
 
-func (r *Repository) ListSessionsByOwner(ctx context.Context, ownerUserID uuid.UUID) ([]sessionRecord, error) {
-	rows, err := store.New(r.db).ListCompetitionSessionsByOwner(ctx, ownerUserID)
+func (r *Repository) ListSessions(ctx context.Context) ([]sessionRecord, error) {
+	rows, err := store.New(r.db).ListCompetitionSessions(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -119,11 +120,8 @@ func (r *Repository) ListSessionsByOwner(ctx context.Context, ownerUserID uuid.U
 	return sessions, nil
 }
 
-func (r *Repository) GetSessionByIDForOwner(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID) (*sessionRecord, error) {
-	row, err := store.New(r.db).GetCompetitionSessionByIDForOwner(ctx, store.GetCompetitionSessionByIDForOwnerParams{
-		ID:          sessionID,
-		OwnerUserID: ownerUserID,
-	})
+func (r *Repository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*sessionRecord, error) {
+	row, err := store.New(r.db).GetCompetitionSessionByID(ctx, sessionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -148,59 +146,77 @@ func (r *Repository) GetSessionByIDForOwner(ctx context.Context, sessionID uuid.
 	return &record, nil
 }
 
-func (r *Repository) CreateSession(ctx context.Context, ownerUserID uuid.UUID, input CreateSessionInput) (sessionRecord, error) {
-	row, err := store.New(r.db).CreateCompetitionSession(ctx, store.CreateCompetitionSessionParams{
-		OwnerUserID:         ownerUserID,
-		DisplayName:         input.DisplayName,
-		SportKey:            input.SportKey,
-		FacilityKey:         input.FacilityKey,
-		ZoneKey:             input.ZoneKey,
-		ParticipantsPerSide: int32(input.ParticipantsPerSide),
-	})
-	if err != nil {
-		return sessionRecord{}, err
-	}
+func (r *Repository) CreateSession(ctx context.Context, actor StaffActor, input CreateSessionInput, createdAt time.Time) (sessionRecord, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (sessionRecord, error) {
+		row, err := queries.CreateCompetitionSession(ctx, store.CreateCompetitionSessionParams{
+			OwnerUserID:         actor.UserID,
+			DisplayName:         input.DisplayName,
+			SportKey:            input.SportKey,
+			FacilityKey:         input.FacilityKey,
+			ZoneKey:             input.ZoneKey,
+			ParticipantsPerSide: int32(input.ParticipantsPerSide),
+		})
+		if err != nil {
+			return sessionRecord{}, err
+		}
 
-	return buildSessionRecordValues(
-		row.ID,
-		row.OwnerUserID,
-		row.DisplayName,
-		row.SportKey,
-		row.FacilityKey,
-		row.ZoneKey,
-		row.ParticipantsPerSide,
-		row.QueueVersion,
-		row.Status,
-		row.CreatedAt,
-		row.UpdatedAt,
-		row.ArchivedAt,
-	), nil
+		record := buildSessionRecordValues(
+			row.ID,
+			row.OwnerUserID,
+			row.DisplayName,
+			row.SportKey,
+			row.FacilityKey,
+			row.ZoneKey,
+			row.ParticipantsPerSide,
+			row.QueueVersion,
+			row.Status,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.ArchivedAt,
+		)
+		attribution := newStaffActionAttribution(actor, "competition_session.create", createdAt)
+		attribution.CompetitionSessionID = uuidPtr(record.ID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return sessionRecord{}, err
+		}
+
+		return record, nil
+	})
 }
 
-func (r *Repository) OpenQueue(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, updatedAt time.Time) (sessionRecord, error) {
-	row, err := store.New(r.db).OpenCompetitionSessionQueue(ctx, store.OpenCompetitionSessionQueueParams{
-		ID:          sessionID,
-		OwnerUserID: ownerUserID,
-		UpdatedAt:   timestamptz(updatedAt),
-	})
-	if err != nil {
-		return sessionRecord{}, err
-	}
+func (r *Repository) OpenQueue(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (sessionRecord, error) {
+		row, err := queries.OpenCompetitionSessionQueue(ctx, store.OpenCompetitionSessionQueueParams{
+			ID:          session.ID,
+			OwnerUserID: session.OwnerUserID,
+			UpdatedAt:   timestamptz(updatedAt),
+		})
+		if err != nil {
+			return sessionRecord{}, err
+		}
 
-	return buildSessionRecordValues(
-		row.ID,
-		row.OwnerUserID,
-		row.DisplayName,
-		row.SportKey,
-		row.FacilityKey,
-		row.ZoneKey,
-		row.ParticipantsPerSide,
-		row.QueueVersion,
-		row.Status,
-		row.CreatedAt,
-		row.UpdatedAt,
-		row.ArchivedAt,
-	), nil
+		record := buildSessionRecordValues(
+			row.ID,
+			row.OwnerUserID,
+			row.DisplayName,
+			row.SportKey,
+			row.FacilityKey,
+			row.ZoneKey,
+			row.ParticipantsPerSide,
+			row.QueueVersion,
+			row.Status,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.ArchivedAt,
+		)
+		attribution := newStaffActionAttribution(actor, "competition_session.queue_open", updatedAt)
+		attribution.CompetitionSessionID = uuidPtr(session.ID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return sessionRecord{}, err
+		}
+
+		return record, nil
+	})
 }
 
 func (r *Repository) UpdateSessionStatus(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (sessionRecord, error) {
@@ -231,145 +247,135 @@ func (r *Repository) UpdateSessionStatus(ctx context.Context, sessionID uuid.UUI
 	), nil
 }
 
-func (r *Repository) AddQueueMember(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, joinedAt time.Time) error {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-
-	queries := store.New(tx)
-	if _, err := queries.CreateCompetitionSessionQueueMember(ctx, store.CreateCompetitionSessionQueueMemberParams{
-		CompetitionSessionID: sessionID,
-		UserID:               userID,
-		JoinedAt:             timestamptz(joinedAt),
-	}); err != nil {
-		return err
-	}
-
-	if _, err := queries.BumpCompetitionSessionQueueVersion(ctx, store.BumpCompetitionSessionQueueVersionParams{
-		ID:          sessionID,
-		OwnerUserID: ownerUserID,
-		UpdatedAt:   timestamptz(joinedAt),
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
-}
-
-func (r *Repository) RemoveQueueMember(ctx context.Context, sessionID uuid.UUID, ownerUserID uuid.UUID, userID uuid.UUID, updatedAt time.Time) error {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-
-	queries := store.New(tx)
-	deleted, err := queries.DeleteCompetitionSessionQueueMember(ctx, store.DeleteCompetitionSessionQueueMemberParams{
-		CompetitionSessionID: sessionID,
-		UserID:               userID,
-	})
-	if err != nil {
-		return err
-	}
-	if deleted == 0 {
-		return pgx.ErrNoRows
-	}
-
-	if _, err := queries.BumpCompetitionSessionQueueVersion(ctx, store.BumpCompetitionSessionQueueVersionParams{
-		ID:          sessionID,
-		OwnerUserID: ownerUserID,
-		UpdatedAt:   timestamptz(updatedAt),
-	}); err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
-}
-
-func (r *Repository) AssignQueue(ctx context.Context, ownerUserID uuid.UUID, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error) {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return sessionRecord{}, err
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-
-	queries := store.New(tx)
-	sideSlots := make([]MatchSideInput, 0, sport.SidesPerMatch)
-	queueIndex := 0
-
-	for sideIndex := 1; sideIndex <= sport.SidesPerMatch; sideIndex++ {
-		team, err := queries.CreateCompetitionSessionTeam(ctx, store.CreateCompetitionSessionTeamParams{
+func (r *Repository) AddQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, joinedAt time.Time) error {
+	_, err := withQueriesTx(ctx, r.db, func(queries *store.Queries) (struct{}, error) {
+		if _, err := queries.CreateCompetitionSessionQueueMember(ctx, store.CreateCompetitionSessionQueueMemberParams{
 			CompetitionSessionID: session.ID,
-			SideIndex:            int32(sideIndex),
+			UserID:               userID,
+			JoinedAt:             timestamptz(joinedAt),
+		}); err != nil {
+			return struct{}{}, err
+		}
+
+		if _, err := queries.BumpCompetitionSessionQueueVersion(ctx, store.BumpCompetitionSessionQueueVersionParams{
+			ID:          session.ID,
+			OwnerUserID: session.OwnerUserID,
+			UpdatedAt:   timestamptz(joinedAt),
+		}); err != nil {
+			return struct{}{}, err
+		}
+
+		attribution := newStaffActionAttribution(actor, "competition_session.queue_member_add", joinedAt)
+		attribution.CompetitionSessionID = uuidPtr(session.ID)
+		attribution.SubjectUserID = uuidPtr(userID)
+		return struct{}{}, recordStaffActionAttributionTx(ctx, queries, attribution)
+	})
+	return err
+}
+
+func (r *Repository) RemoveQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, updatedAt time.Time) error {
+	_, err := withQueriesTx(ctx, r.db, func(queries *store.Queries) (struct{}, error) {
+		deleted, err := queries.DeleteCompetitionSessionQueueMember(ctx, store.DeleteCompetitionSessionQueueMemberParams{
+			CompetitionSessionID: session.ID,
+			UserID:               userID,
+		})
+		if err != nil {
+			return struct{}{}, err
+		}
+		if deleted == 0 {
+			return struct{}{}, pgx.ErrNoRows
+		}
+
+		if _, err := queries.BumpCompetitionSessionQueueVersion(ctx, store.BumpCompetitionSessionQueueVersionParams{
+			ID:          session.ID,
+			OwnerUserID: session.OwnerUserID,
+			UpdatedAt:   timestamptz(updatedAt),
+		}); err != nil {
+			return struct{}{}, err
+		}
+
+		attribution := newStaffActionAttribution(actor, "competition_session.queue_member_remove", updatedAt)
+		attribution.CompetitionSessionID = uuidPtr(session.ID)
+		attribution.SubjectUserID = uuidPtr(userID)
+		return struct{}{}, recordStaffActionAttributionTx(ctx, queries, attribution)
+	})
+	return err
+}
+
+func (r *Repository) AssignQueue(ctx context.Context, actor StaffActor, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (sessionRecord, error) {
+		sideSlots := make([]MatchSideInput, 0, sport.SidesPerMatch)
+		queueIndex := 0
+
+		for sideIndex := 1; sideIndex <= sport.SidesPerMatch; sideIndex++ {
+			team, err := queries.CreateCompetitionSessionTeam(ctx, store.CreateCompetitionSessionTeamParams{
+				CompetitionSessionID: session.ID,
+				SideIndex:            int32(sideIndex),
+			})
+			if err != nil {
+				return sessionRecord{}, err
+			}
+
+			sideSlots = append(sideSlots, MatchSideInput{
+				TeamID:    team.ID,
+				SideIndex: sideIndex,
+			})
+
+			for slotIndex := 1; slotIndex <= session.ParticipantsPerSide; slotIndex++ {
+				member := queueMembers[queueIndex]
+				queueIndex++
+
+				if _, err := queries.CreateCompetitionTeamRosterMember(ctx, store.CreateCompetitionTeamRosterMemberParams{
+					CompetitionSessionID:     session.ID,
+					CompetitionSessionTeamID: team.ID,
+					UserID:                   member.UserID,
+					SlotIndex:                int32(slotIndex),
+				}); err != nil {
+					return sessionRecord{}, err
+				}
+			}
+		}
+
+		if _, err := createCompetitionMatchWithSideSlotsTx(ctx, queries, session.ID, 1, MatchStatusAssigned, sideSlots); err != nil {
+			return sessionRecord{}, err
+		}
+
+		if _, err := queries.DeleteCompetitionSessionQueueMembersBySessionID(ctx, session.ID); err != nil {
+			return sessionRecord{}, err
+		}
+
+		row, err := queries.AssignCompetitionSessionFromQueue(ctx, store.AssignCompetitionSessionFromQueueParams{
+			ID:           session.ID,
+			OwnerUserID:  session.OwnerUserID,
+			QueueVersion: int32(input.ExpectedQueueVersion),
+			UpdatedAt:    timestamptz(assignedAt),
 		})
 		if err != nil {
 			return sessionRecord{}, err
 		}
 
-		sideSlots = append(sideSlots, MatchSideInput{
-			TeamID:    team.ID,
-			SideIndex: sideIndex,
-		})
-
-		for slotIndex := 1; slotIndex <= session.ParticipantsPerSide; slotIndex++ {
-			member := queueMembers[queueIndex]
-			queueIndex++
-
-			if _, err := queries.CreateCompetitionTeamRosterMember(ctx, store.CreateCompetitionTeamRosterMemberParams{
-				CompetitionSessionID:     session.ID,
-				CompetitionSessionTeamID: team.ID,
-				UserID:                   member.UserID,
-				SlotIndex:                int32(slotIndex),
-			}); err != nil {
-				return sessionRecord{}, err
-			}
+		record := buildSessionRecordValues(
+			row.ID,
+			row.OwnerUserID,
+			row.DisplayName,
+			row.SportKey,
+			row.FacilityKey,
+			row.ZoneKey,
+			row.ParticipantsPerSide,
+			row.QueueVersion,
+			row.Status,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.ArchivedAt,
+		)
+		attribution := newStaffActionAttribution(actor, "competition_session.assign", assignedAt)
+		attribution.CompetitionSessionID = uuidPtr(session.ID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return sessionRecord{}, err
 		}
-	}
 
-	if _, err := createCompetitionMatchWithSideSlotsTx(ctx, queries, session.ID, 1, MatchStatusAssigned, sideSlots); err != nil {
-		return sessionRecord{}, err
-	}
-
-	if _, err := queries.DeleteCompetitionSessionQueueMembersBySessionID(ctx, session.ID); err != nil {
-		return sessionRecord{}, err
-	}
-
-	row, err := queries.AssignCompetitionSessionFromQueue(ctx, store.AssignCompetitionSessionFromQueueParams{
-		ID:           session.ID,
-		OwnerUserID:  ownerUserID,
-		QueueVersion: int32(input.ExpectedQueueVersion),
-		UpdatedAt:    timestamptz(assignedAt),
+		return record, nil
 	})
-	if err != nil {
-		return sessionRecord{}, err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return sessionRecord{}, err
-	}
-
-	return buildSessionRecordValues(
-		row.ID,
-		row.OwnerUserID,
-		row.DisplayName,
-		row.SportKey,
-		row.FacilityKey,
-		row.ZoneKey,
-		row.ParticipantsPerSide,
-		row.QueueVersion,
-		row.Status,
-		row.CreatedAt,
-		row.UpdatedAt,
-		row.ArchivedAt,
-	), nil
 }
 
 func (r *Repository) CountDraftMatchesBySessionID(ctx context.Context, sessionID uuid.UUID) (int64, error) {
@@ -427,20 +433,47 @@ func (r *Repository) GetTeamByID(ctx context.Context, teamID uuid.UUID) (*teamRe
 	return &record, nil
 }
 
-func (r *Repository) CreateTeam(ctx context.Context, sessionID uuid.UUID, sideIndex int) (teamRecord, error) {
-	row, err := store.New(r.db).CreateCompetitionSessionTeam(ctx, store.CreateCompetitionSessionTeamParams{
-		CompetitionSessionID: sessionID,
-		SideIndex:            int32(sideIndex),
-	})
-	if err != nil {
-		return teamRecord{}, err
-	}
+func (r *Repository) CreateTeam(ctx context.Context, actor StaffActor, sessionID uuid.UUID, sideIndex int, createdAt time.Time) (teamRecord, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (teamRecord, error) {
+		row, err := queries.CreateCompetitionSessionTeam(ctx, store.CreateCompetitionSessionTeamParams{
+			CompetitionSessionID: sessionID,
+			SideIndex:            int32(sideIndex),
+		})
+		if err != nil {
+			return teamRecord{}, err
+		}
 
-	return buildTeamRecord(row), nil
+		record := buildTeamRecord(row)
+		attribution := newStaffActionAttribution(actor, "competition_team.create", createdAt)
+		attribution.CompetitionSessionID = uuidPtr(sessionID)
+		attribution.CompetitionTeamID = uuidPtr(record.ID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return teamRecord{}, err
+		}
+
+		return record, nil
+	})
 }
 
-func (r *Repository) DeleteTeam(ctx context.Context, teamID uuid.UUID) (int64, error) {
-	return store.New(r.db).DeleteCompetitionSessionTeam(ctx, teamID)
+func (r *Repository) DeleteTeam(ctx context.Context, actor StaffActor, sessionID uuid.UUID, teamID uuid.UUID, deletedAt time.Time) (int64, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (int64, error) {
+		deleted, err := queries.DeleteCompetitionSessionTeam(ctx, teamID)
+		if err != nil {
+			return 0, err
+		}
+		if deleted == 0 {
+			return 0, nil
+		}
+
+		attribution := newStaffActionAttribution(actor, "competition_team.remove", deletedAt)
+		attribution.CompetitionSessionID = uuidPtr(sessionID)
+		attribution.CompetitionTeamID = uuidPtr(teamID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return 0, err
+		}
+
+		return deleted, nil
+	})
 }
 
 func (r *Repository) CountRosterMembersByTeamID(ctx context.Context, teamID uuid.UUID) (int64, error) {
@@ -474,29 +507,58 @@ func (r *Repository) ListRosterMembersBySessionID(ctx context.Context, sessionID
 	return members, nil
 }
 
-func (r *Repository) CreateRosterMember(ctx context.Context, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID, slotIndex int) (rosterRecord, error) {
-	row, err := store.New(r.db).CreateCompetitionTeamRosterMember(ctx, store.CreateCompetitionTeamRosterMemberParams{
-		CompetitionSessionID:     sessionID,
-		CompetitionSessionTeamID: teamID,
-		UserID:                   userID,
-		SlotIndex:                int32(slotIndex),
-	})
-	if err != nil {
-		return rosterRecord{}, err
-	}
+func (r *Repository) CreateRosterMember(ctx context.Context, actor StaffActor, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID, slotIndex int, createdAt time.Time) (rosterRecord, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (rosterRecord, error) {
+		row, err := queries.CreateCompetitionTeamRosterMember(ctx, store.CreateCompetitionTeamRosterMemberParams{
+			CompetitionSessionID:     sessionID,
+			CompetitionSessionTeamID: teamID,
+			UserID:                   userID,
+			SlotIndex:                int32(slotIndex),
+		})
+		if err != nil {
+			return rosterRecord{}, err
+		}
 
-	return rosterRecord{
-		TeamID:    row.CompetitionSessionTeamID,
-		UserID:    row.UserID,
-		SlotIndex: int(row.SlotIndex),
-		CreatedAt: row.CreatedAt.Time.UTC(),
-	}, nil
+		record := rosterRecord{
+			TeamID:    row.CompetitionSessionTeamID,
+			UserID:    row.UserID,
+			SlotIndex: int(row.SlotIndex),
+			CreatedAt: row.CreatedAt.Time.UTC(),
+		}
+		attribution := newStaffActionAttribution(actor, "competition_roster_member.add", createdAt)
+		attribution.CompetitionSessionID = uuidPtr(sessionID)
+		attribution.CompetitionTeamID = uuidPtr(teamID)
+		attribution.SubjectUserID = uuidPtr(userID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return rosterRecord{}, err
+		}
+
+		return record, nil
+	})
 }
 
-func (r *Repository) DeleteRosterMember(ctx context.Context, teamID uuid.UUID, userID uuid.UUID) (int64, error) {
-	return store.New(r.db).DeleteCompetitionTeamRosterMember(ctx, store.DeleteCompetitionTeamRosterMemberParams{
-		CompetitionSessionTeamID: teamID,
-		UserID:                   userID,
+func (r *Repository) DeleteRosterMember(ctx context.Context, actor StaffActor, sessionID uuid.UUID, teamID uuid.UUID, userID uuid.UUID, deletedAt time.Time) (int64, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (int64, error) {
+		deleted, err := queries.DeleteCompetitionTeamRosterMember(ctx, store.DeleteCompetitionTeamRosterMemberParams{
+			CompetitionSessionTeamID: teamID,
+			UserID:                   userID,
+		})
+		if err != nil {
+			return 0, err
+		}
+		if deleted == 0 {
+			return 0, nil
+		}
+
+		attribution := newStaffActionAttribution(actor, "competition_roster_member.remove", deletedAt)
+		attribution.CompetitionSessionID = uuidPtr(sessionID)
+		attribution.CompetitionTeamID = uuidPtr(teamID)
+		attribution.SubjectUserID = uuidPtr(userID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return 0, err
+		}
+
+		return deleted, nil
 	})
 }
 
@@ -531,45 +593,159 @@ func (r *Repository) GetMatchByID(ctx context.Context, matchID uuid.UUID) (*matc
 	return &record, nil
 }
 
-func (r *Repository) CreateMatchWithSideSlots(ctx context.Context, sessionID uuid.UUID, matchIndex int, sideSlots []MatchSideInput) (matchRecord, error) {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return matchRecord{}, err
-	}
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
+func (r *Repository) CreateMatchWithSideSlots(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchIndex int, sideSlots []MatchSideInput, createdAt time.Time) (matchRecord, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (matchRecord, error) {
+		match, err := createCompetitionMatchWithSideSlotsTx(ctx, queries, sessionID, matchIndex, MatchStatusDraft, sideSlots)
+		if err != nil {
+			return matchRecord{}, err
+		}
 
-	match, err := createCompetitionMatchWithSideSlotsTx(ctx, store.New(tx), sessionID, matchIndex, MatchStatusDraft, sideSlots)
-	if err != nil {
-		return matchRecord{}, err
-	}
+		attribution := newStaffActionAttribution(actor, "competition_match.create", createdAt)
+		attribution.CompetitionSessionID = uuidPtr(sessionID)
+		attribution.CompetitionMatchID = uuidPtr(match.ID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return matchRecord{}, err
+		}
 
-	if err := tx.Commit(ctx); err != nil {
-		return matchRecord{}, err
-	}
-
-	return match, nil
-}
-
-func (r *Repository) ArchiveMatch(ctx context.Context, matchID uuid.UUID, archivedAt time.Time) (matchRecord, error) {
-	row, err := store.New(r.db).ArchiveCompetitionMatch(ctx, store.ArchiveCompetitionMatchParams{
-		ID:         matchID,
-		ArchivedAt: timestamptz(archivedAt),
+		return match, nil
 	})
-	if err != nil {
-		return matchRecord{}, err
-	}
-
-	return buildMatchRecord(row), nil
 }
 
-func (r *Repository) UpdateMatchStatusesBySessionID(ctx context.Context, sessionID uuid.UUID, fromStatus string, toStatus string, updatedAt time.Time) (int64, error) {
-	return store.New(r.db).UpdateCompetitionMatchStatusBySessionID(ctx, store.UpdateCompetitionMatchStatusBySessionIDParams{
-		CompetitionSessionID: sessionID,
-		Status:               toStatus,
-		Status_2:             fromStatus,
-		UpdatedAt:            timestamptz(updatedAt),
+func (r *Repository) ArchiveMatch(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchID uuid.UUID, archivedAt time.Time) (matchRecord, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (matchRecord, error) {
+		row, err := queries.ArchiveCompetitionMatch(ctx, store.ArchiveCompetitionMatchParams{
+			ID:         matchID,
+			ArchivedAt: timestamptz(archivedAt),
+		})
+		if err != nil {
+			return matchRecord{}, err
+		}
+
+		record := buildMatchRecord(row)
+		attribution := newStaffActionAttribution(actor, "competition_match.archive", archivedAt)
+		attribution.CompetitionSessionID = uuidPtr(sessionID)
+		attribution.CompetitionMatchID = uuidPtr(matchID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return matchRecord{}, err
+		}
+
+		return record, nil
+	})
+}
+
+func (r *Repository) StartSession(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (sessionRecord, error) {
+		updatedMatches, err := queries.UpdateCompetitionMatchStatusBySessionID(ctx, store.UpdateCompetitionMatchStatusBySessionIDParams{
+			CompetitionSessionID: session.ID,
+			Status:               MatchStatusInProgress,
+			Status_2:             MatchStatusAssigned,
+			UpdatedAt:            timestamptz(updatedAt),
+		})
+		if err != nil {
+			return sessionRecord{}, err
+		}
+		if updatedMatches == 0 {
+			return sessionRecord{}, pgx.ErrNoRows
+		}
+
+		row, err := queries.UpdateCompetitionSessionStatus(ctx, store.UpdateCompetitionSessionStatusParams{
+			ID:          session.ID,
+			OwnerUserID: session.OwnerUserID,
+			Status:      SessionStatusInProgress,
+			UpdatedAt:   timestamptz(updatedAt),
+			Status_2:    SessionStatusAssigned,
+		})
+		if err != nil {
+			return sessionRecord{}, err
+		}
+
+		record := buildSessionRecordValues(
+			row.ID,
+			row.OwnerUserID,
+			row.DisplayName,
+			row.SportKey,
+			row.FacilityKey,
+			row.ZoneKey,
+			row.ParticipantsPerSide,
+			row.QueueVersion,
+			row.Status,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.ArchivedAt,
+		)
+		attribution := newStaffActionAttribution(actor, "competition_session.start", updatedAt)
+		attribution.CompetitionSessionID = uuidPtr(session.ID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return sessionRecord{}, err
+		}
+
+		return record, nil
+	})
+}
+
+func (r *Repository) ArchiveSession(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error) {
+	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (sessionRecord, error) {
+		switch session.Status {
+		case SessionStatusAssigned:
+			updatedMatches, err := queries.UpdateCompetitionMatchStatusBySessionID(ctx, store.UpdateCompetitionMatchStatusBySessionIDParams{
+				CompetitionSessionID: session.ID,
+				Status:               MatchStatusArchived,
+				Status_2:             MatchStatusAssigned,
+				UpdatedAt:            timestamptz(updatedAt),
+			})
+			if err != nil {
+				return sessionRecord{}, err
+			}
+			if updatedMatches == 0 {
+				return sessionRecord{}, pgx.ErrNoRows
+			}
+		case SessionStatusInProgress:
+			updatedMatches, err := queries.UpdateCompetitionMatchStatusBySessionID(ctx, store.UpdateCompetitionMatchStatusBySessionIDParams{
+				CompetitionSessionID: session.ID,
+				Status:               MatchStatusArchived,
+				Status_2:             MatchStatusInProgress,
+				UpdatedAt:            timestamptz(updatedAt),
+			})
+			if err != nil {
+				return sessionRecord{}, err
+			}
+			if updatedMatches == 0 {
+				return sessionRecord{}, pgx.ErrNoRows
+			}
+		}
+
+		row, err := queries.UpdateCompetitionSessionStatus(ctx, store.UpdateCompetitionSessionStatusParams{
+			ID:          session.ID,
+			OwnerUserID: session.OwnerUserID,
+			Status:      SessionStatusArchived,
+			UpdatedAt:   timestamptz(updatedAt),
+			Status_2:    session.Status,
+		})
+		if err != nil {
+			return sessionRecord{}, err
+		}
+
+		record := buildSessionRecordValues(
+			row.ID,
+			row.OwnerUserID,
+			row.DisplayName,
+			row.SportKey,
+			row.FacilityKey,
+			row.ZoneKey,
+			row.ParticipantsPerSide,
+			row.QueueVersion,
+			row.Status,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.ArchivedAt,
+		)
+		attribution := newStaffActionAttribution(actor, "competition_session.archive", updatedAt)
+		attribution.CompetitionSessionID = uuidPtr(session.ID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return sessionRecord{}, err
+		}
+
+		return record, nil
 	})
 }
 
@@ -651,6 +827,64 @@ func buildMatchRecord(row store.ApolloCompetitionMatch) matchRecord {
 		UpdatedAt:  row.UpdatedAt.Time.UTC(),
 		ArchivedAt: timePtr(row.ArchivedAt),
 	}
+}
+
+func optionalUUID(value *uuid.UUID) pgtype.UUID {
+	if value == nil {
+		return pgtype.UUID{}
+	}
+
+	return pgtype.UUID{Bytes: *value, Valid: true}
+}
+
+func optionalText(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+
+	return &trimmed
+}
+
+func recordStaffActionAttributionTx(ctx context.Context, queries *store.Queries, attribution staffActionAttribution) error {
+	_, err := queries.CreateCompetitionStaffActionAttribution(ctx, store.CreateCompetitionStaffActionAttributionParams{
+		ActorUserID:              attribution.Actor.UserID,
+		ActorRole:                string(attribution.Actor.Role),
+		SessionID:                attribution.Actor.SessionID,
+		Capability:               string(attribution.Actor.Capability),
+		TrustedSurfaceKey:        attribution.Actor.TrustedSurfaceKey,
+		TrustedSurfaceLabel:      optionalText(attribution.Actor.TrustedSurfaceLabel),
+		Action:                   attribution.Action,
+		CompetitionSessionID:     optionalUUID(attribution.CompetitionSessionID),
+		CompetitionSessionTeamID: optionalUUID(attribution.CompetitionTeamID),
+		CompetitionMatchID:       optionalUUID(attribution.CompetitionMatchID),
+		SubjectUserID:            optionalUUID(attribution.SubjectUserID),
+		OccurredAt:               timestamptz(attribution.OccurredAt),
+	})
+	return err
+}
+
+func withQueriesTx[T any](ctx context.Context, db *pgxpool.Pool, fn func(*store.Queries) (T, error)) (T, error) {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	value, err := fn(store.New(tx))
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		var zero T
+		return zero, err
+	}
+
+	return value, nil
 }
 
 func timestamptz(value time.Time) pgtype.Timestamptz {

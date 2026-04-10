@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/store"
 )
 
@@ -158,8 +159,8 @@ func (r *Repository) VerifyTokenAndCreateSession(ctx context.Context, tokenHash 
 	return &convertedUser, &session, nil
 }
 
-func (r *Repository) LookupSession(ctx context.Context, sessionID uuid.UUID, now time.Time) (*store.ApolloSession, error) {
-	session, err := store.New(r.db).GetSessionByID(ctx, sessionID)
+func (r *Repository) LookupSession(ctx context.Context, sessionID uuid.UUID, now time.Time) (*AuthenticatedSession, error) {
+	session, err := store.New(r.db).GetSessionPrincipalByID(ctx, sessionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionNotFound
 	}
@@ -173,7 +174,16 @@ func (r *Repository) LookupSession(ctx context.Context, sessionID uuid.UUID, now
 		return nil, ErrSessionExpired
 	}
 
-	return &session, nil
+	role, err := authz.NormalizeRole(session.Role)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AuthenticatedSession{
+		SessionID: session.ID,
+		UserID:    session.UserID,
+		Role:      role,
+	}, nil
 }
 
 func (r *Repository) RevokeSession(ctx context.Context, sessionID uuid.UUID, revokedAt time.Time) error {

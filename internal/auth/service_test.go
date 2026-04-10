@@ -7,13 +7,14 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/store"
 )
 
 type stubStore struct {
 	startVerificationFunc       func(ctx context.Context, studentID string, email string, displayName string, tokenHash string, expiresAt time.Time) (*store.ApolloUser, *store.ApolloEmailVerificationToken, error)
 	verifyTokenAndCreateSession func(ctx context.Context, tokenHash string, now time.Time, sessionExpiresAt time.Time) (*store.ApolloUser, *store.ApolloSession, error)
-	lookupSessionFunc           func(ctx context.Context, sessionID uuid.UUID, now time.Time) (*store.ApolloSession, error)
+	lookupSessionFunc           func(ctx context.Context, sessionID uuid.UUID, now time.Time) (*AuthenticatedSession, error)
 	revokeSessionFunc           func(ctx context.Context, sessionID uuid.UUID, revokedAt time.Time) error
 }
 
@@ -25,7 +26,7 @@ func (s stubStore) VerifyTokenAndCreateSession(ctx context.Context, tokenHash st
 	return s.verifyTokenAndCreateSession(ctx, tokenHash, now, sessionExpiresAt)
 }
 
-func (s stubStore) LookupSession(ctx context.Context, sessionID uuid.UUID, now time.Time) (*store.ApolloSession, error) {
+func (s stubStore) LookupSession(ctx context.Context, sessionID uuid.UUID, now time.Time) (*AuthenticatedSession, error) {
 	return s.lookupSessionFunc(ctx, sessionID, now)
 }
 
@@ -67,7 +68,7 @@ func TestStartVerificationAcceptsValidInputAndUsesFakeSender(t *testing.T) {
 		verifyTokenAndCreateSession: func(context.Context, string, time.Time, time.Time) (*store.ApolloUser, *store.ApolloSession, error) {
 			panic("VerifyTokenAndCreateSession should not be called")
 		},
-		lookupSessionFunc: func(context.Context, uuid.UUID, time.Time) (*store.ApolloSession, error) {
+		lookupSessionFunc: func(context.Context, uuid.UUID, time.Time) (*AuthenticatedSession, error) {
 			panic("LookupSession should not be called")
 		},
 		revokeSessionFunc: func(context.Context, uuid.UUID, time.Time) error {
@@ -130,7 +131,7 @@ func TestStartVerificationRejectsInvalidInputWithTableDrivenCoverage(t *testing.
 				verifyTokenAndCreateSession: func(context.Context, string, time.Time, time.Time) (*store.ApolloUser, *store.ApolloSession, error) {
 					panic("VerifyTokenAndCreateSession should not be called")
 				},
-				lookupSessionFunc: func(context.Context, uuid.UUID, time.Time) (*store.ApolloSession, error) {
+				lookupSessionFunc: func(context.Context, uuid.UUID, time.Time) (*AuthenticatedSession, error) {
 					panic("LookupSession should not be called")
 				},
 				revokeSessionFunc: func(context.Context, uuid.UUID, time.Time) error {
@@ -154,7 +155,7 @@ func TestVerifyTokenReturnsUnknownUserErrorClearly(t *testing.T) {
 		verifyTokenAndCreateSession: func(context.Context, string, time.Time, time.Time) (*store.ApolloUser, *store.ApolloSession, error) {
 			return nil, nil, ErrVerificationUnknownUser
 		},
-		lookupSessionFunc: func(context.Context, uuid.UUID, time.Time) (*store.ApolloSession, error) {
+		lookupSessionFunc: func(context.Context, uuid.UUID, time.Time) (*AuthenticatedSession, error) {
 			panic("LookupSession should not be called")
 		},
 		revokeSessionFunc: func(context.Context, uuid.UUID, time.Time) error {
@@ -177,7 +178,7 @@ func TestAuthenticateSessionRejectsExpiredSession(t *testing.T) {
 		verifyTokenAndCreateSession: func(context.Context, string, time.Time, time.Time) (*store.ApolloUser, *store.ApolloSession, error) {
 			panic("VerifyTokenAndCreateSession should not be called")
 		},
-		lookupSessionFunc: func(_ context.Context, actualSessionID uuid.UUID, _ time.Time) (*store.ApolloSession, error) {
+		lookupSessionFunc: func(_ context.Context, actualSessionID uuid.UUID, _ time.Time) (*AuthenticatedSession, error) {
 			if actualSessionID != sessionID {
 				t.Fatalf("actualSessionID = %s, want %s", actualSessionID, sessionID)
 			}
@@ -191,6 +192,53 @@ func TestAuthenticateSessionRejectsExpiredSession(t *testing.T) {
 	_, err := service.AuthenticateSession(context.Background(), service.SessionCookie(sessionID, time.Now().Add(time.Hour)).Value)
 	if err != ErrSessionExpired {
 		t.Fatalf("AuthenticateSession() error = %v, want %v", err, ErrSessionExpired)
+	}
+}
+
+func TestAuthenticateSessionReturnsDeterministicRoleAndCapabilities(t *testing.T) {
+	sessionID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	userID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	service := NewService(stubStore{
+		startVerificationFunc: func(context.Context, string, string, string, string, time.Time) (*store.ApolloUser, *store.ApolloEmailVerificationToken, error) {
+			panic("StartVerification should not be called")
+		},
+		verifyTokenAndCreateSession: func(context.Context, string, time.Time, time.Time) (*store.ApolloUser, *store.ApolloSession, error) {
+			panic("VerifyTokenAndCreateSession should not be called")
+		},
+		lookupSessionFunc: func(_ context.Context, actualSessionID uuid.UUID, _ time.Time) (*AuthenticatedSession, error) {
+			if actualSessionID != sessionID {
+				t.Fatalf("actualSessionID = %s, want %s", actualSessionID, sessionID)
+			}
+			return &AuthenticatedSession{
+				SessionID: sessionID,
+				UserID:    userID,
+				Role:      authz.RoleManager,
+			}, nil
+		},
+		revokeSessionFunc: func(context.Context, uuid.UUID, time.Time) error {
+			panic("RevokeSession should not be called")
+		},
+	}, mustCookieManager(t), &fakeEmailSender{}, 15*time.Minute, 24*time.Hour)
+
+	principal, err := service.AuthenticateSession(context.Background(), service.SessionCookie(sessionID, time.Now().Add(time.Hour)).Value)
+	if err != nil {
+		t.Fatalf("AuthenticateSession() error = %v", err)
+	}
+	if principal.Role != authz.RoleManager {
+		t.Fatalf("principal.Role = %q, want %q", principal.Role, authz.RoleManager)
+	}
+	expected := []authz.Capability{
+		authz.CapabilityCompetitionLiveManage,
+		authz.CapabilityCompetitionRead,
+		authz.CapabilityCompetitionStructureManage,
+	}
+	if len(principal.Capabilities) != len(expected) {
+		t.Fatalf("len(principal.Capabilities) = %d, want %d", len(principal.Capabilities), len(expected))
+	}
+	for index, capability := range expected {
+		if principal.Capabilities[index] != capability {
+			t.Fatalf("principal.Capabilities[%d] = %q, want %q", index, principal.Capabilities[index], capability)
+		}
 	}
 }
 
