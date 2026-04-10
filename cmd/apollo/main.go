@@ -26,6 +26,7 @@ import (
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/exercises"
 	"github.com/ixxet/apollo/internal/membership"
+	"github.com/ixxet/apollo/internal/nutrition"
 	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
@@ -192,6 +193,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 	matchPreviewService := ares.NewService(ares.NewRepository(pool))
 	recommendationService := recommendations.NewService(recommendations.NewRepository(pool))
 	coachingService := coaching.NewService(coaching.NewRepository(pool), plannerService, profileService)
+	nutritionService := nutrition.NewService(nutrition.NewRepository(pool), profileService)
 	workoutService := workouts.NewService(workouts.NewRepository(pool))
 	competitionService := competition.NewService(competition.NewRepository(pool))
 
@@ -207,6 +209,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 		MatchPreview:    matchPreviewService,
 		Recommendations: recommendationService,
 		Coaching:        coachingService,
+		Nutrition:       nutritionService,
 		Workouts:        workoutService,
 	}
 }

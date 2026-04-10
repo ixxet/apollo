@@ -20,6 +20,7 @@ import (
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/exercises"
 	"github.com/ixxet/apollo/internal/membership"
+	"github.com/ixxet/apollo/internal/nutrition"
 	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
@@ -99,6 +100,16 @@ type CoachingManager interface {
 	PutRecoveryFeedback(ctx context.Context, userID uuid.UUID, workoutID uuid.UUID, input coaching.RecoveryFeedbackInput) (coaching.RecoveryFeedback, error)
 }
 
+type NutritionManager interface {
+	ListMealLogs(ctx context.Context, userID uuid.UUID) ([]nutrition.MealLog, error)
+	CreateMealLog(ctx context.Context, userID uuid.UUID, input nutrition.MealLogInput) (nutrition.MealLog, error)
+	UpdateMealLog(ctx context.Context, userID uuid.UUID, mealLogID uuid.UUID, input nutrition.MealLogInput) (nutrition.MealLog, error)
+	ListMealTemplates(ctx context.Context, userID uuid.UUID) ([]nutrition.MealTemplate, error)
+	CreateMealTemplate(ctx context.Context, userID uuid.UUID, input nutrition.MealTemplateInput) (nutrition.MealTemplate, error)
+	UpdateMealTemplate(ctx context.Context, userID uuid.UUID, templateID uuid.UUID, input nutrition.MealTemplateInput) (nutrition.MealTemplate, error)
+	GetRecommendation(ctx context.Context, userID uuid.UUID) (nutrition.Recommendation, error)
+}
+
 type WorkoutManager interface {
 	CreateWorkout(ctx context.Context, userID uuid.UUID, input workouts.CreateInput) (workouts.Workout, error)
 	ListWorkouts(ctx context.Context, userID uuid.UUID) ([]workouts.Workout, error)
@@ -119,6 +130,7 @@ type Dependencies struct {
 	MatchPreview    MatchPreviewReader
 	Recommendations RecommendationReader
 	Coaching        CoachingManager
+	Nutrition       NutritionManager
 	Workouts        WorkoutManager
 }
 
@@ -863,6 +875,147 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			writeJSON(w, http.StatusOK, coachingRecommendation)
 		})
+		authenticated.Get("/api/v1/recommendations/nutrition", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			recommendation, err := deps.Nutrition.GetRecommendation(r.Context(), principal.UserID)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, recommendation)
+		})
+		authenticated.Get("/api/v1/nutrition/meal-logs", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			mealLogs, err := deps.Nutrition.ListMealLogs(r.Context(), principal.UserID)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, mealLogs)
+		})
+		authenticated.Post("/api/v1/nutrition/meal-logs", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			var request nutrition.MealLogInput
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			mealLog, err := deps.Nutrition.CreateMealLog(r.Context(), principal.UserID, request)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, mealLog)
+		})
+		authenticated.Put("/api/v1/nutrition/meal-logs/{mealLogID}", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			mealLogID, err := parseUUIDParam(r, "mealLogID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request nutrition.MealLogInput
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			mealLog, err := deps.Nutrition.UpdateMealLog(r.Context(), principal.UserID, mealLogID, request)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, mealLog)
+		})
+		authenticated.Get("/api/v1/nutrition/meal-templates", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			mealTemplates, err := deps.Nutrition.ListMealTemplates(r.Context(), principal.UserID)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, mealTemplates)
+		})
+		authenticated.Post("/api/v1/nutrition/meal-templates", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			var request nutrition.MealTemplateInput
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			mealTemplate, err := deps.Nutrition.CreateMealTemplate(r.Context(), principal.UserID, request)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, mealTemplate)
+		})
+		authenticated.Put("/api/v1/nutrition/meal-templates/{templateID}", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			templateID, err := parseUUIDParam(r, "templateID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request nutrition.MealTemplateInput
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			mealTemplate, err := deps.Nutrition.UpdateMealTemplate(r.Context(), principal.UserID, templateID, request)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, mealTemplate)
+		})
 		authenticated.Post("/api/v1/workouts", func(w http.ResponseWriter, r *http.Request) {
 			var request createWorkoutRequest
 			if err := decodeJSONBodyAllowEmpty(r, &request); err != nil {
@@ -1060,7 +1213,11 @@ func NewHandler(deps Dependencies) http.Handler {
 					errors.Is(err, profile.ErrInvalidDaysPerWeek),
 					errors.Is(err, profile.ErrInvalidSessionMinutes),
 					errors.Is(err, profile.ErrInvalidExperienceLevel),
-					errors.Is(err, profile.ErrInvalidEquipmentKeys):
+					errors.Is(err, profile.ErrInvalidEquipmentKeys),
+					errors.Is(err, profile.ErrInvalidDietaryRestrictions),
+					errors.Is(err, profile.ErrInvalidCuisinePreferences),
+					errors.Is(err, profile.ErrInvalidBudgetPreference),
+					errors.Is(err, profile.ErrInvalidCookingCapability):
 					writeError(w, http.StatusBadRequest, err)
 				case errors.Is(err, profile.ErrNotFound):
 					writeError(w, http.StatusNotFound, err)
@@ -1318,6 +1475,28 @@ func writeCoachingError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, coaching.ErrWorkoutNotFinished):
 		writeError(w, http.StatusConflict, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
+}
+
+func writeNutritionError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, nutrition.ErrMealLogNotFound), errors.Is(err, nutrition.ErrMealTemplateNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, nutrition.ErrDuplicateMealTemplateName):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, nutrition.ErrMealNameRequired),
+		errors.Is(err, nutrition.ErrMealTemplateNameRequired),
+		errors.Is(err, nutrition.ErrMealTypeInvalid),
+		errors.Is(err, nutrition.ErrCaloriesInvalid),
+		errors.Is(err, nutrition.ErrProteinInvalid),
+		errors.Is(err, nutrition.ErrCarbsInvalid),
+		errors.Is(err, nutrition.ErrFatInvalid),
+		errors.Is(err, nutrition.ErrMealTemplateNutritionRequired),
+		errors.Is(err, nutrition.ErrMealLogNutritionRequired),
+		errors.Is(err, nutrition.ErrLoggedAtRequired):
+		writeError(w, http.StatusBadRequest, err)
 	default:
 		writeError(w, http.StatusInternalServerError, err)
 	}
