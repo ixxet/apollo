@@ -2,7 +2,6 @@ package consumer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -24,14 +23,6 @@ func NewIdentifiedPresenceHandler(service ArrivalRecorder) *IdentifiedPresenceHa
 }
 
 func (h *IdentifiedPresenceHandler) HandleMessage(ctx context.Context, payload []byte) (visits.Result, error) {
-	if anonymous, err := isAnonymousIdentifiedPresence(payload, protoevents.SubjectIdentifiedPresenceArrived); err != nil {
-		slog.Warn("identified presence rejected", "error", err)
-		return visits.Result{}, fmt.Errorf("inspect identified arrival: %w", err)
-	} else if anonymous {
-		slog.Info("identified presence ignored", "outcome", visits.OutcomeIgnoredAnonymous, "reason", "anonymous")
-		return visits.Result{Outcome: visits.OutcomeIgnoredAnonymous}, nil
-	}
-
 	event, err := protoevents.ParseIdentifiedPresenceArrived(payload)
 	if err != nil {
 		slog.Warn("identified presence rejected", "error", err)
@@ -63,39 +54,4 @@ func (h *IdentifiedPresenceHandler) HandleMessage(ctx context.Context, payload [
 
 	slog.Info("identified presence handled", "event_id", event.ID, "outcome", result.Outcome)
 	return result, nil
-}
-
-func isAnonymousIdentifiedPresence(payload []byte, subject string) (bool, error) {
-	var envelope map[string]any
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return false, err
-	}
-
-	if strings.TrimSpace(stringValue(envelope["source"])) != protoevents.ServiceAthena {
-		return false, nil
-	}
-	if strings.TrimSpace(stringValue(envelope["type"])) != subject {
-		return false, nil
-	}
-
-	data, ok := envelope["data"].(map[string]any)
-	if !ok {
-		return false, nil
-	}
-
-	identity, ok := data["external_identity_hash"]
-	if !ok {
-		return true, nil
-	}
-
-	return strings.TrimSpace(stringValue(identity)) == "", nil
-}
-
-func stringValue(value any) string {
-	stringValue, ok := value.(string)
-	if !ok {
-		return ""
-	}
-
-	return stringValue
 }

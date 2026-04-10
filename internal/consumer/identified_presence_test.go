@@ -71,22 +71,14 @@ func TestHandleMessageReturnsUnknownTagOutcome(t *testing.T) {
 	}
 }
 
-func TestHandleMessageIgnoresAnonymousPayload(t *testing.T) {
-	recorder := &stubArrivalRecorder{}
-	handler := NewIdentifiedPresenceHandler(recorder)
+func TestHandleMessageRejectsAnonymousContractViolation(t *testing.T) {
+	handler := NewIdentifiedPresenceHandler(&stubArrivalRecorder{})
 
-	result, err := handler.HandleMessage(context.Background(), mutateValidPayload(t, func(event map[string]any) {
+	if _, err := handler.HandleMessage(context.Background(), mutateValidPayload(t, func(event map[string]any) {
 		event["id"] = "evt-003"
 		event["data"].(map[string]any)["external_identity_hash"] = ""
-	}))
-	if err != nil {
-		t.Fatalf("HandleMessage() error = %v", err)
-	}
-	if result.Outcome != visits.OutcomeIgnoredAnonymous {
-		t.Fatalf("result.Outcome = %q, want %q", result.Outcome, visits.OutcomeIgnoredAnonymous)
-	}
-	if recorder.input != nil {
-		t.Fatal("RecordArrival() should not be called for anonymous events")
+	})); err == nil {
+		t.Fatal("HandleMessage() error = nil, want anonymous contract failure")
 	}
 }
 

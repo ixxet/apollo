@@ -24,6 +24,7 @@ var (
 	ErrWorkoutAlreadyInProgress = errors.New("workout already in progress")
 	ErrWorkoutFinished          = errors.New("workout is already finished")
 	ErrExercisePayloadRequired  = errors.New("exercise payload is required")
+	ErrExerciseCountInvalid     = errors.New("exercise count exceeds maximum of 64")
 	ErrExerciseNameRequired     = errors.New("exercise name is required")
 	ErrExerciseSetsInvalid      = errors.New("exercise sets must be positive")
 	ErrExerciseRepsInvalid      = errors.New("exercise reps must be positive")
@@ -32,6 +33,8 @@ var (
 	ErrCannotFinishEmptyWorkout = errors.New("workout cannot be finished without exercises")
 )
 
+const maxExercisesPerWorkout = 64
+
 type Clock func() time.Time
 
 type Store interface {
@@ -39,6 +42,7 @@ type Store interface {
 	GetWorkoutByIDForUser(ctx context.Context, workoutID uuid.UUID, userID uuid.UUID) (*store.ApolloWorkout, error)
 	GetInProgressWorkoutByUserID(ctx context.Context, userID uuid.UUID) (*store.ApolloWorkout, error)
 	ListWorkoutsByUserID(ctx context.Context, userID uuid.UUID) ([]store.ApolloWorkout, error)
+	ListExercisesByWorkoutIDs(ctx context.Context, workoutIDs []uuid.UUID) (map[uuid.UUID][]store.ApolloExercise, error)
 	ListExercisesByWorkoutID(ctx context.Context, workoutID uuid.UUID) ([]store.ApolloExercise, error)
 	ReplaceWorkoutDraft(ctx context.Context, workoutID uuid.UUID, userID uuid.UUID, notes *string, exercises []ExerciseDraft) (*store.ApolloWorkout, []store.ApolloExercise, error)
 	CountExercisesByWorkoutID(ctx context.Context, workoutID uuid.UUID) (int64, error)
@@ -119,15 +123,18 @@ func (s *Service) ListWorkouts(ctx context.Context, userID uuid.UUID) ([]Workout
 	if err != nil {
 		return nil, err
 	}
+	workoutIDs := make([]uuid.UUID, 0, len(workouts))
+	for _, workout := range workouts {
+		workoutIDs = append(workoutIDs, workout.ID)
+	}
+	exercisesByWorkoutID, err := s.repository.ListExercisesByWorkoutIDs(ctx, workoutIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	result := make([]Workout, 0, len(workouts))
 	for _, workout := range workouts {
-		exercises, err := s.repository.ListExercisesByWorkoutID(ctx, workout.ID)
-		if err != nil {
-			return nil, err
-		}
-
-		builtWorkout, err := buildWorkout(workout, exercises)
+		builtWorkout, err := buildWorkout(workout, exercisesByWorkoutID[workout.ID])
 		if err != nil {
 			return nil, err
 		}
@@ -243,6 +250,10 @@ func (s *Service) FinishWorkout(ctx context.Context, userID uuid.UUID, workoutID
 }
 
 func validateExerciseInputs(inputs []ExerciseInput) ([]ExerciseDraft, error) {
+	if len(inputs) > maxExercisesPerWorkout {
+		return nil, ErrExerciseCountInvalid
+	}
+
 	drafts := make([]ExerciseDraft, 0, len(inputs))
 	for _, input := range inputs {
 		name := strings.TrimSpace(input.Name)

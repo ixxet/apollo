@@ -23,14 +23,6 @@ func NewIdentifiedDepartureHandler(service DepartureRecorder) *IdentifiedDepartu
 }
 
 func (h *IdentifiedDepartureHandler) HandleMessage(ctx context.Context, payload []byte) (visits.Result, error) {
-	if anonymous, err := isAnonymousIdentifiedPresence(payload, protoevents.SubjectIdentifiedPresenceDeparted); err != nil {
-		slog.Warn("identified departure rejected", "error", err)
-		return visits.Result{}, fmt.Errorf("inspect identified departure: %w", err)
-	} else if anonymous {
-		slog.Info("identified departure ignored", "outcome", visits.OutcomeIgnoredAnonymous, "reason", "anonymous")
-		return visits.Result{Outcome: visits.OutcomeIgnoredAnonymous}, nil
-	}
-
 	event, err := protoevents.ParseIdentifiedPresenceDeparted(payload)
 	if err != nil {
 		slog.Warn("identified departure rejected", "error", err)

@@ -16,6 +16,7 @@ type stubStore struct {
 	getWorkoutByIDForUserFunc      func(context.Context, uuid.UUID, uuid.UUID) (*store.ApolloWorkout, error)
 	getInProgressWorkoutByUserFunc func(context.Context, uuid.UUID) (*store.ApolloWorkout, error)
 	listWorkoutsByUserIDFunc       func(context.Context, uuid.UUID) ([]store.ApolloWorkout, error)
+	listExercisesByWorkoutIDsFunc  func(context.Context, []uuid.UUID) (map[uuid.UUID][]store.ApolloExercise, error)
 	listExercisesByWorkoutIDFunc   func(context.Context, uuid.UUID) ([]store.ApolloExercise, error)
 	replaceWorkoutDraftFunc        func(context.Context, uuid.UUID, uuid.UUID, *string, []ExerciseDraft) (*store.ApolloWorkout, []store.ApolloExercise, error)
 	countExercisesByWorkoutIDFunc  func(context.Context, uuid.UUID) (int64, error)
@@ -38,7 +39,17 @@ func (s stubStore) ListWorkoutsByUserID(ctx context.Context, userID uuid.UUID) (
 	return s.listWorkoutsByUserIDFunc(ctx, userID)
 }
 
+func (s stubStore) ListExercisesByWorkoutIDs(ctx context.Context, workoutIDs []uuid.UUID) (map[uuid.UUID][]store.ApolloExercise, error) {
+	if s.listExercisesByWorkoutIDsFunc == nil {
+		return nil, nil
+	}
+	return s.listExercisesByWorkoutIDsFunc(ctx, workoutIDs)
+}
+
 func (s stubStore) ListExercisesByWorkoutID(ctx context.Context, workoutID uuid.UUID) ([]store.ApolloExercise, error) {
+	if s.listExercisesByWorkoutIDFunc == nil {
+		return nil, nil
+	}
 	return s.listExercisesByWorkoutIDFunc(ctx, workoutID)
 }
 
@@ -126,6 +137,13 @@ func TestUpdateWorkoutValidatesExercisePayloadWithTableDrivenCoverage(t *testing
 				Exercises: &[]ExerciseInput{{Name: "bench press", Sets: 3, Reps: 8, RPE: float64Ptr(11)}},
 			},
 			expectedErr: ErrExerciseRPEInvalid,
+		},
+		{
+			name: "exercise count exceeds bound",
+			input: UpdateInput{
+				Exercises: exerciseInputs(maxExercisesPerWorkout + 1),
+			},
+			expectedErr: ErrExerciseCountInvalid,
 		},
 	}
 
@@ -317,11 +335,13 @@ func TestListAndGetWorkoutsBuildStableResponses(t *testing.T) {
 				{ID: firstWorkoutID, UserID: userID, Status: StatusInProgress, StartedAt: timestamptz(time.Date(2026, 4, 2, 20, 0, 0, 0, time.UTC))},
 			}, nil
 		},
-		listExercisesByWorkoutIDFunc: func(_ context.Context, workoutID uuid.UUID) ([]store.ApolloExercise, error) {
-			if workoutID == secondWorkoutID {
-				return []store.ApolloExercise{{Name: "bench press", Sets: 3, Reps: 8, Position: 1}}, nil
+		listExercisesByWorkoutIDsFunc: func(_ context.Context, workoutIDs []uuid.UUID) (map[uuid.UUID][]store.ApolloExercise, error) {
+			if len(workoutIDs) != 2 {
+				t.Fatalf("len(workoutIDs) = %d, want 2", len(workoutIDs))
 			}
-			return nil, nil
+			return map[uuid.UUID][]store.ApolloExercise{
+				secondWorkoutID: {{Name: "bench press", Sets: 3, Reps: 8, Position: 1}},
+			}, nil
 		},
 		getWorkoutByIDForUserFunc: func(context.Context, uuid.UUID, uuid.UUID) (*store.ApolloWorkout, error) {
 			return &store.ApolloWorkout{ID: secondWorkoutID, UserID: userID, Status: StatusFinished, StartedAt: timestamptz(time.Date(2026, 4, 2, 18, 0, 0, 0, time.UTC)), FinishedAt: timestamptz(time.Date(2026, 4, 2, 19, 0, 0, 0, time.UTC)), Notes: &notes}, nil
@@ -357,4 +377,17 @@ func float64Ptr(value float64) *float64 {
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+func exerciseInputs(count int) *[]ExerciseInput {
+	items := make([]ExerciseInput, 0, count)
+	for index := 0; index < count; index++ {
+		items = append(items, ExerciseInput{
+			Name: "exercise",
+			Sets: 3,
+			Reps: 8,
+		})
+	}
+
+	return &items
 }

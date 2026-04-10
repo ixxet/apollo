@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -36,6 +38,16 @@ import (
 	"github.com/ixxet/apollo/internal/visits"
 	"github.com/ixxet/apollo/internal/workouts"
 	protoevents "github.com/ixxet/ashton-proto/events"
+)
+
+const (
+	httpReadHeaderTimeout        = 5 * time.Second
+	httpReadTimeout              = 15 * time.Second
+	httpWriteTimeout             = 15 * time.Second
+	httpIdleTimeout              = 60 * time.Second
+	httpShutdownTimeout          = 10 * time.Second
+	identifiedPresenceMsgTimeout = 5 * time.Second
+	natsDrainTimeout             = 10 * time.Second
 )
 
 func main() {
@@ -99,6 +111,9 @@ func newServeCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Start the APOLLO HTTP server.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			serveCtx, stopSignals := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stopSignals()
+
 			cfg, err := config.Load()
 			if err != nil {
 				return err
@@ -116,31 +131,37 @@ func newServeCmd() *cobra.Command {
 			presenceService := presence.NewService(presenceRepository, visitService)
 
 			consumerEnabled := false
-			var closeNATS func()
+			var natsConn *nats.Conn
 			if cfg.NATSURL != "" {
 				conn, err := nats.Connect(cfg.NATSURL)
 				if err != nil {
 					return err
 				}
-				closeNATS = conn.Close
+				natsConn = conn
 
 				arrivalHandler := consumer.NewIdentifiedPresenceHandler(presenceService)
 				if _, err := conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
-					if _, err := arrivalHandler.HandleMessage(context.Background(), msg.Data); err != nil {
+					msgCtx, cancel := context.WithTimeout(context.Background(), identifiedPresenceMsgTimeout)
+					defer cancel()
+
+					if _, err := arrivalHandler.HandleMessage(msgCtx, msg.Data); err != nil {
 						slog.Error("identified arrival consumer failed", "error", err)
 					}
 				}); err != nil {
-					closeNATS()
+					conn.Close()
 					return err
 				}
 
 				departureHandler := consumer.NewIdentifiedDepartureHandler(presenceService)
 				if _, err := conn.Subscribe(protoevents.SubjectIdentifiedPresenceDeparted, func(msg *nats.Msg) {
-					if _, err := departureHandler.HandleMessage(context.Background(), msg.Data); err != nil {
+					msgCtx, cancel := context.WithTimeout(context.Background(), identifiedPresenceMsgTimeout)
+					defer cancel()
+
+					if _, err := departureHandler.HandleMessage(msgCtx, msg.Data); err != nil {
 						slog.Error("identified departure consumer failed", "error", err)
 					}
 				}); err != nil {
-					closeNATS()
+					conn.Close()
 					return err
 				}
 				consumerEnabled = true
@@ -149,8 +170,8 @@ func newServeCmd() *cobra.Command {
 					protoevents.SubjectIdentifiedPresenceDeparted,
 				})
 			}
-			if closeNATS != nil {
-				defer closeNATS()
+			if natsConn != nil {
+				defer natsConn.Close()
 			}
 
 			if cfg.SessionCookieSecret == "" {
@@ -162,19 +183,46 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 
-			var sender auth.EmailSender
+			var sender auth.EmailSender = auth.NoopEmailSender{}
 			if cfg.LogVerificationTokens {
 				sender = auth.LogEmailSender{}
 			}
 
 			httpServer := &http.Server{
-				Addr:    cfg.HTTPAddr,
-				Handler: server.NewHandler(buildServerDependencies(pool, consumerEnabled, cookies, sender, cfg)),
+				Addr:              cfg.HTTPAddr,
+				Handler:           server.NewHandler(buildServerDependencies(pool, consumerEnabled, cookies, sender, cfg)),
+				ReadHeaderTimeout: httpReadHeaderTimeout,
+				ReadTimeout:       httpReadTimeout,
+				WriteTimeout:      httpWriteTimeout,
+				IdleTimeout:       httpIdleTimeout,
 			}
 
 			slog.Info("starting APOLLO server", "addr", cfg.HTTPAddr)
-			if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				return err
+
+			serverErrors := make(chan error, 1)
+			go func() {
+				serverErrors <- httpServer.ListenAndServe()
+			}()
+
+			select {
+			case err := <-serverErrors:
+				if err != nil && !errors.Is(err, http.ErrServerClosed) {
+					return err
+				}
+			case <-serveCtx.Done():
+				slog.Info("apollo shutdown requested")
+			}
+
+			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), httpShutdownTimeout)
+			defer cancelShutdown()
+
+			if err := httpServer.Shutdown(shutdownCtx); err != nil {
+				return fmt.Errorf("shutdown APOLLO HTTP server: %w", err)
+			}
+			if natsConn != nil {
+				if err := drainNATS(natsConn, natsDrainTimeout); err != nil {
+					return fmt.Errorf("drain APOLLO NATS connection: %w", err)
+				}
 			}
 
 			return nil
@@ -218,6 +266,28 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 		Coaching:        coachingService,
 		Nutrition:       nutritionService,
 		Workouts:        workoutService,
+	}
+}
+
+func drainNATS(conn *nats.Conn, timeout time.Duration) error {
+	if conn == nil {
+		return nil
+	}
+
+	drained := make(chan error, 1)
+	go func() {
+		drained <- conn.Drain()
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case err := <-drained:
+		return err
+	case <-timer.C:
+		conn.Close()
+		return fmt.Errorf("timeout after %s", timeout)
 	}
 }
 

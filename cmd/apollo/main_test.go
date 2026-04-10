@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -196,6 +199,51 @@ func TestSportShowCommandReturnsSportNotFoundForUnknownSport(t *testing.T) {
 	}
 }
 
+func TestServeCommandShutsDownCleanlyWhenContextIsCanceled(t *testing.T) {
+	ctx := context.Background()
+	postgresEnv, err := testutil.StartPostgres(ctx)
+	if err != nil {
+		t.Fatalf("StartPostgres() error = %v", err)
+	}
+	defer func() {
+		if closeErr := postgresEnv.Close(); closeErr != nil {
+			t.Fatalf("Close() error = %v", closeErr)
+		}
+	}()
+
+	if err := testutil.ApplyApolloSchema(ctx, postgresEnv.DB); err != nil {
+		t.Fatalf("ApplyApolloSchema() error = %v", err)
+	}
+
+	addr := reserveListenAddress(t)
+	t.Setenv("APOLLO_DATABASE_URL", postgresEnv.DatabaseURL)
+	t.Setenv("APOLLO_HTTP_ADDR", addr)
+	t.Setenv("APOLLO_SESSION_COOKIE_SECRET", "0123456789abcdef0123456789abcdef")
+
+	serveCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	command := newServeCmd()
+	command.SetContext(serveCtx)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- command.Execute()
+	}()
+
+	waitForHealthyHTTP(t, fmt.Sprintf("http://%s/api/v1/health", addr))
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("serve command did not shut down within 10s after context cancellation")
+	}
+}
+
 func runRootCommand(t *testing.T, args ...string) string {
 	t.Helper()
 
@@ -220,4 +268,34 @@ func runRootCommandWithResult(t *testing.T, args ...string) (string, string, err
 
 	err := rootCmd.Execute()
 	return stdout.String(), stderr.String(), err
+}
+
+func reserveListenAddress(t *testing.T) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	defer listener.Close()
+
+	return listener.Addr().String()
+}
+
+func waitForHealthyHTTP(t *testing.T, url string) {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		response, err := http.Get(url) //nolint:gosec // local integration probe
+		if err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Fatalf("health endpoint %s did not become ready", url)
 }

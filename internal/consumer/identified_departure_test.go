@@ -67,22 +67,14 @@ func TestHandleDepartureMessageReturnsNoOpenVisitOutcome(t *testing.T) {
 	}
 }
 
-func TestHandleDepartureMessageIgnoresAnonymousPayload(t *testing.T) {
-	recorder := &stubDepartureRecorder{}
-	handler := NewIdentifiedDepartureHandler(recorder)
+func TestHandleDepartureMessageRejectsAnonymousContractViolation(t *testing.T) {
+	handler := NewIdentifiedDepartureHandler(&stubDepartureRecorder{})
 
-	result, err := handler.HandleMessage(context.Background(), mutateValidDeparturePayload(t, func(event map[string]any) {
+	if _, err := handler.HandleMessage(context.Background(), mutateValidDeparturePayload(t, func(event map[string]any) {
 		event["id"] = "evt-depart-003"
 		event["data"].(map[string]any)["external_identity_hash"] = ""
-	}))
-	if err != nil {
-		t.Fatalf("HandleMessage() error = %v", err)
-	}
-	if result.Outcome != visits.OutcomeIgnoredAnonymous {
-		t.Fatalf("result.Outcome = %q, want %q", result.Outcome, visits.OutcomeIgnoredAnonymous)
-	}
-	if recorder.input != nil {
-		t.Fatal("RecordDeparture() should not be called for anonymous events")
+	})); err == nil {
+		t.Fatal("HandleMessage() error = nil, want anonymous contract failure")
 	}
 }
 

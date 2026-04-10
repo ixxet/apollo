@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -330,6 +332,34 @@ func TestWorkoutEndpointsRejectMalformedBodiesBeforeCallingTheService(t *testing
 	}
 	if manager.updateInput.Exercises != nil {
 		t.Fatalf("manager.updateInput = %#v, want zero value after malformed update body", manager.updateInput)
+	}
+}
+
+func TestWorkoutEndpointsRejectOversizedBodiesBeforeCallingTheService(t *testing.T) {
+	manager := &stubWorkoutManager{}
+	handler := NewHandler(Dependencies{
+		Auth: stubAuthenticator{
+			cookieName: "apollo_session",
+			principal:  auth.Principal{UserID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")},
+		},
+		Workouts: manager,
+	})
+
+	oversizedNotes := strings.Repeat("x", int(maxJSONBodyBytes)+1)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/workouts", bytes.NewBufferString(fmt.Sprintf(`{"notes":"%s"}`, oversizedNotes)))
+	request.AddCookie(&http.Cookie{Name: "apollo_session", Value: "signed"})
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("recorder.Code = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+	if !strings.Contains(recorder.Body.String(), "request body is too large") {
+		t.Fatalf("recorder.Body = %q, want request body is too large", recorder.Body.String())
+	}
+	if manager.createInput.Notes != nil {
+		t.Fatalf("manager.createInput = %#v, want zero value after oversized create body", manager.createInput)
 	}
 }
 

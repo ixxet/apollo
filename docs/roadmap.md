@@ -7,7 +7,8 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime closeout line on `main`: Tracer 28 `v0.19.0` line
+Current repo/runtime working line on `main`: Tracer 28 `v0.19.x` line, with
+the Milestone 2.0 hardening follow-up targeted at `v0.19.1`
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -52,13 +53,18 @@ Current repo/runtime closeout line on `main`: Tracer 28 `v0.19.0` line
   competition mutations require trusted-surface proof, successful staff-
   sensitive competition mutations write durable actor attribution, and member
   self-service surfaces remain separate and unchanged
+- the current Milestone 2.0 hardening follow-up on `main` now adds graceful
+  shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
+  identified-lifecycle contract path, batches workout exercise list reads, and
+  caps per-workout exercise writes without widening the product surface
 - deployment truth is still narrower than the full product surface
 
 ## Release Lines
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
-hardening patch on that same line. The current repo/runtime closeout line on
-`main` is Tracer 28 authz/staff-boundary truth on the `v0.19.0` line.
+hardening patch on that same line. The current repo/runtime working line on
+`main` is Tracer 28 authz/staff-boundary truth plus the Milestone 2.0
+hardening follow-up on the `v0.19.1` patch line.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -69,6 +75,7 @@ hardening patch on that same line. The current repo/runtime closeout line on
 | `v0.17.0` | explanation, summarization, bounded AI helper flows, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
+| `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
 
 ## Versioning Discipline
 

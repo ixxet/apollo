@@ -81,6 +81,47 @@ func (r *Repository) ListExercisesByWorkoutID(ctx context.Context, workoutID uui
 	return store.New(r.db).ListExercisesByWorkoutID(ctx, workoutID)
 }
 
+func (r *Repository) ListExercisesByWorkoutIDs(ctx context.Context, workoutIDs []uuid.UUID) (map[uuid.UUID][]store.ApolloExercise, error) {
+	grouped := make(map[uuid.UUID][]store.ApolloExercise, len(workoutIDs))
+	if len(workoutIDs) == 0 {
+		return grouped, nil
+	}
+
+	rows, err := r.db.Query(ctx, `
+SELECT id, workout_id, name, sets, reps, weight_kg, rpe, notes, position
+FROM apollo.exercises
+WHERE workout_id = ANY($1::uuid[])
+ORDER BY workout_id ASC, position ASC, id ASC
+`, workoutIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var exercise store.ApolloExercise
+		if err := rows.Scan(
+			&exercise.ID,
+			&exercise.WorkoutID,
+			&exercise.Name,
+			&exercise.Sets,
+			&exercise.Reps,
+			&exercise.WeightKg,
+			&exercise.Rpe,
+			&exercise.Notes,
+			&exercise.Position,
+		); err != nil {
+			return nil, err
+		}
+		grouped[exercise.WorkoutID] = append(grouped[exercise.WorkoutID], exercise)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return grouped, nil
+}
+
 func (r *Repository) ReplaceWorkoutDraft(ctx context.Context, workoutID uuid.UUID, userID uuid.UUID, notes *string, exercises []ExerciseDraft) (*store.ApolloWorkout, []store.ApolloExercise, error) {
 	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

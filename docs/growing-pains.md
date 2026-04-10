@@ -37,16 +37,16 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   Rule: if APOLLO consumes a cross-repo event, the active wire contract must be
   imported or enforced from `ashton-proto`, not recopied locally.
 
-- Symptom: strict shared-schema validation would reject anonymous events before
-  APOLLO could apply the tracer rule that anonymous arrivals are ignored.
-  Cause: the shared identified-arrival contract intentionally requires a
-  non-empty `external_identity_hash`, but APOLLO still needs a defensive
-  anonymous no-op for misrouted payloads.
-  Fix: add a narrow pre-parse anonymous check for the correct subject, then keep
-  strict shared parsing for all non-anonymous payloads.
-  Rule: when a tracer needs a defensive no-op path that is looser than the
-  active shared contract, isolate that exception narrowly and keep the main
-  parse path strict.
+- Symptom: APOLLO temporarily kept a second, looser identified-arrival parse
+  path so empty-hash payloads could be ignored before the shared schema ran.
+  Cause: the original tracer rule treated anonymous misroutes as a local
+  no-op, but that widened APOLLO away from the active `ashton-proto` contract.
+  Fix: Milestone 2.0 removed the pre-parse branch and made the shared parser
+  the only active identified-lifecycle contract path; empty-hash payloads now
+  fail as schema violations before any visit mutation.
+  Rule: cross-repo lifecycle subjects get one active parse path; if the shared
+  contract rejects the payload, APOLLO should not invent a parallel looser
+  parser for the same subject.
 
 - Symptom: adding `users.email_verified_at` to the generated auth/profile query
   surface broke older APOLLO integration tests even though the new runtime code

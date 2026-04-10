@@ -217,8 +217,7 @@ eligibility, or any social state.
 | Step | Current Behavior |
 | --- | --- |
 | ATHENA publishes lifecycle events | Subjects are `athena.identified_presence.arrived` and `athena.identified_presence.departed` |
-| APOLLO inspects for the narrow anonymous no-op | Anonymous misroutes are ignored before strict parsing |
-| APOLLO parses the payload | The shared `ashton-proto` helper validates source, type, enums, and timestamps |
+| APOLLO parses the payload | The shared `ashton-proto` helper is the only active contract path; schema-invalid payloads, including empty identity hashes, are rejected before any mutation |
 | APOLLO resolves member identity | `claimed_tags` maps the ATHENA identity hash to an active user |
 | APOLLO enforces idempotency | Duplicate arrival ids, duplicate departure ids, and already-open visits resolve deterministically |
 | APOLLO records the lifecycle | Arrivals open visits, departures close matching open visits for the same member and facility |
@@ -344,9 +343,9 @@ exercise, recommendations, or matchmaking.
   struct
 - malformed payloads, wrong source values, wrong types, bad enums, and invalid
   timestamps are rejected clearly
-- duplicate arrivals, duplicate departures, unknown tags, anonymous events,
-  already-open visits, no-open departures, and out-of-order departures all
-  resolve deterministically
+- duplicate arrivals, duplicate departures, unknown tags, empty-hash contract
+  violations, already-open visits, no-open departures, and out-of-order
+  departures all resolve deterministically
 - repeated arrival replay for an already linked visit stays deterministic:
   APOLLO does not create a second tap-link row or a second facility streak
   event for the same visit day

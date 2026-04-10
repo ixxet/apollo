@@ -226,6 +226,8 @@ type contextKey string
 
 const principalContextKey contextKey = "session_principal"
 
+const maxJSONBodyBytes int64 = 1 << 20
+
 func NewHandler(deps Dependencies) http.Handler {
 	router := chi.NewRouter()
 	trustedSurfaceVerifier := authz.NewTrustedSurfaceVerifierFromEnv()
@@ -240,7 +242,7 @@ func NewHandler(deps Dependencies) http.Handler {
 
 	router.Post("/api/v1/auth/verification/start", func(w http.ResponseWriter, r *http.Request) {
 		var request startVerificationRequest
-		if err := decodeJSONBody(r, &request); err != nil {
+		if err := decodeJSONBody(w, r, &request); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -268,7 +270,7 @@ func NewHandler(deps Dependencies) http.Handler {
 		token := r.URL.Query().Get("token")
 		if token == "" && r.Method == http.MethodPost {
 			var request verifyRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -360,7 +362,7 @@ func NewHandler(deps Dependencies) http.Handler {
 		})
 		authenticated.Post("/api/v1/planner/templates", func(w http.ResponseWriter, r *http.Request) {
 			var request planner.TemplateInput
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -398,7 +400,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request planner.TemplateInput
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -424,7 +426,7 @@ func NewHandler(deps Dependencies) http.Handler {
 		})
 		authenticated.Put("/api/v1/planner/weeks/{weekStart}", func(w http.ResponseWriter, r *http.Request) {
 			var request planner.WeekInput
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -505,7 +507,7 @@ func NewHandler(deps Dependencies) http.Handler {
 		})
 		authenticated.Post("/api/v1/competition/sessions", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			var request createCompetitionSessionRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -562,7 +564,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request addCompetitionQueueMemberRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -605,7 +607,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request assignCompetitionSessionRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -658,7 +660,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request createCompetitionTeamRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -705,7 +707,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request addCompetitionRosterMemberRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -753,7 +755,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request createCompetitionMatchRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -802,7 +804,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request recordCompetitionMatchResultRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1056,7 +1058,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request nutrition.MealLogInput
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1083,7 +1085,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request nutrition.MealLogInput
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1119,7 +1121,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request nutrition.MealTemplateInput
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1146,7 +1148,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request nutrition.MealTemplateInput
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1162,7 +1164,7 @@ func NewHandler(deps Dependencies) http.Handler {
 		})
 		authenticated.Post("/api/v1/workouts", func(w http.ResponseWriter, r *http.Request) {
 			var request createWorkoutRequest
-			if err := decodeJSONBodyAllowEmpty(r, &request); err != nil {
+			if err := decodeJSONBodyAllowEmpty(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1223,7 +1225,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request updateWorkoutRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1240,6 +1242,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				case errors.Is(err, workouts.ErrWorkoutFinished):
 					writeError(w, http.StatusConflict, err)
 				case errors.Is(err, workouts.ErrExercisePayloadRequired),
+					errors.Is(err, workouts.ErrExerciseCountInvalid),
 					errors.Is(err, workouts.ErrExerciseNameRequired),
 					errors.Is(err, workouts.ErrExerciseSetsInvalid),
 					errors.Is(err, workouts.ErrExerciseRepsInvalid),
@@ -1294,7 +1297,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request putEffortFeedbackRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1323,7 +1326,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			var request putRecoveryFeedbackRequest
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1341,7 +1344,7 @@ func NewHandler(deps Dependencies) http.Handler {
 		})
 		authenticated.Patch("/api/v1/profile", func(w http.ResponseWriter, r *http.Request) {
 			var request profile.UpdateInput
-			if err := decodeJSONBody(r, &request); err != nil {
+			if err := decodeJSONBody(w, r, &request); err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
@@ -1498,15 +1501,15 @@ func logLobbyMembershipTransition(message string, userID uuid.UUID, lobbyMembers
 	slog.Info(message, attrs...)
 }
 
-func decodeJSONBody(r *http.Request, target any) error {
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, target any) error {
 	if r.Body == nil {
 		return errors.New("request body is required")
 	}
 
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBodyBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return err
+		return normalizeDecodeError(err)
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return errors.New("request body must contain a single JSON object")
@@ -1515,29 +1518,33 @@ func decodeJSONBody(r *http.Request, target any) error {
 	return nil
 }
 
-func decodeJSONBodyAllowEmpty(r *http.Request, target any) error {
+func decodeJSONBodyAllowEmpty(w http.ResponseWriter, r *http.Request, target any) error {
 	if r.Body == nil {
 		return nil
 	}
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return err
-	}
-	if len(body) == 0 {
-		return nil
-	}
-
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBodyBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return err
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return normalizeDecodeError(err)
 	}
-	if decoder.More() {
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return errors.New("request body must contain a single JSON object")
 	}
 
 	return nil
+}
+
+func normalizeDecodeError(err error) error {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		return errors.New("request body is too large")
+	}
+
+	return err
 }
 
 func parseUUIDParam(r *http.Request, name string) (uuid.UUID, error) {
