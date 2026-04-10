@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/helper"
 	"github.com/ixxet/apollo/internal/nutrition"
 )
 
@@ -31,6 +32,12 @@ type stubNutritionManager struct {
 	updateMealTemplateErr      error
 	recommendationResponse     nutrition.Recommendation
 	recommendationErr          error
+	helperReadResponse         nutrition.HelperRead
+	helperReadErr              error
+	helperWhyResponse          nutrition.HelperWhy
+	helperWhyErr               error
+	variationPreviewResponse   nutrition.VariationPreview
+	variationPreviewErr        error
 }
 
 func (s stubNutritionManager) ListMealLogs(context.Context, uuid.UUID) ([]nutrition.MealLog, error) {
@@ -82,6 +89,27 @@ func (s stubNutritionManager) GetRecommendation(context.Context, uuid.UUID) (nut
 	return s.recommendationResponse, nil
 }
 
+func (s stubNutritionManager) GetHelperRead(context.Context, uuid.UUID) (nutrition.HelperRead, error) {
+	if s.helperReadErr != nil {
+		return nutrition.HelperRead{}, s.helperReadErr
+	}
+	return s.helperReadResponse, nil
+}
+
+func (s stubNutritionManager) AskWhy(context.Context, uuid.UUID, string) (nutrition.HelperWhy, error) {
+	if s.helperWhyErr != nil {
+		return nutrition.HelperWhy{}, s.helperWhyErr
+	}
+	return s.helperWhyResponse, nil
+}
+
+func (s stubNutritionManager) PreviewVariation(context.Context, uuid.UUID, string) (nutrition.VariationPreview, error) {
+	if s.variationPreviewErr != nil {
+		return nutrition.VariationPreview{}, s.variationPreviewErr
+	}
+	return s.variationPreviewResponse, nil
+}
+
 func TestNutritionEndpointsRequireAuthentication(t *testing.T) {
 	handler := NewHandler(Dependencies{
 		Auth:      stubAuthenticator{cookieName: "apollo_session"},
@@ -94,6 +122,9 @@ func TestNutritionEndpointsRequireAuthentication(t *testing.T) {
 		body   string
 	}{
 		{method: http.MethodGet, path: "/api/v1/recommendations/nutrition"},
+		{method: http.MethodGet, path: "/api/v1/helpers/nutrition"},
+		{method: http.MethodGet, path: "/api/v1/helpers/nutrition/why?topic=history"},
+		{method: http.MethodGet, path: "/api/v1/helpers/nutrition/variation?variation=cheaper"},
 		{method: http.MethodGet, path: "/api/v1/nutrition/meal-logs"},
 		{method: http.MethodPost, path: "/api/v1/nutrition/meal-logs", body: `{}`},
 		{method: http.MethodPut, path: "/api/v1/nutrition/meal-logs/11111111-1111-1111-1111-111111111111", body: `{}`},
@@ -171,6 +202,67 @@ func TestNutritionRecommendationEndpointReturnsStableShape(t *testing.T) {
 	}
 }
 
+func TestNutritionHelperEndpointsReturnStableShape(t *testing.T) {
+	handler := NewHandler(Dependencies{
+		Auth: stubAuthenticator{
+			cookieName: "apollo_session",
+			principal:  auth.Principal{UserID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")},
+		},
+		Nutrition: stubNutritionManager{
+			helperReadResponse: nutrition.HelperRead{
+				PreviewMode: "read_only",
+				Recommendation: nutrition.Recommendation{
+					Kind: nutrition.KindHold,
+				},
+				Proposal: nutrition.GuidanceProposal{
+					Variant: "default",
+				},
+				Summary: nutritionHelperSummaryFixture(),
+			},
+			helperWhyResponse: nutrition.HelperWhy{
+				PreviewMode: "read_only",
+				Topic:       nutrition.WhyTopicHistory,
+				Summary:     nutritionHelperSummaryFixture(),
+			},
+			variationPreviewResponse: nutrition.VariationPreview{
+				PreviewMode: "read_only",
+				Variation:   nutrition.VariationCheaper,
+				Proposal: nutrition.GuidanceProposal{
+					Variant: nutrition.VariationCheaper,
+				},
+				Summary: nutritionHelperSummaryFixture(),
+			},
+		},
+	})
+
+	for _, testCase := range []struct {
+		path      string
+		wantField string
+		wantValue string
+	}{
+		{path: "/api/v1/helpers/nutrition", wantField: "preview_mode", wantValue: "read_only"},
+		{path: "/api/v1/helpers/nutrition/why?topic=history", wantField: "topic", wantValue: nutrition.WhyTopicHistory},
+		{path: "/api/v1/helpers/nutrition/variation?variation=cheaper", wantField: "variation", wantValue: nutrition.VariationCheaper},
+	} {
+		request := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+		request.AddCookie(&http.Cookie{Name: "apollo_session", Value: "signed"})
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d", testCase.path, recorder.Code, http.StatusOK)
+		}
+
+		var payload map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal(%s) error = %v", testCase.path, err)
+		}
+		if payload[testCase.wantField] != testCase.wantValue {
+			t.Fatalf("%s %s = %#v, want %q", testCase.path, testCase.wantField, payload[testCase.wantField], testCase.wantValue)
+		}
+	}
+}
+
 func TestNutritionEndpointsMapValidationOwnershipAndConflictErrors(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
@@ -186,6 +278,27 @@ func TestNutritionEndpointsMapValidationOwnershipAndConflictErrors(t *testing.T)
 			path:       "/api/v1/nutrition/meal-logs",
 			body:       `{"name":"Lunch","meal_type":"lunch"}`,
 			manager:    stubNutritionManager{createMealLogErr: nutrition.ErrMealLogNutritionRequired},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing helper topic maps to bad request",
+			method:     http.MethodGet,
+			path:       "/api/v1/helpers/nutrition/why",
+			manager:    stubNutritionManager{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "unsupported helper topic maps to bad request",
+			method:     http.MethodGet,
+			path:       "/api/v1/helpers/nutrition/why?topic=timeline",
+			manager:    stubNutritionManager{helperWhyErr: helper.ErrUnsupportedWhyTopic},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "unsupported helper variation maps to bad request",
+			method:     http.MethodGet,
+			path:       "/api/v1/helpers/nutrition/variation?variation=higher-protein",
+			manager:    stubNutritionManager{variationPreviewErr: helper.ErrUnsupportedVariation},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -237,5 +350,13 @@ func TestNutritionEndpointsMapValidationOwnershipAndConflictErrors(t *testing.T)
 				t.Fatalf("status = %d, want %d", recorder.Code, testCase.wantStatus)
 			}
 		})
+	}
+}
+
+func nutritionHelperSummaryFixture() helper.Summary {
+	return helper.Summary{
+		Headline: "Hold the current nutrition guidance steady",
+		Detail:   "The helper preview stays read-only and keeps the deterministic targets unchanged.",
+		Bullets:  []string{"strategy flags: budget_first"},
 	}
 }

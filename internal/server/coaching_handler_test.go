@@ -14,16 +14,23 @@ import (
 
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/coaching"
+	"github.com/ixxet/apollo/internal/helper"
 	"github.com/ixxet/apollo/internal/planner"
 )
 
 type stubCoachingManager struct {
-	recommendation    coaching.CoachingRecommendation
-	recommendationErr error
-	effortResponse    coaching.EffortFeedback
-	effortErr         error
-	recoveryResponse  coaching.RecoveryFeedback
-	recoveryErr       error
+	recommendation      coaching.CoachingRecommendation
+	recommendationErr   error
+	helperRead          coaching.CoachingHelperRead
+	helperReadErr       error
+	helperWhy           coaching.CoachingHelperWhy
+	helperWhyErr        error
+	variationPreview    coaching.CoachingVariationPreview
+	variationPreviewErr error
+	effortResponse      coaching.EffortFeedback
+	effortErr           error
+	recoveryResponse    coaching.RecoveryFeedback
+	recoveryErr         error
 }
 
 func (s stubCoachingManager) GetCoachingRecommendation(context.Context, uuid.UUID, string) (coaching.CoachingRecommendation, error) {
@@ -31,6 +38,27 @@ func (s stubCoachingManager) GetCoachingRecommendation(context.Context, uuid.UUI
 		return coaching.CoachingRecommendation{}, s.recommendationErr
 	}
 	return s.recommendation, nil
+}
+
+func (s stubCoachingManager) GetHelperRead(context.Context, uuid.UUID, string) (coaching.CoachingHelperRead, error) {
+	if s.helperReadErr != nil {
+		return coaching.CoachingHelperRead{}, s.helperReadErr
+	}
+	return s.helperRead, nil
+}
+
+func (s stubCoachingManager) AskWhy(context.Context, uuid.UUID, string, string) (coaching.CoachingHelperWhy, error) {
+	if s.helperWhyErr != nil {
+		return coaching.CoachingHelperWhy{}, s.helperWhyErr
+	}
+	return s.helperWhy, nil
+}
+
+func (s stubCoachingManager) PreviewVariation(context.Context, uuid.UUID, string, string) (coaching.CoachingVariationPreview, error) {
+	if s.variationPreviewErr != nil {
+		return coaching.CoachingVariationPreview{}, s.variationPreviewErr
+	}
+	return s.variationPreview, nil
 }
 
 func (s stubCoachingManager) PutEffortFeedback(context.Context, uuid.UUID, uuid.UUID, coaching.EffortFeedbackInput) (coaching.EffortFeedback, error) {
@@ -59,6 +87,9 @@ func TestCoachingEndpointsRequireAuthentication(t *testing.T) {
 		body   string
 	}{
 		{method: http.MethodGet, path: "/api/v1/recommendations/coaching?week_start=2026-04-06"},
+		{method: http.MethodGet, path: "/api/v1/helpers/coaching?week_start=2026-04-06"},
+		{method: http.MethodGet, path: "/api/v1/helpers/coaching/why?week_start=2026-04-06&topic=proposal"},
+		{method: http.MethodGet, path: "/api/v1/helpers/coaching/variation?week_start=2026-04-06&variation=easier"},
 		{method: http.MethodPut, path: "/api/v1/workouts/11111111-1111-1111-1111-111111111111/effort-feedback", body: `{"effort_level":"easy"}`},
 		{method: http.MethodPut, path: "/api/v1/workouts/11111111-1111-1111-1111-111111111111/recovery-feedback", body: `{"recovery_level":"recovered"}`},
 	} {
@@ -143,6 +174,72 @@ func TestCoachingRecommendationEndpointReturnsStableShape(t *testing.T) {
 	}
 }
 
+func TestCoachingHelperEndpointsReturnStableShapes(t *testing.T) {
+	workoutID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	manager := stubCoachingManager{
+		helperRead: coaching.CoachingHelperRead{
+			PreviewMode: "read_only",
+			Recommendation: coaching.CoachingRecommendation{
+				Kind:            coaching.KindProgress,
+				TargetWeekStart: "2026-04-06",
+				SourceWorkoutID: &workoutID,
+			},
+			Summary: coachingHelperSummaryFixture(),
+		},
+		helperWhy: coaching.CoachingHelperWhy{
+			PreviewMode: "read_only",
+			Topic:       coaching.WhyTopicProposal,
+			Recommendation: coaching.CoachingRecommendation{
+				Kind: coaching.KindProgress,
+			},
+			Summary: coachingHelperSummaryFixture(),
+		},
+		variationPreview: coaching.CoachingVariationPreview{
+			PreviewMode: "read_only",
+			Variation:   coaching.VariationEasier,
+			BaseKind:    coaching.KindProgress,
+			Recommendation: coaching.CoachingRecommendation{
+				Kind: coaching.KindHold,
+			},
+			Summary: coachingHelperSummaryFixture(),
+		},
+	}
+	handler := NewHandler(Dependencies{
+		Auth: stubAuthenticator{
+			cookieName: "apollo_session",
+			principal:  auth.Principal{UserID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")},
+		},
+		Coaching: manager,
+	})
+
+	for _, testCase := range []struct {
+		path      string
+		wantField string
+		wantValue string
+	}{
+		{path: "/api/v1/helpers/coaching?week_start=2026-04-06", wantField: "preview_mode", wantValue: "read_only"},
+		{path: "/api/v1/helpers/coaching/why?week_start=2026-04-06&topic=proposal", wantField: "topic", wantValue: coaching.WhyTopicProposal},
+		{path: "/api/v1/helpers/coaching/variation?week_start=2026-04-06&variation=easier", wantField: "variation", wantValue: coaching.VariationEasier},
+	} {
+		request := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+		request.AddCookie(&http.Cookie{Name: "apollo_session", Value: "signed"})
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d", testCase.path, recorder.Code, http.StatusOK)
+		}
+
+		var payload map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal(%s) error = %v", testCase.path, err)
+		}
+		if payload[testCase.wantField] != testCase.wantValue {
+			t.Fatalf("%s %s = %#v, want %q", testCase.path, testCase.wantField, payload[testCase.wantField], testCase.wantValue)
+		}
+	}
+}
+
 func TestCoachingEndpointsMapValidationAndOwnershipErrors(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string
@@ -157,6 +254,27 @@ func TestCoachingEndpointsMapValidationAndOwnershipErrors(t *testing.T) {
 			method:     http.MethodGet,
 			path:       "/api/v1/recommendations/coaching",
 			manager:    stubCoachingManager{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing helper topic fails cleanly",
+			method:     http.MethodGet,
+			path:       "/api/v1/helpers/coaching/why?week_start=2026-04-06",
+			manager:    stubCoachingManager{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "unsupported helper topic maps to bad request",
+			method:     http.MethodGet,
+			path:       "/api/v1/helpers/coaching/why?week_start=2026-04-06&topic=timeline",
+			manager:    stubCoachingManager{helperWhyErr: helper.ErrUnsupportedWhyTopic},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "unsupported helper variation maps to bad request",
+			method:     http.MethodGet,
+			path:       "/api/v1/helpers/coaching/variation?week_start=2026-04-06&variation=longer",
+			manager:    stubCoachingManager{variationPreviewErr: helper.ErrUnsupportedVariation},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -215,6 +333,14 @@ func TestCoachingEndpointsMapValidationAndOwnershipErrors(t *testing.T) {
 				t.Fatalf("status = %d, want %d", recorder.Code, testCase.wantStatus)
 			}
 		})
+	}
+}
+
+func coachingHelperSummaryFixture() helper.Summary {
+	return helper.Summary{
+		Headline: "Progress the next planned week slightly",
+		Detail:   "The helper stays read-only and tied to deterministic coaching output.",
+		Bullets:  []string{"planner preview changes: 1 item(s)"},
 	}
 }
 

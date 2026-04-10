@@ -19,6 +19,7 @@ import (
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/exercises"
+	"github.com/ixxet/apollo/internal/helper"
 	"github.com/ixxet/apollo/internal/membership"
 	"github.com/ixxet/apollo/internal/nutrition"
 	"github.com/ixxet/apollo/internal/planner"
@@ -96,6 +97,9 @@ type RecommendationReader interface {
 
 type CoachingManager interface {
 	GetCoachingRecommendation(ctx context.Context, userID uuid.UUID, weekStart string) (coaching.CoachingRecommendation, error)
+	GetHelperRead(ctx context.Context, userID uuid.UUID, weekStart string) (coaching.CoachingHelperRead, error)
+	AskWhy(ctx context.Context, userID uuid.UUID, weekStart string, topic string) (coaching.CoachingHelperWhy, error)
+	PreviewVariation(ctx context.Context, userID uuid.UUID, weekStart string, variation string) (coaching.CoachingVariationPreview, error)
 	PutEffortFeedback(ctx context.Context, userID uuid.UUID, workoutID uuid.UUID, input coaching.EffortFeedbackInput) (coaching.EffortFeedback, error)
 	PutRecoveryFeedback(ctx context.Context, userID uuid.UUID, workoutID uuid.UUID, input coaching.RecoveryFeedbackInput) (coaching.RecoveryFeedback, error)
 }
@@ -108,6 +112,9 @@ type NutritionManager interface {
 	CreateMealTemplate(ctx context.Context, userID uuid.UUID, input nutrition.MealTemplateInput) (nutrition.MealTemplate, error)
 	UpdateMealTemplate(ctx context.Context, userID uuid.UUID, templateID uuid.UUID, input nutrition.MealTemplateInput) (nutrition.MealTemplate, error)
 	GetRecommendation(ctx context.Context, userID uuid.UUID) (nutrition.Recommendation, error)
+	GetHelperRead(ctx context.Context, userID uuid.UUID) (nutrition.HelperRead, error)
+	AskWhy(ctx context.Context, userID uuid.UUID, topic string) (nutrition.HelperWhy, error)
+	PreviewVariation(ctx context.Context, userID uuid.UUID, variation string) (nutrition.VariationPreview, error)
 }
 
 type WorkoutManager interface {
@@ -875,6 +882,79 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			writeJSON(w, http.StatusOK, coachingRecommendation)
 		})
+		authenticated.Get("/api/v1/helpers/coaching", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Coaching == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("coaching dependency is unavailable"))
+				return
+			}
+
+			weekStart := strings.TrimSpace(r.URL.Query().Get("week_start"))
+			if weekStart == "" {
+				writeError(w, http.StatusBadRequest, planner.ErrWeekStartInvalid)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			helperRead, err := deps.Coaching.GetHelperRead(r.Context(), principal.UserID, weekStart)
+			if err != nil {
+				writeCoachingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, helperRead)
+		})
+		authenticated.Get("/api/v1/helpers/coaching/why", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Coaching == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("coaching dependency is unavailable"))
+				return
+			}
+
+			weekStart := strings.TrimSpace(r.URL.Query().Get("week_start"))
+			if weekStart == "" {
+				writeError(w, http.StatusBadRequest, planner.ErrWeekStartInvalid)
+				return
+			}
+			topic := strings.TrimSpace(r.URL.Query().Get("topic"))
+			if topic == "" {
+				writeError(w, http.StatusBadRequest, helper.ErrUnsupportedWhyTopic)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			why, err := deps.Coaching.AskWhy(r.Context(), principal.UserID, weekStart, topic)
+			if err != nil {
+				writeCoachingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, why)
+		})
+		authenticated.Get("/api/v1/helpers/coaching/variation", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Coaching == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("coaching dependency is unavailable"))
+				return
+			}
+
+			weekStart := strings.TrimSpace(r.URL.Query().Get("week_start"))
+			if weekStart == "" {
+				writeError(w, http.StatusBadRequest, planner.ErrWeekStartInvalid)
+				return
+			}
+			variation := strings.TrimSpace(r.URL.Query().Get("variation"))
+			if variation == "" {
+				writeError(w, http.StatusBadRequest, helper.ErrUnsupportedVariation)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			preview, err := deps.Coaching.PreviewVariation(r.Context(), principal.UserID, weekStart, variation)
+			if err != nil {
+				writeCoachingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, preview)
+		})
 		authenticated.Get("/api/v1/recommendations/nutrition", func(w http.ResponseWriter, r *http.Request) {
 			if deps.Nutrition == nil {
 				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
@@ -889,6 +969,63 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, recommendation)
+		})
+		authenticated.Get("/api/v1/helpers/nutrition", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			helperRead, err := deps.Nutrition.GetHelperRead(r.Context(), principal.UserID)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, helperRead)
+		})
+		authenticated.Get("/api/v1/helpers/nutrition/why", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			topic := strings.TrimSpace(r.URL.Query().Get("topic"))
+			if topic == "" {
+				writeError(w, http.StatusBadRequest, helper.ErrUnsupportedWhyTopic)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			why, err := deps.Nutrition.AskWhy(r.Context(), principal.UserID, topic)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, why)
+		})
+		authenticated.Get("/api/v1/helpers/nutrition/variation", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Nutrition == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("nutrition dependency is unavailable"))
+				return
+			}
+
+			variation := strings.TrimSpace(r.URL.Query().Get("variation"))
+			if variation == "" {
+				writeError(w, http.StatusBadRequest, helper.ErrUnsupportedVariation)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			preview, err := deps.Nutrition.PreviewVariation(r.Context(), principal.UserID, variation)
+			if err != nil {
+				writeNutritionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, preview)
 		})
 		authenticated.Get("/api/v1/nutrition/meal-logs", func(w http.ResponseWriter, r *http.Request) {
 			if deps.Nutrition == nil {
@@ -1468,6 +1605,8 @@ func writePlannerError(w http.ResponseWriter, err error) {
 func writeCoachingError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, planner.ErrWeekStartInvalid),
+		errors.Is(err, helper.ErrUnsupportedWhyTopic),
+		errors.Is(err, helper.ErrUnsupportedVariation),
 		errors.Is(err, coaching.ErrInvalidEffortLevel),
 		errors.Is(err, coaching.ErrInvalidRecoveryLevel):
 		writeError(w, http.StatusBadRequest, err)
@@ -1487,6 +1626,8 @@ func writeNutritionError(w http.ResponseWriter, err error) {
 	case errors.Is(err, nutrition.ErrDuplicateMealTemplateName):
 		writeError(w, http.StatusConflict, err)
 	case errors.Is(err, nutrition.ErrMealNameRequired),
+		errors.Is(err, helper.ErrUnsupportedWhyTopic),
+		errors.Is(err, helper.ErrUnsupportedVariation),
 		errors.Is(err, nutrition.ErrMealTemplateNameRequired),
 		errors.Is(err, nutrition.ErrMealTypeInvalid),
 		errors.Is(err, nutrition.ErrCaloriesInvalid),
