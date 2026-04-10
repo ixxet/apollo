@@ -3,12 +3,14 @@ package coaching
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/helper"
 	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/profile"
 )
@@ -45,6 +47,16 @@ const (
 	maxSessionMinutesEvidence    = 120
 	maxWeightKgRecommendation    = 9999.5
 	maxPlannerItemWeightBoundary = 9999.99
+)
+
+const (
+	WhyTopicRecommendation = "recommendation"
+	WhyTopicGoal           = "goal"
+	WhyTopicProposal       = "proposal"
+	WhyTopicFeedback       = "feedback"
+
+	VariationEasier = "easier"
+	VariationHarder = "harder"
 )
 
 var (
@@ -173,6 +185,29 @@ type CoachingRecommendation struct {
 	GeneratedAt     time.Time           `json:"generated_at"`
 }
 
+type CoachingHelperRead struct {
+	PreviewMode      helper.PreviewMode `json:"preview_mode"`
+	Recommendation   CoachingRecommendation
+	Summary          helper.Summary  `json:"summary"`
+	WhyOptions       []helper.Option `json:"why_options"`
+	VariationOptions []helper.Option `json:"variation_options"`
+}
+
+type CoachingHelperWhy struct {
+	PreviewMode    helper.PreviewMode     `json:"preview_mode"`
+	Topic          string                 `json:"topic"`
+	Recommendation CoachingRecommendation `json:"recommendation"`
+	Summary        helper.Summary         `json:"summary"`
+}
+
+type CoachingVariationPreview struct {
+	PreviewMode    helper.PreviewMode     `json:"preview_mode"`
+	Variation      string                 `json:"variation"`
+	BaseKind       RecommendationKind     `json:"base_kind"`
+	Recommendation CoachingRecommendation `json:"recommendation"`
+	Summary        helper.Summary         `json:"summary"`
+}
+
 func NewService(store Store, plannerReader PlannerReader, profileReader ProfileReader) *Service {
 	return &Service{
 		store:         store,
@@ -247,6 +282,69 @@ func (s *Service) PutRecoveryFeedback(ctx context.Context, userID uuid.UUID, wor
 }
 
 func (s *Service) GetCoachingRecommendation(ctx context.Context, userID uuid.UUID, weekStart string) (CoachingRecommendation, error) {
+	return s.getCoachingRecommendation(ctx, userID, weekStart, nil)
+}
+
+func (s *Service) GetHelperRead(ctx context.Context, userID uuid.UUID, weekStart string) (CoachingHelperRead, error) {
+	recommendation, err := s.GetCoachingRecommendation(ctx, userID, weekStart)
+	if err != nil {
+		return CoachingHelperRead{}, err
+	}
+
+	return CoachingHelperRead{
+		PreviewMode:      helper.PreviewModeReadOnly,
+		Recommendation:   recommendation,
+		Summary:          buildHelperSummary(recommendation),
+		WhyOptions:       helperOptionsForWhy(),
+		VariationOptions: helperOptionsForVariation(),
+	}, nil
+}
+
+func (s *Service) AskWhy(ctx context.Context, userID uuid.UUID, weekStart string, topic string) (CoachingHelperWhy, error) {
+	recommendation, err := s.GetCoachingRecommendation(ctx, userID, weekStart)
+	if err != nil {
+		return CoachingHelperWhy{}, err
+	}
+
+	summary, err := buildWhySummary(recommendation, topic)
+	if err != nil {
+		return CoachingHelperWhy{}, err
+	}
+
+	return CoachingHelperWhy{
+		PreviewMode:    helper.PreviewModeReadOnly,
+		Topic:          normalizeHelperKey(topic),
+		Recommendation: recommendation,
+		Summary:        summary,
+	}, nil
+}
+
+func (s *Service) PreviewVariation(ctx context.Context, userID uuid.UUID, weekStart string, variation string) (CoachingVariationPreview, error) {
+	baseRecommendation, err := s.GetCoachingRecommendation(ctx, userID, weekStart)
+	if err != nil {
+		return CoachingVariationPreview{}, err
+	}
+
+	variantKind, err := variationKindFor(baseRecommendation.Kind, variation)
+	if err != nil {
+		return CoachingVariationPreview{}, err
+	}
+
+	variantRecommendation, err := s.getCoachingRecommendation(ctx, userID, weekStart, &variantKind)
+	if err != nil {
+		return CoachingVariationPreview{}, err
+	}
+
+	return CoachingVariationPreview{
+		PreviewMode:    helper.PreviewModeReadOnly,
+		Variation:      normalizeHelperKey(variation),
+		BaseKind:       baseRecommendation.Kind,
+		Recommendation: variantRecommendation,
+		Summary:        buildVariationSummary(baseRecommendation, variantRecommendation, variation),
+	}, nil
+}
+
+func (s *Service) getCoachingRecommendation(ctx context.Context, userID uuid.UUID, weekStart string, previewKind *RecommendationKind) (CoachingRecommendation, error) {
 	week, err := s.plannerReader.GetWeek(ctx, userID, strings.TrimSpace(weekStart))
 	if err != nil {
 		return CoachingRecommendation{}, err
@@ -269,6 +367,9 @@ func (s *Service) GetCoachingRecommendation(ctx context.Context, userID uuid.UUI
 	if !weekHasPlannerItems(week) {
 		reasonCodes = append(reasonCodes, "no_planner_items")
 		limitations = append(limitations, "no existing planner truth to adjust")
+		if previewKind != nil {
+			limitations = append(limitations, "helper variation preview stays read-only and requires planner truth to produce a new diff")
+		}
 		proposal := PlanChangeProposal{
 			WeekStart: week.WeekStart,
 			Changes:   []PlanChange{},
@@ -332,6 +433,12 @@ func (s *Service) GetCoachingRecommendation(ctx context.Context, userID uuid.UUI
 		}
 	}
 
+	if previewKind != nil {
+		kind = *previewKind
+		reasonCodes = append(reasonCodes, "helper_variation_preview")
+		limitations = append(limitations, "helper variation previews are read-only and do not mutate planner truth")
+	}
+
 	proposal := buildPlanChangeProposal(week, kind, experienceLevel)
 	return CoachingRecommendation{
 		Kind:            kind,
@@ -347,6 +454,251 @@ func (s *Service) GetCoachingRecommendation(ctx context.Context, userID uuid.UUI
 		PolicyVersion: PolicyVersion,
 		GeneratedAt:   generatedAt,
 	}, nil
+}
+
+func helperOptionsForWhy() []helper.Option {
+	return []helper.Option{
+		{Key: WhyTopicRecommendation, Label: "Why this recommendation"},
+		{Key: WhyTopicGoal, Label: "Why this goal setup"},
+		{Key: WhyTopicProposal, Label: "Why these plan changes"},
+		{Key: WhyTopicFeedback, Label: "How feedback affected it"},
+	}
+}
+
+func helperOptionsForVariation() []helper.Option {
+	return []helper.Option{
+		{Key: VariationEasier, Label: "Make it easier"},
+		{Key: VariationHarder, Label: "Make it harder"},
+	}
+}
+
+func buildHelperSummary(recommendation CoachingRecommendation) helper.Summary {
+	bullets := []string{
+		fmt.Sprintf("training goal: %s (%d days/week, %d minutes)", recommendation.TrainingGoal.GoalKey, recommendation.TrainingGoal.TargetDaysPerWeek, recommendation.TrainingGoal.TargetSessionMinutes),
+		fmt.Sprintf("planner preview changes: %d item(s)", len(recommendation.Proposal.Changes)),
+	}
+	if recommendation.Explanation.Evidence.EffortLevel != nil || recommendation.Explanation.Evidence.RecoveryLevel != nil {
+		effort := "missing"
+		if recommendation.Explanation.Evidence.EffortLevel != nil {
+			effort = *recommendation.Explanation.Evidence.EffortLevel
+		}
+		recovery := "missing"
+		if recommendation.Explanation.Evidence.RecoveryLevel != nil {
+			recovery = *recommendation.Explanation.Evidence.RecoveryLevel
+		}
+		bullets = append(bullets, fmt.Sprintf("latest feedback: effort=%s, recovery=%s", effort, recovery))
+	} else {
+		bullets = append(bullets, "latest feedback: unavailable or incomplete")
+	}
+
+	return helper.Summary{
+		Headline:    headlineForKind(recommendation.Kind),
+		Detail:      detailForSummary(recommendation),
+		Bullets:     bullets,
+		Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+	}
+}
+
+func buildWhySummary(recommendation CoachingRecommendation, topic string) (helper.Summary, error) {
+	switch normalizeHelperKey(topic) {
+	case WhyTopicRecommendation:
+		return helper.Summary{
+			Headline:    "Why this coaching recommendation",
+			Detail:      detailForSummary(recommendation),
+			Bullets:     []string{fmt.Sprintf("recommendation kind: %s", recommendation.Kind), fmt.Sprintf("reason codes: %s", strings.Join(recommendation.Explanation.ReasonCodes, ", "))},
+			Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+		}, nil
+	case WhyTopicGoal:
+		return helper.Summary{
+			Headline: "Why this goal setup",
+			Detail:   "The deterministic coaching core uses the stored goal, days-per-week target, session length, and experience tier to bound the previewed changes.",
+			Bullets: []string{
+				fmt.Sprintf("goal key: %s", recommendation.TrainingGoal.GoalKey),
+				fmt.Sprintf("target days per week: %d", recommendation.TrainingGoal.TargetDaysPerWeek),
+				fmt.Sprintf("target session minutes: %d", recommendation.TrainingGoal.TargetSessionMinutes),
+			},
+			Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+		}, nil
+	case WhyTopicProposal:
+		return helper.Summary{
+			Headline:    "Why these plan changes",
+			Detail:      proposalDetail(recommendation),
+			Bullets:     proposalBullets(recommendation),
+			Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+		}, nil
+	case WhyTopicFeedback:
+		return helper.Summary{
+			Headline:    "How feedback affected the preview",
+			Detail:      feedbackDetail(recommendation),
+			Bullets:     feedbackBullets(recommendation),
+			Limitations: append([]string(nil), recommendation.Explanation.Limitations...),
+		}, nil
+	default:
+		return helper.Summary{}, helper.ErrUnsupportedWhyTopic
+	}
+}
+
+func buildVariationSummary(base CoachingRecommendation, variant CoachingRecommendation, variation string) helper.Summary {
+	return helper.Summary{
+		Headline: fmt.Sprintf("Preview a %s coaching variation", normalizeHelperKey(variation)),
+		Detail: fmt.Sprintf(
+			"This read-only helper preview shifts the deterministic coaching output from %s to %s without mutating planner truth.",
+			base.Kind,
+			variant.Kind,
+		),
+		Bullets: []string{
+			fmt.Sprintf("base recommendation: %s", base.Kind),
+			fmt.Sprintf("preview recommendation: %s", variant.Kind),
+			fmt.Sprintf("preview plan changes: %d item(s)", len(variant.Proposal.Changes)),
+		},
+		Limitations: append([]string(nil), variant.Explanation.Limitations...),
+	}
+}
+
+func headlineForKind(kind RecommendationKind) string {
+	switch kind {
+	case KindProgress:
+		return "Progress the next planned week slightly"
+	case KindDeload:
+		return "Deload the next planned week"
+	case KindRegress:
+		return "Regress the next planned week conservatively"
+	case KindStartConservative:
+		return "Start the planned week conservatively"
+	default:
+		return "Hold the current planned week steady"
+	}
+}
+
+func detailForSummary(recommendation CoachingRecommendation) string {
+	switch {
+	case containsCode(recommendation.Explanation.ReasonCodes, "no_planner_items"):
+		return "There is no existing planner truth to adjust, so the helper can only explain the current hold without inventing a plan diff."
+	case recommendation.SourceWorkoutID == nil:
+		return "The deterministic coaching core used planner truth and stored profile inputs without a finished-workout feedback anchor."
+	case recommendation.Explanation.Evidence.EffortLevel == nil || recommendation.Explanation.Evidence.RecoveryLevel == nil:
+		return "The deterministic coaching core found a finished workout but stayed conservative because the latest feedback was incomplete."
+	default:
+		return "The deterministic coaching core used the latest finished-workout feedback plus stored planner and profile truth to select this bounded preview."
+	}
+}
+
+func proposalDetail(recommendation CoachingRecommendation) string {
+	if len(recommendation.Proposal.Changes) == 0 {
+		return "The helper preview contains no plan changes because the current deterministic coaching output stayed at a no-change hold."
+	}
+	return "The helper preview only adjusts existing planner items. It does not create sessions, swap exercises, or write planner state."
+}
+
+func proposalBullets(recommendation CoachingRecommendation) []string {
+	if len(recommendation.Proposal.Changes) == 0 {
+		return []string{"planner preview changes: none"}
+	}
+
+	limit := 3
+	if len(recommendation.Proposal.Changes) < limit {
+		limit = len(recommendation.Proposal.Changes)
+	}
+	bullets := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		change := recommendation.Proposal.Changes[i]
+		bullets = append(bullets, fmt.Sprintf(
+			"day %d session %d item %d: %s -> %s",
+			change.DayIndex,
+			change.SessionPosition,
+			change.ItemPosition,
+			describePlanItem(change.Before),
+			describePlanItem(change.After),
+		))
+	}
+	return bullets
+}
+
+func feedbackDetail(recommendation CoachingRecommendation) string {
+	if recommendation.SourceWorkoutID == nil {
+		return "No finished workout was available, so the helper could not anchor the preview to recent effort or recovery feedback."
+	}
+	if recommendation.Explanation.Evidence.EffortLevel == nil || recommendation.Explanation.Evidence.RecoveryLevel == nil {
+		return "A finished workout exists, but the helper stayed conservative because either effort or recovery feedback is still missing."
+	}
+	return "The helper used the most recent finished-workout effort and recovery feedback exactly as stored to explain the deterministic recommendation kind."
+}
+
+func feedbackBullets(recommendation CoachingRecommendation) []string {
+	if recommendation.SourceWorkoutID == nil {
+		return []string{"source workout: unavailable"}
+	}
+
+	effort := "missing"
+	if recommendation.Explanation.Evidence.EffortLevel != nil {
+		effort = *recommendation.Explanation.Evidence.EffortLevel
+	}
+	recovery := "missing"
+	if recommendation.Explanation.Evidence.RecoveryLevel != nil {
+		recovery = *recommendation.Explanation.Evidence.RecoveryLevel
+	}
+
+	return []string{
+		fmt.Sprintf("source workout: %s", recommendation.SourceWorkoutID.String()),
+		fmt.Sprintf("effort level: %s", effort),
+		fmt.Sprintf("recovery level: %s", recovery),
+	}
+}
+
+func describePlanItem(values PlanItemValues) string {
+	if values.WeightKg != nil {
+		return fmt.Sprintf("%d x %d @ %.1fkg", values.Sets, values.Reps, *values.WeightKg)
+	}
+	if values.RPE != nil {
+		return fmt.Sprintf("%d x %d @ RPE %.1f", values.Sets, values.Reps, *values.RPE)
+	}
+	return fmt.Sprintf("%d x %d", values.Sets, values.Reps)
+}
+
+func variationKindFor(base RecommendationKind, variation string) (RecommendationKind, error) {
+	switch normalizeHelperKey(variation) {
+	case VariationEasier:
+		switch base {
+		case KindProgress:
+			return KindHold, nil
+		case KindHold:
+			return KindStartConservative, nil
+		case KindStartConservative:
+			return KindDeload, nil
+		case KindDeload:
+			return KindRegress, nil
+		default:
+			return KindRegress, nil
+		}
+	case VariationHarder:
+		switch base {
+		case KindRegress:
+			return KindDeload, nil
+		case KindDeload:
+			return KindStartConservative, nil
+		case KindStartConservative:
+			return KindHold, nil
+		case KindHold:
+			return KindProgress, nil
+		default:
+			return KindProgress, nil
+		}
+	default:
+		return KindHold, helper.ErrUnsupportedVariation
+	}
+}
+
+func normalizeHelperKey(value string) string {
+	return strings.TrimSpace(strings.ToLower(value))
+}
+
+func containsCode(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func deriveTrainingGoal(current profile.CoachingProfile) (TrainingGoal, string, []string, []string) {

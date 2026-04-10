@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/helper"
 	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/profile"
 )
@@ -280,6 +281,129 @@ func TestGetCoachingRecommendationIsDeterministicAcrossRepeatedReruns(t *testing
 	}
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("repeated recommendations differ:\nfirst=%#v\nsecond=%#v", first, second)
+	}
+}
+
+func TestHelperReadAndWhyStayBoundedToDeterministicRecommendation(t *testing.T) {
+	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	userID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	workoutID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	weight := 100.0
+	service := NewService(
+		&stubStore{
+			latestFinishedWorkout: &WorkoutSnapshot{ID: workoutID, Status: "finished"},
+			effortFeedback:        &EffortFeedbackRecord{WorkoutID: workoutID, EffortLevel: EffortLevelEasy},
+			recoveryFeedback:      &RecoveryFeedbackRecord{WorkoutID: workoutID, RecoveryLevel: RecoveryLevelRecovered},
+		},
+		stubPlannerReader{week: planner.Week{
+			WeekStart: "2026-04-06",
+			Sessions: []planner.WeekSession{
+				{DayIndex: 0, Position: 1, Items: []planner.WeekSessionItem{{Position: 1, Sets: 5, Reps: 5, WeightKg: &weight}}},
+			},
+		}},
+		stubProfileReader{profile: profile.MemberProfile{CoachingProfile: profile.CoachingProfile{
+			GoalKey:         stringPtr("build-strength"),
+			DaysPerWeek:     intPtr(4),
+			SessionMinutes:  intPtr(60),
+			ExperienceLevel: stringPtr(ExperienceLevelIntermediate),
+		}}},
+	)
+	service.now = func() time.Time { return now }
+
+	read, err := service.GetHelperRead(context.Background(), userID, "2026-04-06")
+	if err != nil {
+		t.Fatalf("GetHelperRead() error = %v", err)
+	}
+	if read.PreviewMode != "read_only" {
+		t.Fatalf("PreviewMode = %q, want read_only", read.PreviewMode)
+	}
+	if read.Recommendation.Kind != KindProgress {
+		t.Fatalf("Recommendation.Kind = %q, want %q", read.Recommendation.Kind, KindProgress)
+	}
+	if len(read.WhyOptions) != 4 {
+		t.Fatalf("len(WhyOptions) = %d, want 4", len(read.WhyOptions))
+	}
+	if len(read.VariationOptions) != 2 {
+		t.Fatalf("len(VariationOptions) = %d, want 2", len(read.VariationOptions))
+	}
+	if read.Summary.Headline == "" || read.Summary.Detail == "" {
+		t.Fatalf("summary = %#v, want non-empty headline/detail", read.Summary)
+	}
+
+	why, err := service.AskWhy(context.Background(), userID, "2026-04-06", WhyTopicProposal)
+	if err != nil {
+		t.Fatalf("AskWhy() error = %v", err)
+	}
+	if why.Topic != WhyTopicProposal {
+		t.Fatalf("Topic = %q, want %q", why.Topic, WhyTopicProposal)
+	}
+	if len(why.Summary.Bullets) == 0 {
+		t.Fatalf("len(Summary.Bullets) = %d, want > 0", len(why.Summary.Bullets))
+	}
+	if why.Recommendation.Kind != read.Recommendation.Kind {
+		t.Fatalf("Recommendation.Kind = %q, want %q", why.Recommendation.Kind, read.Recommendation.Kind)
+	}
+}
+
+func TestPreviewVariationReturnsReadOnlyAdjacentRecommendation(t *testing.T) {
+	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	userID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	workoutID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	weight := 100.0
+	service := NewService(
+		&stubStore{
+			latestFinishedWorkout: &WorkoutSnapshot{ID: workoutID, Status: "finished"},
+			effortFeedback:        &EffortFeedbackRecord{WorkoutID: workoutID, EffortLevel: EffortLevelEasy},
+			recoveryFeedback:      &RecoveryFeedbackRecord{WorkoutID: workoutID, RecoveryLevel: RecoveryLevelRecovered},
+		},
+		stubPlannerReader{week: planner.Week{
+			WeekStart: "2026-04-06",
+			Sessions: []planner.WeekSession{
+				{DayIndex: 0, Position: 1, Items: []planner.WeekSessionItem{{Position: 1, Sets: 5, Reps: 5, WeightKg: &weight}}},
+			},
+		}},
+		stubProfileReader{profile: profile.MemberProfile{CoachingProfile: profile.CoachingProfile{
+			GoalKey:         stringPtr("build-strength"),
+			DaysPerWeek:     intPtr(4),
+			SessionMinutes:  intPtr(60),
+			ExperienceLevel: stringPtr(ExperienceLevelIntermediate),
+		}}},
+	)
+	service.now = func() time.Time { return now }
+
+	preview, err := service.PreviewVariation(context.Background(), userID, "2026-04-06", VariationEasier)
+	if err != nil {
+		t.Fatalf("PreviewVariation() error = %v", err)
+	}
+	if preview.PreviewMode != "read_only" {
+		t.Fatalf("PreviewMode = %q, want read_only", preview.PreviewMode)
+	}
+	if preview.BaseKind != KindProgress {
+		t.Fatalf("BaseKind = %q, want %q", preview.BaseKind, KindProgress)
+	}
+	if preview.Recommendation.Kind != KindHold {
+		t.Fatalf("Recommendation.Kind = %q, want %q", preview.Recommendation.Kind, KindHold)
+	}
+	if !contains(preview.Recommendation.Explanation.ReasonCodes, "helper_variation_preview") {
+		t.Fatalf("ReasonCodes = %#v, want helper_variation_preview", preview.Recommendation.Explanation.ReasonCodes)
+	}
+	if len(preview.Recommendation.Proposal.Changes) != 0 {
+		t.Fatalf("len(Preview changes) = %d, want 0 for hold preview", len(preview.Recommendation.Proposal.Changes))
+	}
+	if preview.Summary.Detail == "" {
+		t.Fatalf("Summary.Detail = empty, want non-empty detail")
+	}
+}
+
+func TestHelperActionsRejectUnsupportedTopicsAndVariations(t *testing.T) {
+	service := NewService(&stubStore{}, stubPlannerReader{}, stubProfileReader{})
+	userID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	if _, err := service.AskWhy(context.Background(), userID, "2026-04-06", "timeline"); err != helper.ErrUnsupportedWhyTopic {
+		t.Fatalf("AskWhy() error = %v, want %v", err, helper.ErrUnsupportedWhyTopic)
+	}
+	if _, err := service.PreviewVariation(context.Background(), userID, "2026-04-06", "longer"); err != helper.ErrUnsupportedVariation {
+		t.Fatalf("PreviewVariation() error = %v, want %v", err, helper.ErrUnsupportedVariation)
 	}
 }
 
