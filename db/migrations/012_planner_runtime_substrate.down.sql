@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS apollo.planner_session_items;
+DROP TABLE IF EXISTS apollo.planner_sessions;
+DROP TABLE IF EXISTS apollo.planner_weeks;
+DROP TABLE IF EXISTS apollo.workout_template_items;
+DROP INDEX IF EXISTS apollo.workout_templates_user_name_lower_idx;
+DROP TABLE IF EXISTS apollo.workout_templates;
+DROP TABLE IF EXISTS apollo.exercise_definition_equipment;
+DROP TABLE IF EXISTS apollo.exercise_definitions;
+DROP TABLE IF EXISTS apollo.equipment_definitions;

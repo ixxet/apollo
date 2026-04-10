@@ -17,7 +17,9 @@ import (
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
+	"github.com/ixxet/apollo/internal/exercises"
 	"github.com/ixxet/apollo/internal/membership"
+	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/workouts"
@@ -36,6 +38,20 @@ type Authenticator interface {
 type Profiler interface {
 	GetProfile(ctx context.Context, userID uuid.UUID) (profile.MemberProfile, error)
 	UpdateProfile(ctx context.Context, userID uuid.UUID, input profile.UpdateInput) (profile.MemberProfile, error)
+}
+
+type ExerciseCatalogReader interface {
+	ListExercises(ctx context.Context) ([]exercises.ExerciseDefinition, error)
+	ListEquipment(ctx context.Context) ([]exercises.EquipmentDefinition, error)
+}
+
+type PlannerManager interface {
+	ListTemplates(ctx context.Context, userID uuid.UUID) ([]planner.Template, error)
+	GetTemplate(ctx context.Context, userID uuid.UUID, templateID uuid.UUID) (planner.Template, error)
+	CreateTemplate(ctx context.Context, userID uuid.UUID, input planner.TemplateInput) (planner.Template, error)
+	UpdateTemplate(ctx context.Context, userID uuid.UUID, templateID uuid.UUID, input planner.TemplateInput) (planner.Template, error)
+	GetWeek(ctx context.Context, userID uuid.UUID, weekStart string) (planner.Week, error)
+	PutWeek(ctx context.Context, userID uuid.UUID, weekStart string, input planner.WeekInput) (planner.Week, error)
 }
 
 type CompetitionManager interface {
@@ -89,6 +105,8 @@ type Dependencies struct {
 	Auth            Authenticator
 	Competition     CompetitionManager
 	Profile         Profiler
+	Exercises       ExerciseCatalogReader
+	Planner         PlannerManager
 	Eligibility     EligibilityReader
 	Membership      MembershipManager
 	MatchPreview    MatchPreviewReader
@@ -253,6 +271,114 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, memberProfile)
+		})
+		authenticated.Get("/api/v1/planner/exercises", func(w http.ResponseWriter, r *http.Request) {
+			items, err := deps.Exercises.ListExercises(r.Context())
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, items)
+		})
+		authenticated.Get("/api/v1/planner/equipment", func(w http.ResponseWriter, r *http.Request) {
+			items, err := deps.Exercises.ListEquipment(r.Context())
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, items)
+		})
+		authenticated.Get("/api/v1/planner/templates", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			templates, err := deps.Planner.ListTemplates(r.Context(), principal.UserID)
+			if err != nil {
+				writePlannerError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, templates)
+		})
+		authenticated.Post("/api/v1/planner/templates", func(w http.ResponseWriter, r *http.Request) {
+			var request planner.TemplateInput
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			template, err := deps.Planner.CreateTemplate(r.Context(), principal.UserID, request)
+			if err != nil {
+				writePlannerError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, template)
+		})
+		authenticated.Get("/api/v1/planner/templates/{templateID}", func(w http.ResponseWriter, r *http.Request) {
+			templateID, err := parseUUIDParam(r, "templateID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			template, err := deps.Planner.GetTemplate(r.Context(), principal.UserID, templateID)
+			if err != nil {
+				writePlannerError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, template)
+		})
+		authenticated.Put("/api/v1/planner/templates/{templateID}", func(w http.ResponseWriter, r *http.Request) {
+			templateID, err := parseUUIDParam(r, "templateID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request planner.TemplateInput
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			template, err := deps.Planner.UpdateTemplate(r.Context(), principal.UserID, templateID, request)
+			if err != nil {
+				writePlannerError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, template)
+		})
+		authenticated.Get("/api/v1/planner/weeks/{weekStart}", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			week, err := deps.Planner.GetWeek(r.Context(), principal.UserID, chi.URLParam(r, "weekStart"))
+			if err != nil {
+				writePlannerError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, week)
+		})
+		authenticated.Put("/api/v1/planner/weeks/{weekStart}", func(w http.ResponseWriter, r *http.Request) {
+			var request planner.WeekInput
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			week, err := deps.Planner.PutWeek(r.Context(), principal.UserID, chi.URLParam(r, "weekStart"), request)
+			if err != nil {
+				writePlannerError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, week)
 		})
 		authenticated.Get("/api/v1/lobby/eligibility", func(w http.ResponseWriter, r *http.Request) {
 			principal := principalFromContext(r.Context())
@@ -832,7 +958,13 @@ func NewHandler(deps Dependencies) http.Handler {
 			memberProfile, err := deps.Profile.UpdateProfile(r.Context(), principal.UserID, request)
 			if err != nil {
 				switch {
-				case errors.Is(err, profile.ErrEmptyPatch), errors.Is(err, profile.ErrInvalidVisibilityMode), errors.Is(err, profile.ErrInvalidAvailabilityMode):
+				case errors.Is(err, profile.ErrEmptyPatch),
+					errors.Is(err, profile.ErrInvalidVisibilityMode),
+					errors.Is(err, profile.ErrInvalidAvailabilityMode),
+					errors.Is(err, profile.ErrInvalidGoalKey),
+					errors.Is(err, profile.ErrInvalidDaysPerWeek),
+					errors.Is(err, profile.ErrInvalidSessionMinutes),
+					errors.Is(err, profile.ErrInvalidEquipmentKeys):
 					writeError(w, http.StatusBadRequest, err)
 				case errors.Is(err, profile.ErrNotFound):
 					writeError(w, http.StatusNotFound, err)
@@ -1049,6 +1181,32 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrMatchResultRecorded),
 		errors.Is(err, competition.ErrMatchResultTeamMismatch):
 		writeError(w, http.StatusConflict, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
+}
+
+func writePlannerError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, planner.ErrTemplateNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, planner.ErrDuplicateTemplateName):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, planner.ErrTemplateNameRequired),
+		errors.Is(err, planner.ErrTemplateItemsRequired),
+		errors.Is(err, planner.ErrExerciseKeyRequired),
+		errors.Is(err, planner.ErrExerciseNotFound),
+		errors.Is(err, planner.ErrEquipmentNotFound),
+		errors.Is(err, planner.ErrEquipmentNotAllowed),
+		errors.Is(err, planner.ErrSetsInvalid),
+		errors.Is(err, planner.ErrRepsInvalid),
+		errors.Is(err, planner.ErrWeightInvalid),
+		errors.Is(err, planner.ErrRPEInvalid),
+		errors.Is(err, planner.ErrWeekStartInvalid),
+		errors.Is(err, planner.ErrSessionDayIndexInvalid),
+		errors.Is(err, planner.ErrSessionItemsRequired),
+		errors.Is(err, planner.ErrSessionShapeInvalid):
+		writeError(w, http.StatusBadRequest, err)
 	default:
 		writeError(w, http.StatusInternalServerError, err)
 	}

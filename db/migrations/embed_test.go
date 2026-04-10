@@ -131,4 +131,50 @@ WHERE table_schema = 'apollo'
 	if competitionSessionsTableCount != 1 {
 		t.Fatalf("competition_sessions table count = %d, want 1", competitionSessionsTableCount)
 	}
+
+	var equipmentDefinitionsTableCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.tables
+WHERE table_schema = 'apollo'
+  AND table_name = 'equipment_definitions'
+`).Scan(&equipmentDefinitionsTableCount); err != nil {
+		t.Fatalf("count equipment_definitions table error = %v", err)
+	}
+
+	if equipmentDefinitionsTableCount != 1 {
+		t.Fatalf("equipment_definitions table count = %d, want 1", equipmentDefinitionsTableCount)
+	}
+
+	var plannerWeeksTableCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.tables
+WHERE table_schema = 'apollo'
+  AND table_name = 'planner_weeks'
+`).Scan(&plannerWeeksTableCount); err != nil {
+		t.Fatalf("count planner_weeks table error = %v", err)
+	}
+
+	if plannerWeeksTableCount != 1 {
+		t.Fatalf("planner_weeks table count = %d, want 1", plannerWeeksTableCount)
+	}
+
+	var seededEquipmentCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `SELECT count(*) FROM apollo.equipment_definitions`).Scan(&seededEquipmentCount); err != nil {
+		t.Fatalf("count seeded equipment error = %v", err)
+	}
+
+	if seededEquipmentCount != 5 {
+		t.Fatalf("seeded equipment count = %d, want 5", seededEquipmentCount)
+	}
+
+	var seededExerciseCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `SELECT count(*) FROM apollo.exercise_definitions`).Scan(&seededExerciseCount); err != nil {
+		t.Fatalf("count seeded exercise definitions error = %v", err)
+	}
+
+	if seededExerciseCount != 6 {
+		t.Fatalf("seeded exercise definition count = %d, want 6", seededExerciseCount)
+	}
 }

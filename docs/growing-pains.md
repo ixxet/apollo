@@ -181,3 +181,18 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
   migration stack so generated queries and temporary databases stay aligned.
   Rule: if a repo keeps any hand-curated integration schema list, it must be
   updated every time the generated SQL surface depends on a new migration.
+
+## 2026-04-09
+
+- Symptom: keeping richer planning inputs in `users.preferences` risked turning
+  `coaching_profile` into an untyped JSON dump that could drift away from the
+  new planner catalog.
+  Cause: the fastest storage path was to keep the nested object flexible, but
+  leaving preferred equipment keys unvalidated would have let profile state
+  reference non-existent planner catalog rows.
+  Fix: keep planner, template, and exercise truth relational, but validate the
+  bounded `coaching_profile` equipment-key list against the APOLLO equipment
+  catalog before writes while preserving unrelated preference keys.
+  Rule: if JSON-backed member intent points at relational planner truth, the
+  JSON layer must stay typed and catalog-validated instead of becoming a loose
+  side channel.

@@ -20,7 +20,9 @@ import (
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
+	"github.com/ixxet/apollo/internal/exercises"
 	"github.com/ixxet/apollo/internal/membership"
+	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/store"
@@ -295,8 +297,12 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	}
 	sender := &integrationEmailSender{}
 	authService := auth.NewService(auth.NewRepository(db.DB), cookies, sender, 15*time.Minute, 7*24*time.Hour)
+	exerciseRepository := exercises.NewRepository(db.DB)
+	exerciseService := exercises.NewService(exerciseRepository)
+	plannerRepository := planner.NewRepository(db.DB)
+	plannerService := planner.NewService(plannerRepository, exerciseService)
 	profileRepository := profile.NewRepository(db.DB)
-	profileService := profile.NewService(profileRepository)
+	profileService := profile.NewService(profileRepository, exerciseService)
 	eligibilityService := eligibility.NewService(profileRepository)
 	membershipService := membership.NewService(membership.NewRepository(db.DB), eligibilityService)
 	matchPreviewService := ares.NewService(ares.NewRepository(db.DB))
@@ -305,8 +311,19 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	workoutService := workouts.NewService(workouts.NewRepository(db.DB))
 
 	return &authProfileServerEnv{
-		db:      db,
-		handler: NewHandler(Dependencies{Auth: authService, Competition: competitionService, Profile: profileService, Eligibility: eligibilityService, Membership: membershipService, MatchPreview: matchPreviewService, Recommendations: recommendationService, Workouts: workoutService}),
+		db: db,
+		handler: NewHandler(Dependencies{
+			Auth:            authService,
+			Competition:     competitionService,
+			Profile:         profileService,
+			Exercises:       exerciseService,
+			Planner:         plannerService,
+			Eligibility:     eligibilityService,
+			Membership:      membershipService,
+			MatchPreview:    matchPreviewService,
+			Recommendations: recommendationService,
+			Workouts:        workoutService,
+		}),
 		sender:  sender,
 		cookies: cookies,
 		queries: store.New(db.DB),

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/ixxet/apollo/internal/exercises"
 	"github.com/ixxet/apollo/internal/store"
 )
 
@@ -26,6 +27,14 @@ func (s *stubRepository) UpdatePreferences(_ context.Context, _ uuid.UUID, prefe
 	return s.updatedUser, nil
 }
 
+type stubEquipmentResolver struct {
+	items map[string]exercises.EquipmentRef
+}
+
+func (s stubEquipmentResolver) ResolveEquipment(context.Context, []string) (map[string]exercises.EquipmentRef, error) {
+	return s.items, nil
+}
+
 func TestGetProfileDefaultsPredictablyWhenPreferencesAreSparse(t *testing.T) {
 	service := NewService(&stubRepository{
 		userToReturn: &store.ApolloUser{
@@ -35,7 +44,7 @@ func TestGetProfileDefaultsPredictablyWhenPreferencesAreSparse(t *testing.T) {
 			Email:       "student@example.com",
 			Preferences: []byte(`{}`),
 		},
-	})
+	}, stubEquipmentResolver{})
 
 	memberProfile, err := service.GetProfile(context.Background(), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
 	if err != nil {
@@ -86,7 +95,7 @@ func TestUpdateProfileValidatesModesWithTableDrivenCoverage(t *testing.T) {
 					Email:       "student@example.com",
 					Preferences: []byte(`{"visibility_mode":"ghost","availability_mode":"unavailable"}`),
 				},
-			})
+			}, stubEquipmentResolver{})
 
 			_, err := service.UpdateProfile(context.Background(), uuid.MustParse("11111111-1111-1111-1111-111111111111"), testCase.input)
 			if err != testCase.expectedErr {
@@ -114,7 +123,7 @@ func TestUpdateProfilePreservesUntouchedSettingsAndUnknownPreferences(t *testing
 			EmailVerifiedAt: pgtype.Timestamptz{Valid: true},
 		},
 	}
-	service := NewService(repository)
+	service := NewService(repository, stubEquipmentResolver{})
 
 	memberProfile, err := service.UpdateProfile(context.Background(), uuid.MustParse("11111111-1111-1111-1111-111111111111"), UpdateInput{
 		VisibilityMode: stringPtr(VisibilityModeDiscoverable),
@@ -141,6 +150,63 @@ func TestUpdateProfilePreservesUntouchedSettingsAndUnknownPreferences(t *testing
 	}
 	if _, ok := savedPreferences["coaching_profile"]; !ok {
 		t.Fatal("coaching_profile missing after partial update")
+	}
+}
+
+func TestUpdateProfileWritesTypedCoachingProfileFields(t *testing.T) {
+	repository := &stubRepository{
+		userToReturn: &store.ApolloUser{
+			ID:          uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+			StudentID:   "student-001",
+			DisplayName: "student-001",
+			Email:       "student@example.com",
+			Preferences: []byte(`{"visibility_mode":"ghost","availability_mode":"with_team","coaching_profile":{"legacy":"preserved"}}`),
+		},
+		updatedUser: &store.ApolloUser{
+			ID:          uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+			StudentID:   "student-001",
+			DisplayName: "student-001",
+			Email:       "student@example.com",
+			Preferences: []byte(`{"visibility_mode":"ghost","availability_mode":"with_team","coaching_profile":{"legacy":"preserved","goal_key":"build-strength","days_per_week":4,"session_minutes":60,"preferred_equipment_keys":["barbell","dumbbell"]}}`),
+		},
+	}
+	service := NewService(repository, stubEquipmentResolver{
+		items: map[string]exercises.EquipmentRef{
+			"barbell":  {EquipmentKey: "barbell"},
+			"dumbbell": {EquipmentKey: "dumbbell"},
+		},
+	})
+
+	daysPerWeek := 4
+	sessionMinutes := 60
+	profile, err := service.UpdateProfile(context.Background(), uuid.MustParse("11111111-1111-1111-1111-111111111111"), UpdateInput{
+		CoachingProfile: &CoachingProfileInput{
+			GoalKey:                stringPtr("build-strength"),
+			DaysPerWeek:            &daysPerWeek,
+			SessionMinutes:         &sessionMinutes,
+			PreferredEquipmentKeys: &[]string{"barbell", "dumbbell"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile() error = %v", err)
+	}
+	if profile.CoachingProfile.GoalKey == nil || *profile.CoachingProfile.GoalKey != "build-strength" {
+		t.Fatalf("GoalKey = %#v, want build-strength", profile.CoachingProfile.GoalKey)
+	}
+	if len(profile.CoachingProfile.PreferredEquipmentKeys) != 2 {
+		t.Fatalf("PreferredEquipmentKeys = %#v, want 2 keys", profile.CoachingProfile.PreferredEquipmentKeys)
+	}
+
+	var savedPreferences map[string]any
+	if err := json.Unmarshal(repository.updatedPreferences, &savedPreferences); err != nil {
+		t.Fatalf("json.Unmarshal(updatedPreferences) error = %v", err)
+	}
+	coachingProfile, ok := savedPreferences["coaching_profile"].(map[string]any)
+	if !ok {
+		t.Fatalf("coaching_profile = %#v, want object", savedPreferences["coaching_profile"])
+	}
+	if coachingProfile["legacy"] != "preserved" {
+		t.Fatalf("legacy = %#v, want preserved", coachingProfile["legacy"])
 	}
 }
 

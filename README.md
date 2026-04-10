@@ -22,7 +22,11 @@ recommendations, and the ARES matchmaking subsystem.
 > shell, a deterministic coaching recommendation runtime, a deterministic match
 > preview, one bounded competition substrate, and one bounded competition
 > execution substrate without widening into results, ratings, standings, or
-> public competition reads.
+> public competition reads. Tracer 23 adds APOLLO-local exercise and equipment
+> catalog truth, owner-scoped templates/loadouts, week-rooted planner truth,
+> and typed non-medical `coaching_profile` inputs through authenticated
+> internal HTTP while keeping workouts, visits, membership, competition
+> history, and recommendation precedence separate.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -85,7 +89,12 @@ flowchart LR
 | Verification start | `POST /api/v1/auth/verification/start` | Real | Starts registration or passwordless sign-in with student ID + email |
 | Verification consume | `GET/POST /api/v1/auth/verify` | Real | Consumes a stored token, marks it used, verifies email ownership, and issues a signed session cookie |
 | Profile read | `GET /api/v1/profile` | Real | Requires a valid session cookie and returns persisted member profile state |
-| Profile update | `PATCH /api/v1/profile` | Real | Requires a valid session cookie and updates `visibility_mode` and `availability_mode` only |
+| Profile update | `PATCH /api/v1/profile` | Real | Requires a valid session cookie and updates `visibility_mode`, `availability_mode`, and bounded non-medical `coaching_profile` inputs only |
+| Planner exercise catalog | `GET /api/v1/planner/exercises` | Real | Requires a valid session cookie and returns APOLLO-owned exercise definitions with allowed equipment keys |
+| Planner equipment catalog | `GET /api/v1/planner/equipment` | Real | Requires a valid session cookie and returns APOLLO-owned equipment definitions with one bounded `is_machine` flag |
+| Planner template list/create | `GET/POST /api/v1/planner/templates` | Real | Requires a valid session cookie and returns or creates owner-scoped reusable templates/loadouts |
+| Planner template detail/update | `GET/PUT /api/v1/planner/templates/{id}` | Real | Requires a valid session cookie, stays owner-scoped, and enforces duplicate-name and catalog validation rules |
+| Planner week read/write | `GET/PUT /api/v1/planner/weeks/{week_start}` | Real | Requires a valid session cookie and reads or replaces one owner-scoped ISO-week planner record without creating workouts |
 | Lobby eligibility read | `GET /api/v1/lobby/eligibility` | Real | Requires a valid session cookie and derives open-lobby eligibility from stored profile state only |
 | Lobby membership read | `GET /api/v1/lobby/membership` | Real | Requires a valid session cookie and returns explicit durable lobby membership state without inferring from visits or eligibility |
 | Lobby match preview read | `GET /api/v1/lobby/match-preview` | Real | Requires a valid session cookie and returns a deterministic, read-only preview over explicit joined lobby membership only; repeated reads stay stable while membership and eligibility inputs are unchanged |
@@ -141,12 +150,15 @@ eligibility, or any social state.
 | `apollo.visits` | Real | Stores visit open/close history with deterministic departure idempotency |
 | `apollo.lobby_memberships` | Real | Stores explicit durable join/leave state separate from eligibility, visits, and workouts |
 | `apollo.workouts` and `apollo.exercises` | Real | Stores explicit workout draft and finished history with ordered exercise rows |
+| `apollo.equipment_definitions`, `apollo.exercise_definitions`, and `apollo.exercise_definition_equipment` | Real | Stores APOLLO-owned exercise-library truth separate from workout history |
+| `apollo.workout_templates` and `apollo.workout_template_items` | Real | Stores owner-scoped reusable templates/loadouts with catalog-backed item rows |
+| `apollo.planner_weeks`, `apollo.planner_sessions`, and `apollo.planner_session_items` | Real | Stores week-rooted planner truth separate from workouts, visits, and recommendations |
 | `apollo.sports` | Real | Stores APOLLO-owned sport definitions and static rule profiles for the current competition substrate line |
 | `apollo.facility_catalog_refs`, `apollo.facility_zone_refs`, `apollo.sport_facility_capabilities`, and `apollo.sport_facility_capability_zones` | Real | Stores bounded facility identifier references plus APOLLO-owned facility-sport support mappings without duplicating ATHENA hours or metadata |
 | `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth without widening into results, ratings, or standings |
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
 | `apollo.recommendations` | Schema authored | Tracer 7 recommendation reads are derived at read time; persisted recommendation records remain deferred |
-| `users.preferences` JSONB | Real schema, future-heavy use | Intended home for flexible member-intent state such as `visibility_mode` and `availability_mode` |
+| `users.preferences` JSONB | Real schema, bounded runtime use | Stores `visibility_mode`, `availability_mode`, and typed non-medical `coaching_profile` inputs while planner/runtime truth stays relational |
 
 ## Technology Stack
 
@@ -170,7 +182,7 @@ eligibility, or any social state.
 | Team / session substrate | session-rooted team, roster, session, and match container primitives | Shipped | `v0.11.0` | Tracer 20 settled the bounded competition container model before execution widening |
 | Matchmaking lifecycle | queue, assignment, and session lifecycle truth | Shipped | `v0.12.0` | Tagged Tracer 21 release line adds authenticated internal HTTP execution truth without widening into results, rivalry, badges, or public reads |
 | Results, ratings, and member stats | result capture, ratings, session-scoped standings, and member profile stats | Closure-clean on `main` | `v0.13.0` | Competition history is now owner-scoped authenticated internal HTTP/runtime truth while public/social reads and deployed truth remain deferred |
-| Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Planned | `v0.14.0` | Lands after the operations/competition base and stays backend/CLI-first |
+| Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Real on `main` | `v0.14.0` | Tracer 23 keeps the line authenticated/internal, backend-first, and separate from workout history and recommendation logic |
 | Deterministic fitness coaching | conservative deterministic recommendation engine plus calorie / macro ranges and low-friction meal logging | Planned | `v0.15.0` | Keep the engine deterministic and explainable before any later helper layer |
 | Explanation and agent-facing helpers | explanation/summarization helpers over deterministic core logic | Deferred | `v0.16.0` | Preserve as future direction without making the helper layer the decision engine |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.16.0` | Not part of Phase 2 |
@@ -232,6 +244,18 @@ exercise, recommendations, or matchmaking.
   precedence: `resume_in_progress_workout`, `start_first_workout`,
   `recovery_day` for workouts finished inside `24h`, then
   `repeat_last_finished_workout`
+- authenticated `GET /api/v1/planner/exercises` and
+  `GET /api/v1/planner/equipment` are real and return APOLLO-owned catalog
+  truth for planner/template validation without widening into facility
+  inventory or live availability
+- authenticated `GET/POST/PUT /api/v1/planner/templates` are real and keep
+  reusable loadouts owner-scoped with duplicate-name protection per member
+- authenticated `GET/PUT /api/v1/planner/weeks/{week_start}` are real and keep
+  week-rooted planner truth separate from workouts, recommendations, visits,
+  membership, and competition history
+- authenticated `PATCH /api/v1/profile` now supports bounded
+  `coaching_profile.goal_key`, `days_per_week`, `session_minutes`, and
+  `preferred_equipment_keys` writes while preserving unrelated preference data
 - `GET /`, `GET /app/login`, and protected `GET /app` are real and provide one
   minimal member web shell over the already-real auth, profile, workout, and
   recommendation APIs
@@ -249,6 +273,9 @@ exercise, recommendations, or matchmaking.
 - recommendation reads are deterministic, member-scoped, and side-effect free:
   they do not create, update, or finish workouts and they do not mutate visits,
   profile state, claimed tags, or eligibility state
+- planner/template/profile writes do not instantiate workout drafts, finish
+  workouts, widen recommendation inputs, infer from visits, or mutate lobby
+  membership, claimed tags, or competition state
 - match preview reads are deterministic and side-effect free: they do not
   create matches, assignments, invites, sessions, or any other domain state
 - only one `in_progress` workout is allowed per member at a time
@@ -351,13 +378,14 @@ exercise, recommendations, or matchmaking.
 
 ## Planned Release Lines
 
-Current repo/runtime closeout truth on `main` is Tracer 22 competition history on
-the intended `v0.13.0` line. Later planned lines begin below.
+Current repo/runtime closeout truth on `main` is Tracer 23 planner substrate on
+the intended `v0.14.0` line. Latest tagged truth remains Tracer 22 `v0.13.0`.
+Later planned lines begin below.
 
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch if repo-local APOLLO truth ever needed backfilled closeout | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
-| `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work |
+| `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work, workout instantiation, or recommendation logic |
 | `v0.15.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
 | `v0.16.0` | explanation, summarization, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
 

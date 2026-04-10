@@ -23,7 +23,9 @@ import (
 	"github.com/ixxet/apollo/internal/config"
 	"github.com/ixxet/apollo/internal/consumer"
 	"github.com/ixxet/apollo/internal/eligibility"
+	"github.com/ixxet/apollo/internal/exercises"
 	"github.com/ixxet/apollo/internal/membership"
+	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/server"
@@ -178,8 +180,12 @@ func newServeCmd() *cobra.Command {
 func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *auth.SessionCookieManager, sender auth.EmailSender, cfg config.Config) server.Dependencies {
 	authRepository := auth.NewRepository(pool)
 	authService := auth.NewService(authRepository, cookies, sender, cfg.VerificationTokenTTL, cfg.SessionTTL)
+	exerciseRepository := exercises.NewRepository(pool)
+	exerciseService := exercises.NewService(exerciseRepository)
+	plannerRepository := planner.NewRepository(pool)
+	plannerService := planner.NewService(plannerRepository, exerciseService)
 	profileRepository := profile.NewRepository(pool)
-	profileService := profile.NewService(profileRepository)
+	profileService := profile.NewService(profileRepository, exerciseService)
 	eligibilityService := eligibility.NewService(profileRepository)
 	membershipService := membership.NewService(membership.NewRepository(pool), eligibilityService)
 	matchPreviewService := ares.NewService(ares.NewRepository(pool))
@@ -192,6 +198,8 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 		Auth:            authService,
 		Competition:     competitionService,
 		Profile:         profileService,
+		Exercises:       exerciseService,
+		Planner:         plannerService,
 		Eligibility:     eligibilityService,
 		Membership:      membershipService,
 		MatchPreview:    matchPreviewService,
