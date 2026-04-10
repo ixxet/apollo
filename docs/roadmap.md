@@ -29,6 +29,10 @@ Latest tagged repo/runtime line: Tracer 23 `v0.14.0`
 - authenticated internal HTTP planner catalog reads, template/loadout writes,
   week-rooted planner writes, and typed non-medical `coaching_profile` inputs
   are real in repo/runtime on `main` for the tagged `v0.14.0` line
+- Tracer 24 deterministic coaching substrate is now real in local/runtime:
+  owner-scoped finished-workout effort/recovery feedback writes plus
+  deterministic coaching recommendation reads over planner/profile/workout
+  truth with structured proposal/explanation output and no planner mutation
 - deployment truth is still narrower than the full product surface
 
 ## Planned Release Lines
@@ -41,7 +45,7 @@ remaining pre-`Milestone 2.0` APOLLO substrate lines begin below.
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch only if repo-local closure ever needs a backfill | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
 | `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work, workout instantiation, or recommendation logic |
-| `v0.15.0` | deterministic coaching substrate over planner, profile, and workout history | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
+| `v0.15.0` | deterministic coaching substrate over planner, profile, and workout history | keep it deterministic, bounded, and side-effect free over planner truth | do not let visits, departures, profile state, or helper text become an opaque decision core |
 | `v0.16.0` | conservative nutrition substrate with meal logging and calorie / macro ranges | keep it non-clinical and conservative | do not turn the product into a diet app or diagnostic engine |
 | `v0.17.0` | explanation, summarization, bounded AI helper flows, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |

@@ -134,6 +134,13 @@ type ApolloEmailVerificationToken struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type ApolloEquipmentDefinition struct {
+	ID           uuid.UUID
+	EquipmentKey string
+	DisplayName  string
+	IsMachine    bool
+}
+
 type ApolloExercise struct {
 	ID        uuid.UUID
 	WorkoutID uuid.UUID
@@ -144,6 +151,17 @@ type ApolloExercise struct {
 	Rpe       pgtype.Numeric
 	Notes     *string
 	Position  int32
+}
+
+type ApolloExerciseDefinition struct {
+	ID          uuid.UUID
+	ExerciseKey string
+	DisplayName string
+}
+
+type ApolloExerciseDefinitionEquipment struct {
+	ExerciseDefinitionID  uuid.UUID
+	EquipmentDefinitionID uuid.UUID
 }
 
 type ApolloFacilityCatalogRef struct {
@@ -160,6 +178,35 @@ type ApolloLobbyMembership struct {
 	Status    string
 	JoinedAt  pgtype.Timestamptz
 	LeftAt    pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+type ApolloPlannerSession struct {
+	ID                uuid.UUID
+	PlannerWeekID     uuid.UUID
+	DayIndex          int32
+	Position          int32
+	WorkoutTemplateID pgtype.UUID
+}
+
+type ApolloPlannerSessionItem struct {
+	ID                    uuid.UUID
+	PlannerSessionID      uuid.UUID
+	Position              int32
+	ExerciseDefinitionID  uuid.UUID
+	EquipmentDefinitionID pgtype.UUID
+	Sets                  int32
+	Reps                  int32
+	WeightKg              pgtype.Numeric
+	Rpe                   pgtype.Numeric
+	Notes                 *string
+}
+
+type ApolloPlannerWeek struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	WeekStart pgtype.Date
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
 }
@@ -238,4 +285,41 @@ type ApolloWorkout struct {
 	Metadata   []byte
 	Status     string
 	FinishedAt pgtype.Timestamptz
+}
+
+type ApolloWorkoutEffortFeedback struct {
+	WorkoutID   uuid.UUID
+	UserID      uuid.UUID
+	EffortLevel string
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type ApolloWorkoutRecoveryFeedback struct {
+	WorkoutID     uuid.UUID
+	UserID        uuid.UUID
+	RecoveryLevel string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
+type ApolloWorkoutTemplate struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	Name      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+type ApolloWorkoutTemplateItem struct {
+	ID                    uuid.UUID
+	WorkoutTemplateID     uuid.UUID
+	Position              int32
+	ExerciseDefinitionID  uuid.UUID
+	EquipmentDefinitionID pgtype.UUID
+	Sets                  int32
+	Reps                  int32
+	WeightKg              pgtype.Numeric
+	Rpe                   pgtype.Numeric
+	Notes                 *string
 }

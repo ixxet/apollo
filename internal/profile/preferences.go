@@ -19,6 +19,7 @@ type CoachingProfile struct {
 	GoalKey                *string  `json:"goal_key,omitempty"`
 	DaysPerWeek            *int     `json:"days_per_week,omitempty"`
 	SessionMinutes         *int     `json:"session_minutes,omitempty"`
+	ExperienceLevel        *string  `json:"experience_level,omitempty"`
 	PreferredEquipmentKeys []string `json:"preferred_equipment_keys,omitempty"`
 }
 
@@ -26,6 +27,7 @@ type CoachingProfileInput struct {
 	GoalKey                *string   `json:"goal_key"`
 	DaysPerWeek            *int      `json:"days_per_week"`
 	SessionMinutes         *int      `json:"session_minutes"`
+	ExperienceLevel        *string   `json:"experience_level"`
 	PreferredEquipmentKeys *[]string `json:"preferred_equipment_keys"`
 }
 
@@ -87,6 +89,13 @@ func ReadCoachingProfile(raw []byte) CoachingProfile {
 			profile.SessionMinutes = &parsed
 		}
 	}
+	if value, ok := asMap["experience_level"]; ok {
+		asString, stringOK := value.(string)
+		asString = strings.TrimSpace(asString)
+		if stringOK && isValidExperienceLevel(asString) {
+			profile.ExperienceLevel = &asString
+		}
+	}
 	if value, ok := asMap["preferred_equipment_keys"]; ok {
 		asSlice, ok := value.([]any)
 		if ok {
@@ -143,5 +152,14 @@ func parsePositiveWholeNumber(value any) (int, bool) {
 		return typed, true
 	default:
 		return 0, false
+	}
+}
+
+func isValidExperienceLevel(value string) bool {
+	switch value {
+	case "beginner", "intermediate", "advanced":
+		return true
+	default:
+		return false
 	}
 }

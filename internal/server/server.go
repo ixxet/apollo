@@ -15,6 +15,7 @@ import (
 
 	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/coaching"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/exercises"
@@ -92,6 +93,12 @@ type RecommendationReader interface {
 	GetWorkoutRecommendation(ctx context.Context, userID uuid.UUID) (recommendations.WorkoutRecommendation, error)
 }
 
+type CoachingManager interface {
+	GetCoachingRecommendation(ctx context.Context, userID uuid.UUID, weekStart string) (coaching.CoachingRecommendation, error)
+	PutEffortFeedback(ctx context.Context, userID uuid.UUID, workoutID uuid.UUID, input coaching.EffortFeedbackInput) (coaching.EffortFeedback, error)
+	PutRecoveryFeedback(ctx context.Context, userID uuid.UUID, workoutID uuid.UUID, input coaching.RecoveryFeedbackInput) (coaching.RecoveryFeedback, error)
+}
+
 type WorkoutManager interface {
 	CreateWorkout(ctx context.Context, userID uuid.UUID, input workouts.CreateInput) (workouts.Workout, error)
 	ListWorkouts(ctx context.Context, userID uuid.UUID) ([]workouts.Workout, error)
@@ -111,6 +118,7 @@ type Dependencies struct {
 	Membership      MembershipManager
 	MatchPreview    MatchPreviewReader
 	Recommendations RecommendationReader
+	Coaching        CoachingManager
 	Workouts        WorkoutManager
 }
 
@@ -178,6 +186,14 @@ type createWorkoutRequest struct {
 type updateWorkoutRequest struct {
 	Notes     *string                   `json:"notes"`
 	Exercises *[]workouts.ExerciseInput `json:"exercises"`
+}
+
+type putEffortFeedbackRequest struct {
+	EffortLevel string `json:"effort_level"`
+}
+
+type putRecoveryFeedbackRequest struct {
+	RecoveryLevel string `json:"recovery_level"`
 }
 
 type contextKey string
@@ -826,6 +842,27 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			writeJSON(w, http.StatusOK, workoutRecommendation)
 		})
+		authenticated.Get("/api/v1/recommendations/coaching", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Coaching == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("coaching dependency is unavailable"))
+				return
+			}
+
+			weekStart := strings.TrimSpace(r.URL.Query().Get("week_start"))
+			if weekStart == "" {
+				writeError(w, http.StatusBadRequest, planner.ErrWeekStartInvalid)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			coachingRecommendation, err := deps.Coaching.GetCoachingRecommendation(r.Context(), principal.UserID, weekStart)
+			if err != nil {
+				writeCoachingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, coachingRecommendation)
+		})
 		authenticated.Post("/api/v1/workouts", func(w http.ResponseWriter, r *http.Request) {
 			var request createWorkoutRequest
 			if err := decodeJSONBodyAllowEmpty(r, &request); err != nil {
@@ -947,6 +984,64 @@ func NewHandler(deps Dependencies) http.Handler {
 			logWorkoutLifecycle("workout finished", principal.UserID, workout)
 			writeJSON(w, http.StatusOK, workout)
 		})
+		authenticated.Put("/api/v1/workouts/{workoutID}/effort-feedback", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Coaching == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("coaching dependency is unavailable"))
+				return
+			}
+
+			workoutID, err := parseUUIDParam(r, "workoutID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request putEffortFeedbackRequest
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			feedback, err := deps.Coaching.PutEffortFeedback(r.Context(), principal.UserID, workoutID, coaching.EffortFeedbackInput{
+				EffortLevel: request.EffortLevel,
+			})
+			if err != nil {
+				writeCoachingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, feedback)
+		})
+		authenticated.Put("/api/v1/workouts/{workoutID}/recovery-feedback", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Coaching == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("coaching dependency is unavailable"))
+				return
+			}
+
+			workoutID, err := parseUUIDParam(r, "workoutID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request putRecoveryFeedbackRequest
+			if err := decodeJSONBody(r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			feedback, err := deps.Coaching.PutRecoveryFeedback(r.Context(), principal.UserID, workoutID, coaching.RecoveryFeedbackInput{
+				RecoveryLevel: request.RecoveryLevel,
+			})
+			if err != nil {
+				writeCoachingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, feedback)
+		})
 		authenticated.Patch("/api/v1/profile", func(w http.ResponseWriter, r *http.Request) {
 			var request profile.UpdateInput
 			if err := decodeJSONBody(r, &request); err != nil {
@@ -964,6 +1059,7 @@ func NewHandler(deps Dependencies) http.Handler {
 					errors.Is(err, profile.ErrInvalidGoalKey),
 					errors.Is(err, profile.ErrInvalidDaysPerWeek),
 					errors.Is(err, profile.ErrInvalidSessionMinutes),
+					errors.Is(err, profile.ErrInvalidExperienceLevel),
 					errors.Is(err, profile.ErrInvalidEquipmentKeys):
 					writeError(w, http.StatusBadRequest, err)
 				case errors.Is(err, profile.ErrNotFound):
@@ -1207,6 +1303,21 @@ func writePlannerError(w http.ResponseWriter, err error) {
 		errors.Is(err, planner.ErrSessionItemsRequired),
 		errors.Is(err, planner.ErrSessionShapeInvalid):
 		writeError(w, http.StatusBadRequest, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
+}
+
+func writeCoachingError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, planner.ErrWeekStartInvalid),
+		errors.Is(err, coaching.ErrInvalidEffortLevel),
+		errors.Is(err, coaching.ErrInvalidRecoveryLevel):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, coaching.ErrWorkoutNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, coaching.ErrWorkoutNotFinished):
+		writeError(w, http.StatusConflict, err)
 	default:
 		writeError(w, http.StatusInternalServerError, err)
 	}

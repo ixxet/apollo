@@ -79,6 +79,15 @@ func TestUpdateProfileValidatesModesWithTableDrivenCoverage(t *testing.T) {
 			expectedErr: ErrInvalidAvailabilityMode,
 		},
 		{
+			name: "invalid coaching experience level",
+			input: UpdateInput{
+				CoachingProfile: &CoachingProfileInput{
+					ExperienceLevel: stringPtr("elite"),
+				},
+			},
+			expectedErr: ErrInvalidExperienceLevel,
+		},
+		{
 			name:        "empty patch",
 			input:       UpdateInput{},
 			expectedErr: ErrEmptyPatch,
@@ -167,7 +176,7 @@ func TestUpdateProfileWritesTypedCoachingProfileFields(t *testing.T) {
 			StudentID:   "student-001",
 			DisplayName: "student-001",
 			Email:       "student@example.com",
-			Preferences: []byte(`{"visibility_mode":"ghost","availability_mode":"with_team","coaching_profile":{"legacy":"preserved","goal_key":"build-strength","days_per_week":4,"session_minutes":60,"preferred_equipment_keys":["barbell","dumbbell"]}}`),
+			Preferences: []byte(`{"visibility_mode":"ghost","availability_mode":"with_team","coaching_profile":{"legacy":"preserved","goal_key":"build-strength","days_per_week":4,"session_minutes":60,"experience_level":"intermediate","preferred_equipment_keys":["barbell","dumbbell"]}}`),
 		},
 	}
 	service := NewService(repository, stubEquipmentResolver{
@@ -184,6 +193,7 @@ func TestUpdateProfileWritesTypedCoachingProfileFields(t *testing.T) {
 			GoalKey:                stringPtr("build-strength"),
 			DaysPerWeek:            &daysPerWeek,
 			SessionMinutes:         &sessionMinutes,
+			ExperienceLevel:        stringPtr("intermediate"),
 			PreferredEquipmentKeys: &[]string{"barbell", "dumbbell"},
 		},
 	})
@@ -195,6 +205,9 @@ func TestUpdateProfileWritesTypedCoachingProfileFields(t *testing.T) {
 	}
 	if len(profile.CoachingProfile.PreferredEquipmentKeys) != 2 {
 		t.Fatalf("PreferredEquipmentKeys = %#v, want 2 keys", profile.CoachingProfile.PreferredEquipmentKeys)
+	}
+	if profile.CoachingProfile.ExperienceLevel == nil || *profile.CoachingProfile.ExperienceLevel != "intermediate" {
+		t.Fatalf("ExperienceLevel = %#v, want intermediate", profile.CoachingProfile.ExperienceLevel)
 	}
 
 	var savedPreferences map[string]any

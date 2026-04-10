@@ -33,6 +33,9 @@ func TestBuildServerDependenciesWiresCompetitionMembershipAndMatchPreviewRuntime
 	if deps.Competition == nil {
 		t.Fatal("deps.Competition = nil, want competition container runtime wired")
 	}
+	if deps.Coaching == nil {
+		t.Fatal("deps.Coaching = nil, want deterministic coaching runtime wired")
+	}
 }
 
 func TestNewRootCmdIncludesSportCommand(t *testing.T) {

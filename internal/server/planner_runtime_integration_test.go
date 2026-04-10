@@ -42,7 +42,7 @@ func TestPlannerRuntimeSupportsCatalogTemplatesWeeksAndTypedProfileRoundTrip(t *
 		t.Fatalf("len(exerciseCatalog) = %d, want 6", len(exerciseCatalog))
 	}
 
-	profilePatchResponse := env.doJSONRequest(t, http.MethodPatch, "/api/v1/profile", `{"coaching_profile":{"goal_key":"build-strength","days_per_week":4,"session_minutes":60,"preferred_equipment_keys":["barbell","dumbbell"]}}`, cookie)
+	profilePatchResponse := env.doJSONRequest(t, http.MethodPatch, "/api/v1/profile", `{"coaching_profile":{"goal_key":"build-strength","days_per_week":4,"session_minutes":60,"experience_level":"intermediate","preferred_equipment_keys":["barbell","dumbbell"]}}`, cookie)
 	if profilePatchResponse.Code != http.StatusOK {
 		t.Fatalf("profilePatchResponse.Code = %d, want %d", profilePatchResponse.Code, http.StatusOK)
 	}
@@ -55,6 +55,9 @@ func TestPlannerRuntimeSupportsCatalogTemplatesWeeksAndTypedProfileRoundTrip(t *
 	}
 	if len(patchedProfile.CoachingProfile.PreferredEquipmentKeys) != 2 {
 		t.Fatalf("PreferredEquipmentKeys = %#v, want 2 keys", patchedProfile.CoachingProfile.PreferredEquipmentKeys)
+	}
+	if patchedProfile.CoachingProfile.ExperienceLevel == nil || *patchedProfile.CoachingProfile.ExperienceLevel != "intermediate" {
+		t.Fatalf("ExperienceLevel = %#v, want intermediate", patchedProfile.CoachingProfile.ExperienceLevel)
 	}
 
 	createTemplateResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/planner/templates", `{"name":"Strength Base","items":[{"exercise_key":"barbell-back-squat","equipment_key":"barbell","sets":5,"reps":5,"weight_kg":100},{"exercise_key":"push-up","sets":3,"reps":12}]}`, cookie)

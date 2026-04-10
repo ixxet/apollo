@@ -29,6 +29,7 @@ var (
 	ErrInvalidGoalKey          = errors.New("invalid coaching_profile.goal_key")
 	ErrInvalidDaysPerWeek      = errors.New("invalid coaching_profile.days_per_week")
 	ErrInvalidSessionMinutes   = errors.New("invalid coaching_profile.session_minutes")
+	ErrInvalidExperienceLevel  = errors.New("invalid coaching_profile.experience_level")
 	ErrInvalidEquipmentKeys    = errors.New("invalid coaching_profile.preferred_equipment_keys")
 	ErrEmptyPatch              = errors.New("profile patch is empty")
 )
@@ -169,7 +170,7 @@ func hasCoachingProfileUpdates(input *CoachingProfileInput) bool {
 	if input == nil {
 		return false
 	}
-	return input.GoalKey != nil || input.DaysPerWeek != nil || input.SessionMinutes != nil || input.PreferredEquipmentKeys != nil
+	return input.GoalKey != nil || input.DaysPerWeek != nil || input.SessionMinutes != nil || input.ExperienceLevel != nil || input.PreferredEquipmentKeys != nil
 }
 
 func (s *Service) mergeCoachingProfile(ctx context.Context, current any, input CoachingProfileInput) (map[string]any, error) {
@@ -198,6 +199,13 @@ func (s *Service) mergeCoachingProfile(ctx context.Context, current any, input C
 			return nil, ErrInvalidSessionMinutes
 		}
 		merged["session_minutes"] = *input.SessionMinutes
+	}
+	if input.ExperienceLevel != nil {
+		experienceLevel := strings.TrimSpace(*input.ExperienceLevel)
+		if !isValidExperienceLevel(experienceLevel) {
+			return nil, ErrInvalidExperienceLevel
+		}
+		merged["experience_level"] = experienceLevel
 	}
 	if input.PreferredEquipmentKeys != nil {
 		if s.equipmentResolver == nil {

@@ -177,4 +177,32 @@ WHERE table_schema = 'apollo'
 	if seededExerciseCount != 6 {
 		t.Fatalf("seeded exercise definition count = %d, want 6", seededExerciseCount)
 	}
+
+	var effortFeedbackTableCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.tables
+WHERE table_schema = 'apollo'
+  AND table_name = 'workout_effort_feedback'
+`).Scan(&effortFeedbackTableCount); err != nil {
+		t.Fatalf("count workout_effort_feedback table error = %v", err)
+	}
+
+	if effortFeedbackTableCount != 1 {
+		t.Fatalf("workout_effort_feedback table count = %d, want 1", effortFeedbackTableCount)
+	}
+
+	var recoveryFeedbackTableCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.tables
+WHERE table_schema = 'apollo'
+  AND table_name = 'workout_recovery_feedback'
+`).Scan(&recoveryFeedbackTableCount); err != nil {
+		t.Fatalf("count workout_recovery_feedback table error = %v", err)
+	}
+
+	if recoveryFeedbackTableCount != 1 {
+		t.Fatalf("workout_recovery_feedback table count = %d, want 1", recoveryFeedbackTableCount)
+	}
 }

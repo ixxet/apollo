@@ -15,6 +15,7 @@ sql:
       - "migrations/010_competition_execution_runtime.up.sql"
       - "migrations/011_competition_history_runtime.up.sql"
       - "migrations/012_planner_runtime_substrate.up.sql"
+      - "migrations/013_coaching_feedback_runtime.up.sql"
     queries: "queries"
     gen:
       go:

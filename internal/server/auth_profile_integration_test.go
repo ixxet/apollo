@@ -18,6 +18,7 @@ import (
 
 	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/coaching"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/exercises"
@@ -308,6 +309,7 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	matchPreviewService := ares.NewService(ares.NewRepository(db.DB))
 	competitionService := competition.NewService(competition.NewRepository(db.DB))
 	recommendationService := recommendations.NewService(recommendations.NewRepository(db.DB))
+	coachingService := coaching.NewService(coaching.NewRepository(db.DB), plannerService, profileService)
 	workoutService := workouts.NewService(workouts.NewRepository(db.DB))
 
 	return &authProfileServerEnv{
@@ -322,6 +324,7 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 			Membership:      membershipService,
 			MatchPreview:    matchPreviewService,
 			Recommendations: recommendationService,
+			Coaching:        coachingService,
 			Workouts:        workoutService,
 		}),
 		sender:  sender,
