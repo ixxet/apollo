@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 
+	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/store"
 	"github.com/ixxet/apollo/internal/testutil"
 	"github.com/ixxet/apollo/internal/visits"
@@ -44,7 +45,7 @@ func TestIdentifiedPresenceIntegrationCreatesOneVisitWithoutWorkout(t *testing.T
 	}()
 
 	repository := visits.NewRepository(postgresEnv.DB)
-	service := visits.NewService(repository)
+	service := presence.NewService(presence.NewRepository(postgresEnv.DB), visits.NewService(repository))
 	handler := NewIdentifiedPresenceHandler(service)
 	if _, err := natsEnv.Conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
 		_, _ = handler.HandleMessage(context.Background(), msg.Data)
@@ -72,6 +73,15 @@ func TestIdentifiedPresenceIntegrationCreatesOneVisitWithoutWorkout(t *testing.T
 			}
 			if workoutCount != 0 {
 				t.Fatalf("workoutCount = %d, want 0", workoutCount)
+			}
+			if tapLinkCount := countTableRows(t, ctx, postgresEnv.DB, "apollo.visit_tap_links"); tapLinkCount != 1 {
+				t.Fatalf("tapLinkCount = %d, want 1", tapLinkCount)
+			}
+			if streakCount := countTableRows(t, ctx, postgresEnv.DB, "apollo.member_presence_streaks"); streakCount != 1 {
+				t.Fatalf("streakCount = %d, want 1", streakCount)
+			}
+			if streakEventCount := countTableRows(t, ctx, postgresEnv.DB, "apollo.member_presence_streak_events"); streakEventCount != 1 {
+				t.Fatalf("streakEventCount = %d, want 1", streakEventCount)
 			}
 			return
 		}
@@ -112,7 +122,7 @@ func TestIdentifiedDepartureIntegrationClosesVisitWithoutMutatingWorkoutClaimedT
 	}()
 
 	repository := visits.NewRepository(postgresEnv.DB)
-	service := visits.NewService(repository)
+	service := presence.NewService(presence.NewRepository(postgresEnv.DB), visits.NewService(repository))
 	arrivalHandler := NewIdentifiedPresenceHandler(service)
 	departureHandler := NewIdentifiedDepartureHandler(service)
 	if _, err := natsEnv.Conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
@@ -143,6 +153,9 @@ func TestIdentifiedDepartureIntegrationClosesVisitWithoutMutatingWorkoutClaimedT
 	preferencesBefore := readPreferencesJSON(t, ctx, postgresEnv.DB, user.ID)
 	workoutsBefore := countTableRows(t, ctx, postgresEnv.DB, "apollo.workouts")
 	claimedTagsBefore := countUserRows(t, ctx, postgresEnv.DB, "apollo.claimed_tags", user.ID)
+	tapLinksBefore := countTableRows(t, ctx, postgresEnv.DB, "apollo.visit_tap_links")
+	streaksBefore := countTableRows(t, ctx, postgresEnv.DB, "apollo.member_presence_streaks")
+	streakEventsBefore := countTableRows(t, ctx, postgresEnv.DB, "apollo.member_presence_streak_events")
 
 	if err := natsEnv.Conn.Publish(protoevents.SubjectIdentifiedPresenceDeparted, protoevents.ValidIdentifiedPresenceDepartedFixture()); err != nil {
 		t.Fatalf("Publish(departed) error = %v", err)
@@ -164,6 +177,15 @@ func TestIdentifiedDepartureIntegrationClosesVisitWithoutMutatingWorkoutClaimedT
 	}
 	if preferencesAfter := readPreferencesJSON(t, ctx, postgresEnv.DB, user.ID); preferencesAfter != preferencesBefore {
 		t.Fatalf("preferences changed from %s to %s after departure close", preferencesBefore, preferencesAfter)
+	}
+	if tapLinksAfter := countTableRows(t, ctx, postgresEnv.DB, "apollo.visit_tap_links"); tapLinksAfter != tapLinksBefore {
+		t.Fatalf("tap-link count changed from %d to %d after departure close", tapLinksBefore, tapLinksAfter)
+	}
+	if streaksAfter := countTableRows(t, ctx, postgresEnv.DB, "apollo.member_presence_streaks"); streaksAfter != streaksBefore {
+		t.Fatalf("streak count changed from %d to %d after departure close", streaksBefore, streaksAfter)
+	}
+	if streakEventsAfter := countTableRows(t, ctx, postgresEnv.DB, "apollo.member_presence_streak_events"); streakEventsAfter != streakEventsBefore {
+		t.Fatalf("streak event count changed from %d to %d after departure close", streakEventsBefore, streakEventsAfter)
 	}
 }
 
@@ -197,7 +219,7 @@ func TestIdentifiedDepartureReplayIsIdempotentEndToEnd(t *testing.T) {
 	}()
 
 	repository := visits.NewRepository(postgresEnv.DB)
-	service := visits.NewService(repository)
+	service := presence.NewService(presence.NewRepository(postgresEnv.DB), visits.NewService(repository))
 	user := lookupIntegrationUser(t, ctx, repository, "tag_tracer2_001")
 	insertClaimedTag(t, ctx, postgresEnv.DB, user.ID, "tag_tracer5_001", "departure tracer tag")
 	arrivalResults := make(chan visits.Result, 1)
@@ -247,6 +269,15 @@ func TestIdentifiedDepartureReplayIsIdempotentEndToEnd(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1 after replay", len(rows))
 	}
+	if tapLinkCount := countTableRows(t, ctx, postgresEnv.DB, "apollo.visit_tap_links"); tapLinkCount != 1 {
+		t.Fatalf("tapLinkCount = %d, want 1 after replay", tapLinkCount)
+	}
+	if streakCount := countTableRows(t, ctx, postgresEnv.DB, "apollo.member_presence_streaks"); streakCount != 1 {
+		t.Fatalf("streakCount = %d, want 1 after replay", streakCount)
+	}
+	if streakEventCount := countTableRows(t, ctx, postgresEnv.DB, "apollo.member_presence_streak_events"); streakEventCount != 1 {
+		t.Fatalf("streakEventCount = %d, want 1 after replay", streakEventCount)
+	}
 }
 
 func TestIdentifiedPresenceLifecycleDoesNotFinishExistingInProgressWorkout(t *testing.T) {
@@ -279,7 +310,7 @@ func TestIdentifiedPresenceLifecycleDoesNotFinishExistingInProgressWorkout(t *te
 	}()
 
 	repository := visits.NewRepository(postgresEnv.DB)
-	service := visits.NewService(repository)
+	service := presence.NewService(presence.NewRepository(postgresEnv.DB), visits.NewService(repository))
 	arrivalHandler := NewIdentifiedPresenceHandler(service)
 	departureHandler := NewIdentifiedDepartureHandler(service)
 	if _, err := natsEnv.Conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
