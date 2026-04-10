@@ -238,19 +238,33 @@ failures, matchmaking edge cases, and the fixes that made `apollo` more realisti
 
 - Symptom: `go test -count=10 ./internal/server` was not a stable stress
   command for this hardening pass because it could hit Go's default package
-  timeout ceiling while exercising a much broader integration surface than the
-  shared Postgres startup path alone.
-  Cause: `internal/server` reruns compound full HTTP, auth, planner,
-  recommendation, competition, and membership integration work on every pass,
-  so the package-level timeout became a test-runner limit, not direct evidence
-  of product instability.
-  Fix: record the package-timeout ceiling honestly as a stress-command
-  limitation, then stress the same `StartPostgres()` path through repeated
-  representative tests that both enter `newAuthProfileServerEnv()`, which
-  still calls `testutil.StartPostgres()`.
-  Rule: when stressing a shared harness, choose commands that still traverse
-  the same setup entrypoint without conflating harness readiness with the
-  runner's package-timeout ceiling.
+  timeout before the Docker-backed integration harness finished repeated
+  schema bootstraps and auth/runtime setup.
+  Cause: the command mixed lightweight handler tests with slower full-runtime
+  integration coverage under one package-wide timeout ceiling, which created a
+  stress artifact that looked like product instability even when the narrower
+  helper/runtime proofs stayed green.
+  Fix: keep the helper hardening proof anchored to focused runtime/integrity
+  reruns plus the full required `go test ./...` and `go test -count=5
+  ./internal/...` suite, and record the timeout-ceiling artifact separately
+  from real runtime regressions.
+  Rule: when a stress command exceeds the package timeout ceiling, record it as
+  harness or command-shape noise unless narrower reruns show the same product
+  failure.
+
+- Symptom: the first Tracer 26 helper design was at risk of forcing nutrition
+  into the same diff/apply shape as coaching even though the real deterministic
+  nutrition substrate only owned target ranges, strategy flags, and
+  explanation.
+  Cause: the planning ladder wanted a shared helper narrative, but mirroring
+  coaching's `PlanChangeProposal` would have implied nutrition write/apply
+  semantics that do not exist yet.
+  Fix: keep Tracer 26 asymmetric on purpose: coaching helper previews wrap the
+  existing plan-change proposal, while nutrition helper previews use read-only
+  guidance proposals that preserve the current calorie/macro targets and do not
+  claim an apply path.
+  Rule: helper surfaces must preserve real domain asymmetry; do not invent a
+  mirrored proposal/apply contract just to make two domains look uniform.
 
 - Symptom: the first Tracer 25 nutrition pass was at risk of turning
   `users.preferences` into a second untyped runtime store just because Tracer 23

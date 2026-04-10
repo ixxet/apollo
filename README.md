@@ -28,12 +28,12 @@ recommendations, and the ARES matchmaking subsystem.
 > internal HTTP while keeping workouts, visits, membership, competition
 > history, and recommendation precedence separate. Tracer 24 is the tagged
 > deterministic coaching line on `v0.15.0`, with `v0.15.1` reserved for the
-> narrow post-closeout hardening patch. The current Tracer 25 repo/runtime
-> closeout line on `main` adds bounded non-clinical `nutrition_profile` inputs,
-> owner-scoped meal
-> template and meal-log truth, and conservative read-only calorie/macro range
-> recommendations without widening into diagnosis, chatbot-first guidance, or
-> planner mutation.
+> narrow post-closeout hardening patch. The current Tracer 26 repo/runtime
+> closeout line on `main` adds authenticated internal helper reads, bounded
+> `why` flows, and read-only coaching/nutrition variation previews over the
+> settled deterministic coaching and nutrition cores without widening into
+> planner apply, nutrition apply, diagnosis, chatbot-first guidance, or helper-
+> owned decision logic.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -202,7 +202,7 @@ eligibility, or any social state.
 | Planner and exercise library | planner state, exercise library, templates / loadouts, and richer profile inputs | Real on `main` | `v0.14.0` | Tracer 23 keeps the line authenticated/internal, backend-first, and separate from workout history and recommendation logic |
 | Deterministic fitness coaching | conservative deterministic coaching recommendation and structured plan-change proposal over planner/profile/workout truth | Tagged | `v0.15.0` | Tracer 24 is the tagged coaching line, and `v0.15.1` is reserved for bounded hardening on that same line |
 | Conservative nutrition substrate | typed nutrition profile inputs, owner-scoped meal template/log truth, and read-only calorie/macro recommendation ranges | Closure-clean on `main` | `v0.16.0` line | Keep it non-clinical, bounded, and separate from planner mutation or chatbot-first flows |
-| Explanation and agent-facing helpers | explanation/summarization helpers over deterministic core logic | Deferred | `v0.17.0` | Preserve as future direction without making the helper layer the decision engine |
+| Explanation and agent-facing helpers | explanation/summarization helpers plus bounded `why` and read-only variation previews over deterministic core logic | Closure-clean on `main` | `v0.17.0` | Preserve helper subordination to the deterministic domain core |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
@@ -437,8 +437,8 @@ exercise, recommendations, or matchmaking.
 
 Tracer 24 remains the tagged coaching line on `v0.15.0`, with `v0.15.1`
 reserved for the narrow hardening patch on that same line. The current
-repo/runtime closeout truth on `main` is Tracer 25 nutrition on the `v0.16.0`
-line. Later planned lines begin below.
+repo/runtime closeout truth on `main` is Tracer 26 helper truth on the
+`v0.17.0` line. Later planned lines begin below.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |

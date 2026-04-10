@@ -7,7 +7,7 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime closeout line on `main`: Tracer 25 `v0.16.0` line
+Current repo/runtime closeout line on `main`: Tracer 26 `v0.17.0` line
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -31,18 +31,22 @@ Current repo/runtime closeout line on `main`: Tracer 25 `v0.16.0` line
   are real in repo/runtime on `main` for the tagged `v0.14.0` line
 - Tracer 24 deterministic coaching substrate is tagged on the `v0.15.0` line,
   and `v0.15.1` is the narrow post-closeout hardening patch on that same line
-- Tracer 25 conservative nutrition substrate is now closure-clean in
+- Tracer 25 conservative nutrition substrate remains closure-clean in
   repo/runtime on `main`: typed non-clinical `nutrition_profile` inputs,
   owner-scoped meal template and meal-log truth, and deterministic read-only
   calorie/macro range recommendations over explicit inputs plus recent meal
   history
+- Tracer 26 explanation/helper runtime is now closure-clean in repo/runtime on
+  `main`: authenticated internal helper reads, bounded `why` flows, and
+  read-only variation previews over the existing deterministic coaching and
+  nutrition cores
 - deployment truth is still narrower than the full product surface
 
 ## Release Lines
 
 Tracer 24 remains tagged on `v0.15.0`, with `v0.15.1` reserved for the narrow
 hardening patch on that same line. The current repo/runtime closeout line on
-`main` is Tracer 25 nutrition on the `v0.16.0` line.
+`main` is Tracer 26 helper truth on the `v0.17.0` line.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
