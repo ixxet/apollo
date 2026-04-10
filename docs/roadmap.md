@@ -34,15 +34,18 @@ Latest tagged repo/runtime line: Tracer 23 `v0.14.0`
 ## Planned Release Lines
 
 The current repo/runtime closeout line on `main` is tagged Tracer 23 planner,
-template/loadout, and profile substrate on the `v0.14.0` release line. Later
-planned lines begin below.
+template/loadout, and profile substrate on the `v0.14.0` release line. The
+remaining pre-`Milestone 2.0` APOLLO substrate lines begin below.
 
 | Planned tag | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
 | historical `v0.6.1` note | Milestone 1.6 companion patch only if repo-local closure ever needs a backfill | treat this as historical closure context, not the active next line | do not present this as the active planned release line |
 | `v0.14.0` | planner, exercise library, templates / loadouts, and richer profile inputs | keep the line backend/CLI-first and bounded | do not widen into meaningful frontend work, workout instantiation, or recommendation logic |
-| `v0.15.0` | conservative deterministic fitness coaching plus calorie / macro ranges and low-friction meal logging | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
-| `v0.16.0` | explanation, summarization, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
+| `v0.15.0` | deterministic coaching substrate over planner, profile, and workout history | build on stable workout and planner foundations | do not let visits, departures, or profile state silently drive opaque coaching logic |
+| `v0.16.0` | conservative nutrition substrate with meal logging and calorie / macro ranges | keep it non-clinical and conservative | do not turn the product into a diet app or diagnostic engine |
+| `v0.17.0` | explanation, summarization, bounded AI helper flows, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
+| `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
+| `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 
 ## Versioning Discipline
 
@@ -61,9 +64,13 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 - keep eligibility and explicit lobby membership as separate state domains
 - do not infer workouts from arrivals or departures
 - do not infer recommendations from arrivals, departures, or visits
+- do not infer coaching or nutrition truth from presence or streak state alone
 - do not infer lobby membership from eligibility, visits, or physical presence
 - do not infer competition queue or assignment state from lobby membership
   alone
+- keep planner truth separate from coaching or nutrition proposals until apply
+- future AI/helper surfaces may propose structured diffs, but they must not
+  bypass domain validation, actor attribution, or capability checks
 - do not let match preview reads mutate membership, visits, workouts,
   recommendations, ARES tables, or competition execution state
 - do not let visit changes silently affect match preview output
@@ -87,5 +94,8 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 - `Tracer 21`: matchmaking / queue / assignment lifecycle
 - `Tracer 22`: result capture, ratings, rudimentary standings, and member stats
 - `Tracer 23`: planner/profile widening as backend/CLI-first truth
-- `Tracer 24`: deterministic coaching and conservative nutrition guidance
-- `Tracer 25`: explanation and thin agent-facing helper surfaces
+- `Tracer 24`: deterministic coaching substrate
+- `Tracer 25`: conservative nutrition substrate
+- `Tracer 26`: explanation and thin agent-facing helper surfaces
+- `Tracer 27`: member presence / tap-link / streak substrate
+- `Tracer 28`: role/authz and staff runtime boundary substrate
