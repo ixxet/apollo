@@ -28,6 +28,7 @@ import (
 	"github.com/ixxet/apollo/internal/membership"
 	"github.com/ixxet/apollo/internal/nutrition"
 	"github.com/ixxet/apollo/internal/planner"
+	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/server"
@@ -109,8 +110,10 @@ func newServeCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			repository := visits.NewRepository(pool)
-			service := visits.NewService(repository)
+			visitRepository := visits.NewRepository(pool)
+			visitService := visits.NewService(visitRepository)
+			presenceRepository := presence.NewRepository(pool)
+			presenceService := presence.NewService(presenceRepository, visitService)
 
 			consumerEnabled := false
 			var closeNATS func()
@@ -121,7 +124,7 @@ func newServeCmd() *cobra.Command {
 				}
 				closeNATS = conn.Close
 
-				arrivalHandler := consumer.NewIdentifiedPresenceHandler(service)
+				arrivalHandler := consumer.NewIdentifiedPresenceHandler(presenceService)
 				if _, err := conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
 					if _, err := arrivalHandler.HandleMessage(context.Background(), msg.Data); err != nil {
 						slog.Error("identified arrival consumer failed", "error", err)
@@ -131,7 +134,7 @@ func newServeCmd() *cobra.Command {
 					return err
 				}
 
-				departureHandler := consumer.NewIdentifiedDepartureHandler(service)
+				departureHandler := consumer.NewIdentifiedDepartureHandler(presenceService)
 				if _, err := conn.Subscribe(protoevents.SubjectIdentifiedPresenceDeparted, func(msg *nats.Msg) {
 					if _, err := departureHandler.HandleMessage(context.Background(), msg.Data); err != nil {
 						slog.Error("identified departure consumer failed", "error", err)
@@ -182,6 +185,9 @@ func newServeCmd() *cobra.Command {
 func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *auth.SessionCookieManager, sender auth.EmailSender, cfg config.Config) server.Dependencies {
 	authRepository := auth.NewRepository(pool)
 	authService := auth.NewService(authRepository, cookies, sender, cfg.VerificationTokenTTL, cfg.SessionTTL)
+	visitRepository := visits.NewRepository(pool)
+	visitService := visits.NewService(visitRepository)
+	presenceService := presence.NewService(presence.NewRepository(pool), visitService)
 	exerciseRepository := exercises.NewRepository(pool)
 	exerciseService := exercises.NewService(exerciseRepository)
 	plannerRepository := planner.NewRepository(pool)
@@ -202,6 +208,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 		Auth:            authService,
 		Competition:     competitionService,
 		Profile:         profileService,
+		Presence:        presenceService,
 		Exercises:       exerciseService,
 		Planner:         plannerService,
 		Eligibility:     eligibilityService,

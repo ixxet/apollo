@@ -23,6 +23,7 @@ import (
 	"github.com/ixxet/apollo/internal/membership"
 	"github.com/ixxet/apollo/internal/nutrition"
 	"github.com/ixxet/apollo/internal/planner"
+	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/workouts"
@@ -41,6 +42,10 @@ type Authenticator interface {
 type Profiler interface {
 	GetProfile(ctx context.Context, userID uuid.UUID) (profile.MemberProfile, error)
 	UpdateProfile(ctx context.Context, userID uuid.UUID, input profile.UpdateInput) (profile.MemberProfile, error)
+}
+
+type PresenceReader interface {
+	GetSummary(ctx context.Context, userID uuid.UUID) (presence.Summary, error)
 }
 
 type ExerciseCatalogReader interface {
@@ -130,6 +135,7 @@ type Dependencies struct {
 	Auth            Authenticator
 	Competition     CompetitionManager
 	Profile         Profiler
+	Presence        PresenceReader
 	Exercises       ExerciseCatalogReader
 	Planner         PlannerManager
 	Eligibility     EligibilityReader
@@ -306,6 +312,21 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, memberProfile)
+		})
+		authenticated.Get("/api/v1/presence", func(w http.ResponseWriter, r *http.Request) {
+			if deps.Presence == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("presence dependency is unavailable"))
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			summary, err := deps.Presence.GetSummary(r.Context(), principal.UserID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, summary)
 		})
 		authenticated.Get("/api/v1/planner/exercises", func(w http.ResponseWriter, r *http.Request) {
 			items, err := deps.Exercises.ListExercises(r.Context())

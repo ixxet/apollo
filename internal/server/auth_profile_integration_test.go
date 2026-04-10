@@ -25,10 +25,12 @@ import (
 	"github.com/ixxet/apollo/internal/membership"
 	"github.com/ixxet/apollo/internal/nutrition"
 	"github.com/ixxet/apollo/internal/planner"
+	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/store"
 	"github.com/ixxet/apollo/internal/testutil"
+	"github.com/ixxet/apollo/internal/visits"
 	"github.com/ixxet/apollo/internal/workouts"
 )
 
@@ -299,6 +301,9 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	}
 	sender := &integrationEmailSender{}
 	authService := auth.NewService(auth.NewRepository(db.DB), cookies, sender, 15*time.Minute, 7*24*time.Hour)
+	visitRepository := visits.NewRepository(db.DB)
+	visitService := visits.NewService(visitRepository)
+	presenceService := presence.NewService(presence.NewRepository(db.DB), visitService)
 	exerciseRepository := exercises.NewRepository(db.DB)
 	exerciseService := exercises.NewService(exerciseRepository)
 	plannerRepository := planner.NewRepository(db.DB)
@@ -320,6 +325,7 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 			Auth:            authService,
 			Competition:     competitionService,
 			Profile:         profileService,
+			Presence:        presenceService,
 			Exercises:       exerciseService,
 			Planner:         plannerService,
 			Eligibility:     eligibilityService,
