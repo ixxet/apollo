@@ -18,9 +18,11 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/cobra"
 
+	"github.com/google/uuid"
 	dbmigrations "github.com/ixxet/apollo/db/migrations"
 	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/coaching"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/config"
@@ -33,6 +35,7 @@ import (
 	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
+	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/server"
 	"github.com/ixxet/apollo/internal/sports"
 	"github.com/ixxet/apollo/internal/visits"
@@ -67,6 +70,7 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(newServeCmd())
 	rootCmd.AddCommand(newMigrateCmd())
+	rootCmd.AddCommand(newScheduleCmd())
 	rootCmd.AddCommand(newSportCmd())
 	rootCmd.AddCommand(newVisitCmd())
 
@@ -250,6 +254,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 	nutritionService := nutrition.NewService(nutrition.NewRepository(pool), profileService)
 	workoutService := workouts.NewService(workouts.NewRepository(pool))
 	competitionService := competition.NewService(competition.NewRepository(pool))
+	scheduleService := schedule.NewService(schedule.NewRepository(pool))
 
 	return server.Dependencies{
 		ConsumerEnabled: consumerEnabled,
@@ -263,6 +268,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 		Membership:      membershipService,
 		MatchPreview:    matchPreviewService,
 		Recommendations: recommendationService,
+		Schedule:        scheduleService,
 		Coaching:        coachingService,
 		Nutrition:       nutritionService,
 		Workouts:        workoutService,
@@ -360,6 +366,625 @@ func newVisitCmd() *cobra.Command {
 	visitCmd.AddCommand(listCmd)
 
 	return visitCmd
+}
+
+func newScheduleCmd() *cobra.Command {
+	scheduleCmd := &cobra.Command{
+		Use:   "schedule",
+		Short: "Read and author APOLLO schedule substrate truth.",
+	}
+
+	blockCmd := &cobra.Command{
+		Use:   "block",
+		Short: "Manage schedule blocks.",
+	}
+	resourceCmd := &cobra.Command{
+		Use:   "resource",
+		Short: "Manage schedule resources.",
+	}
+	resourceEdgeCmd := &cobra.Command{
+		Use:   "edge",
+		Short: "Manage schedule resource edges.",
+	}
+
+	scheduleCmd.AddCommand(blockCmd)
+	scheduleCmd.AddCommand(resourceCmd)
+	scheduleCmd.AddCommand(newScheduleCalendarCmd())
+
+	blockCmd.AddCommand(newScheduleBlockListCmd())
+	blockCmd.AddCommand(newScheduleBlockCreateCmd())
+	blockCmd.AddCommand(newScheduleBlockExceptCmd())
+	blockCmd.AddCommand(newScheduleBlockCancelCmd())
+
+	resourceCmd.AddCommand(newScheduleResourceListCmd())
+	resourceCmd.AddCommand(newScheduleResourceShowCmd())
+	resourceCmd.AddCommand(newScheduleResourceUpsertCmd())
+	resourceCmd.AddCommand(resourceEdgeCmd)
+	resourceEdgeCmd.AddCommand(newScheduleResourceEdgeUpsertCmd())
+
+	return scheduleCmd
+}
+
+func newScheduleCalendarCmd() *cobra.Command {
+	var facilityKey string
+	var from string
+	var until string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "calendar",
+		Short: "Read schedule occurrences for a facility.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openScheduleService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			windowFrom, windowUntil, err := parseScheduleWindow(from, until)
+			if err != nil {
+				return err
+			}
+			occurrences, err := service.GetCalendar(cmd.Context(), facilityKey, schedule.CalendarWindow{From: windowFrom, Until: windowUntil})
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, occurrences)
+			case "text":
+				for _, occurrence := range occurrences {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s %s %s\n", occurrence.OccurrenceDate, occurrence.Scope, occurrence.Kind, occurrence.StartsAt.UTC().Format(time.RFC3339), occurrence.EndsAt.UTC().Format(time.RFC3339)); err != nil {
+						return err
+					}
+				}
+				return nil
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&facilityKey, "facility-key", "", "facility key to query")
+	cmd.Flags().StringVar(&from, "from", "", "window start (RFC3339)")
+	cmd.Flags().StringVar(&until, "until", "", "window end (RFC3339)")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("facility-key")
+	_ = cmd.MarkFlagRequired("from")
+	_ = cmd.MarkFlagRequired("until")
+	return cmd
+}
+
+func newScheduleBlockListCmd() *cobra.Command {
+	var facilityKey string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List schedule blocks for a facility.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openScheduleService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			blocks, err := service.ListBlocks(cmd.Context(), facilityKey)
+			if err != nil {
+				return err
+			}
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, blocks)
+			case "text":
+				for _, block := range blocks {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s %s %s %s\n", block.ID, block.Scope, block.ScheduleType, block.Kind, block.Effect, block.Visibility); err != nil {
+						return err
+					}
+				}
+				return nil
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&facilityKey, "facility-key", "", "facility key to query")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("facility-key")
+	return cmd
+}
+
+func newScheduleBlockCreateCmd() *cobra.Command {
+	var facilityKey string
+	var zoneKey string
+	var resourceKey string
+	var scope string
+	var kind string
+	var effect string
+	var visibility string
+	var oneOffStartsAt string
+	var oneOffEndsAt string
+	var weeklyWeekday int
+	var weeklyStartTime string
+	var weeklyEndTime string
+	var weeklyTimezone string
+	var weeklyRecurrenceStartDate string
+	var weeklyRecurrenceEndDate string
+	var actorUserID string
+	var actorSessionID string
+	var actorRole string
+	var trustedSurfaceKey string
+	var trustedSurfaceLabel string
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a schedule block.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openScheduleService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			actor, err := parseScheduleActor(cmd, actorUserID, actorSessionID, actorRole, trustedSurfaceKey, trustedSurfaceLabel, authz.CapabilityScheduleManage, false)
+			if err != nil {
+				return err
+			}
+
+			var input schedule.BlockInput
+			input.FacilityKey = facilityKey
+			input.Scope = scope
+			input.Kind = kind
+			input.Effect = effect
+			input.Visibility = visibility
+			if zoneKey != "" {
+				input.ZoneKey = &zoneKey
+			}
+			if resourceKey != "" {
+				input.ResourceKey = &resourceKey
+			}
+
+			if oneOffStartsAt != "" || oneOffEndsAt != "" {
+				startsAt, err := time.Parse(time.RFC3339, oneOffStartsAt)
+				if err != nil {
+					return err
+				}
+				endsAt, err := time.Parse(time.RFC3339, oneOffEndsAt)
+				if err != nil {
+					return err
+				}
+				input.OneOff = &schedule.OneOffInput{StartsAt: startsAt, EndsAt: endsAt}
+			} else {
+				weekly := schedule.WeeklyInput{
+					Weekday:             weeklyWeekday,
+					StartTime:           weeklyStartTime,
+					EndTime:             weeklyEndTime,
+					Timezone:            weeklyTimezone,
+					RecurrenceStartDate: weeklyRecurrenceStartDate,
+				}
+				if weeklyRecurrenceEndDate != "" {
+					weekly.RecurrenceEndDate = &weeklyRecurrenceEndDate
+				}
+				input.Weekly = &weekly
+			}
+
+			block, err := service.CreateBlock(cmd.Context(), actor, input)
+			if err != nil {
+				return err
+			}
+			return writeJSONOutput(cmd, block)
+		},
+	}
+	cmd.Flags().StringVar(&facilityKey, "facility-key", "", "facility key")
+	cmd.Flags().StringVar(&zoneKey, "zone-key", "", "zone key")
+	cmd.Flags().StringVar(&resourceKey, "resource-key", "", "resource key")
+	cmd.Flags().StringVar(&scope, "scope", "", "scope")
+	cmd.Flags().StringVar(&kind, "kind", "", "block kind")
+	cmd.Flags().StringVar(&effect, "effect", "", "block effect")
+	cmd.Flags().StringVar(&visibility, "visibility", "", "visibility")
+	cmd.Flags().StringVar(&oneOffStartsAt, "one-off-starts-at", "", "one-off start RFC3339")
+	cmd.Flags().StringVar(&oneOffEndsAt, "one-off-ends-at", "", "one-off end RFC3339")
+	cmd.Flags().IntVar(&weeklyWeekday, "weekly-weekday", 0, "weekly weekday 1-7")
+	cmd.Flags().StringVar(&weeklyStartTime, "weekly-start-time", "", "weekly start HH:MM")
+	cmd.Flags().StringVar(&weeklyEndTime, "weekly-end-time", "", "weekly end HH:MM")
+	cmd.Flags().StringVar(&weeklyTimezone, "weekly-timezone", "", "weekly timezone")
+	cmd.Flags().StringVar(&weeklyRecurrenceStartDate, "weekly-recurrence-start-date", "", "weekly recurrence start date")
+	cmd.Flags().StringVar(&weeklyRecurrenceEndDate, "weekly-recurrence-end-date", "", "weekly recurrence end date")
+	cmd.Flags().StringVar(&actorUserID, "actor-user-id", "", "actor user id")
+	cmd.Flags().StringVar(&actorSessionID, "actor-session-id", "", "actor session id")
+	cmd.Flags().StringVar(&actorRole, "actor-role", "", "actor role")
+	cmd.Flags().StringVar(&trustedSurfaceKey, "trusted-surface-key", "", "trusted surface key")
+	cmd.Flags().StringVar(&trustedSurfaceLabel, "trusted-surface-label", "", "trusted surface label")
+	_ = cmd.MarkFlagRequired("facility-key")
+	_ = cmd.MarkFlagRequired("scope")
+	_ = cmd.MarkFlagRequired("kind")
+	_ = cmd.MarkFlagRequired("effect")
+	_ = cmd.MarkFlagRequired("visibility")
+	_ = cmd.MarkFlagRequired("actor-user-id")
+	_ = cmd.MarkFlagRequired("actor-session-id")
+	_ = cmd.MarkFlagRequired("actor-role")
+	_ = cmd.MarkFlagRequired("trusted-surface-key")
+	return cmd
+}
+
+func newScheduleBlockExceptCmd() *cobra.Command {
+	var blockID string
+	var expectedVersion int
+	var exceptionDate string
+	var actorUserID string
+	var actorSessionID string
+	var actorRole string
+	var trustedSurfaceKey string
+	var trustedSurfaceLabel string
+
+	cmd := &cobra.Command{
+		Use:   "except",
+		Short: "Add a date exception to a weekly block.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openScheduleService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			id, err := uuid.Parse(blockID)
+			if err != nil {
+				return err
+			}
+			actor, err := parseScheduleActor(cmd, actorUserID, actorSessionID, actorRole, trustedSurfaceKey, trustedSurfaceLabel, authz.CapabilityScheduleManage, false)
+			if err != nil {
+				return err
+			}
+			block, err := service.AddException(cmd.Context(), actor, id, expectedVersion, schedule.BlockExceptionInput{ExceptionDate: exceptionDate})
+			if err != nil {
+				return err
+			}
+			return writeJSONOutput(cmd, block)
+		},
+	}
+	cmd.Flags().StringVar(&blockID, "block-id", "", "block id")
+	cmd.Flags().IntVar(&expectedVersion, "expected-version", 0, "expected version")
+	cmd.Flags().StringVar(&exceptionDate, "exception-date", "", "exception date")
+	cmd.Flags().StringVar(&actorUserID, "actor-user-id", "", "actor user id")
+	cmd.Flags().StringVar(&actorSessionID, "actor-session-id", "", "actor session id")
+	cmd.Flags().StringVar(&actorRole, "actor-role", "", "actor role")
+	cmd.Flags().StringVar(&trustedSurfaceKey, "trusted-surface-key", "", "trusted surface key")
+	cmd.Flags().StringVar(&trustedSurfaceLabel, "trusted-surface-label", "", "trusted surface label")
+	_ = cmd.MarkFlagRequired("block-id")
+	_ = cmd.MarkFlagRequired("expected-version")
+	_ = cmd.MarkFlagRequired("exception-date")
+	_ = cmd.MarkFlagRequired("actor-user-id")
+	_ = cmd.MarkFlagRequired("actor-session-id")
+	_ = cmd.MarkFlagRequired("actor-role")
+	_ = cmd.MarkFlagRequired("trusted-surface-key")
+	return cmd
+}
+
+func newScheduleBlockCancelCmd() *cobra.Command {
+	var blockID string
+	var expectedVersion int
+	var actorUserID string
+	var actorSessionID string
+	var actorRole string
+	var trustedSurfaceKey string
+	var trustedSurfaceLabel string
+
+	cmd := &cobra.Command{
+		Use:   "cancel",
+		Short: "Cancel a schedule block.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openScheduleService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			id, err := uuid.Parse(blockID)
+			if err != nil {
+				return err
+			}
+			actor, err := parseScheduleActor(cmd, actorUserID, actorSessionID, actorRole, trustedSurfaceKey, trustedSurfaceLabel, authz.CapabilityScheduleManage, false)
+			if err != nil {
+				return err
+			}
+			block, err := service.CancelBlock(cmd.Context(), actor, id, expectedVersion)
+			if err != nil {
+				return err
+			}
+			return writeJSONOutput(cmd, block)
+		},
+	}
+	cmd.Flags().StringVar(&blockID, "block-id", "", "block id")
+	cmd.Flags().IntVar(&expectedVersion, "expected-version", 0, "expected version")
+	cmd.Flags().StringVar(&actorUserID, "actor-user-id", "", "actor user id")
+	cmd.Flags().StringVar(&actorSessionID, "actor-session-id", "", "actor session id")
+	cmd.Flags().StringVar(&actorRole, "actor-role", "", "actor role")
+	cmd.Flags().StringVar(&trustedSurfaceKey, "trusted-surface-key", "", "trusted surface key")
+	cmd.Flags().StringVar(&trustedSurfaceLabel, "trusted-surface-label", "", "trusted surface label")
+	_ = cmd.MarkFlagRequired("block-id")
+	_ = cmd.MarkFlagRequired("expected-version")
+	_ = cmd.MarkFlagRequired("actor-user-id")
+	_ = cmd.MarkFlagRequired("actor-session-id")
+	_ = cmd.MarkFlagRequired("actor-role")
+	_ = cmd.MarkFlagRequired("trusted-surface-key")
+	return cmd
+}
+
+func newScheduleResourceListCmd() *cobra.Command {
+	var facilityKey string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List schedule resources for a facility.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openScheduleService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			rows, err := service.ListResources(cmd.Context(), facilityKey)
+			if err != nil {
+				return err
+			}
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, rows)
+			case "text":
+				for _, row := range rows {
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", row.ResourceKey, row.ResourceType, row.DisplayName); err != nil {
+						return err
+					}
+				}
+				return nil
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&facilityKey, "facility-key", "", "facility key")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("facility-key")
+	return cmd
+}
+
+func newScheduleResourceShowCmd() *cobra.Command {
+	var resourceKey string
+
+	cmd := &cobra.Command{
+		Use:   "show",
+		Short: "Show a schedule resource.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openScheduleService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			row, err := service.GetResource(cmd.Context(), resourceKey)
+			if err != nil {
+				return err
+			}
+			return writeJSONOutput(cmd, row)
+		},
+	}
+	cmd.Flags().StringVar(&resourceKey, "resource-key", "", "resource key")
+	_ = cmd.MarkFlagRequired("resource-key")
+	return cmd
+}
+
+func newScheduleResourceUpsertCmd() *cobra.Command {
+	var resourceKey string
+	var facilityKey string
+	var zoneKey string
+	var resourceType string
+	var displayName string
+	var publicLabel string
+	var bookable bool
+	var active bool
+	var actorUserID string
+	var actorSessionID string
+	var actorRole string
+	var trustedSurfaceKey string
+	var trustedSurfaceLabel string
+
+	cmd := &cobra.Command{
+		Use:   "upsert",
+		Short: "Upsert a schedule resource.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openScheduleService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			actor, err := parseScheduleActor(cmd, actorUserID, actorSessionID, actorRole, trustedSurfaceKey, trustedSurfaceLabel, authz.CapabilityScheduleManage, true)
+			if err != nil {
+				return err
+			}
+			input := schedule.ResourceInput{
+				ResourceKey:  resourceKey,
+				FacilityKey:  facilityKey,
+				ResourceType: resourceType,
+				DisplayName:  displayName,
+				Bookable:     bookable,
+				Active:       active,
+			}
+			if zoneKey != "" {
+				input.ZoneKey = &zoneKey
+			}
+			if publicLabel != "" {
+				input.PublicLabel = &publicLabel
+			}
+
+			row, err := service.UpsertResource(cmd.Context(), actor, input)
+			if err != nil {
+				return err
+			}
+			return writeJSONOutput(cmd, row)
+		},
+	}
+	cmd.Flags().StringVar(&resourceKey, "resource-key", "", "resource key")
+	cmd.Flags().StringVar(&facilityKey, "facility-key", "", "facility key")
+	cmd.Flags().StringVar(&zoneKey, "zone-key", "", "zone key")
+	cmd.Flags().StringVar(&resourceType, "resource-type", "", "resource type")
+	cmd.Flags().StringVar(&displayName, "display-name", "", "display name")
+	cmd.Flags().StringVar(&publicLabel, "public-label", "", "public label")
+	cmd.Flags().BoolVar(&bookable, "bookable", true, "bookable")
+	cmd.Flags().BoolVar(&active, "active", true, "active")
+	cmd.Flags().StringVar(&actorUserID, "actor-user-id", "", "actor user id")
+	cmd.Flags().StringVar(&actorSessionID, "actor-session-id", "", "actor session id")
+	cmd.Flags().StringVar(&actorRole, "actor-role", "", "actor role")
+	cmd.Flags().StringVar(&trustedSurfaceKey, "trusted-surface-key", "", "trusted surface key")
+	cmd.Flags().StringVar(&trustedSurfaceLabel, "trusted-surface-label", "", "trusted surface label")
+	_ = cmd.MarkFlagRequired("resource-key")
+	_ = cmd.MarkFlagRequired("facility-key")
+	_ = cmd.MarkFlagRequired("resource-type")
+	_ = cmd.MarkFlagRequired("display-name")
+	_ = cmd.MarkFlagRequired("actor-user-id")
+	_ = cmd.MarkFlagRequired("actor-session-id")
+	_ = cmd.MarkFlagRequired("actor-role")
+	_ = cmd.MarkFlagRequired("trusted-surface-key")
+	return cmd
+}
+
+func newScheduleResourceEdgeUpsertCmd() *cobra.Command {
+	var resourceKey string
+	var relatedResourceKey string
+	var edgeType string
+	var actorUserID string
+	var actorSessionID string
+	var actorRole string
+	var trustedSurfaceKey string
+	var trustedSurfaceLabel string
+
+	cmd := &cobra.Command{
+		Use:   "upsert",
+		Short: "Upsert a schedule resource edge.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openScheduleService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			actor, err := parseScheduleActor(cmd, actorUserID, actorSessionID, actorRole, trustedSurfaceKey, trustedSurfaceLabel, authz.CapabilityScheduleManage, true)
+			if err != nil {
+				return err
+			}
+			row, err := service.UpsertResourceEdge(cmd.Context(), actor, schedule.ResourceEdgeInput{
+				ResourceKey:        resourceKey,
+				RelatedResourceKey: relatedResourceKey,
+				EdgeType:           edgeType,
+			})
+			if err != nil {
+				return err
+			}
+			return writeJSONOutput(cmd, row)
+		},
+	}
+	cmd.Flags().StringVar(&resourceKey, "resource-key", "", "resource key")
+	cmd.Flags().StringVar(&relatedResourceKey, "related-resource-key", "", "related resource key")
+	cmd.Flags().StringVar(&edgeType, "edge-type", "", "edge type")
+	cmd.Flags().StringVar(&actorUserID, "actor-user-id", "", "actor user id")
+	cmd.Flags().StringVar(&actorSessionID, "actor-session-id", "", "actor session id")
+	cmd.Flags().StringVar(&actorRole, "actor-role", "", "actor role")
+	cmd.Flags().StringVar(&trustedSurfaceKey, "trusted-surface-key", "", "trusted surface key")
+	cmd.Flags().StringVar(&trustedSurfaceLabel, "trusted-surface-label", "", "trusted surface label")
+	_ = cmd.MarkFlagRequired("resource-key")
+	_ = cmd.MarkFlagRequired("related-resource-key")
+	_ = cmd.MarkFlagRequired("edge-type")
+	_ = cmd.MarkFlagRequired("actor-user-id")
+	_ = cmd.MarkFlagRequired("actor-session-id")
+	_ = cmd.MarkFlagRequired("actor-role")
+	_ = cmd.MarkFlagRequired("trusted-surface-key")
+	return cmd
+}
+
+func openScheduleService(ctx context.Context) (*schedule.Service, *pgxpool.Pool, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pool, err := openPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return schedule.NewService(schedule.NewRepository(pool)), pool, nil
+}
+
+func parseScheduleActor(cmd *cobra.Command, actorUserID string, actorSessionID string, actorRole string, trustedSurfaceKey string, trustedSurfaceLabel string, capability authz.Capability, requireOwner bool) (schedule.StaffActor, error) {
+	userID, err := uuid.Parse(strings.TrimSpace(actorUserID))
+	if err != nil {
+		return schedule.StaffActor{}, err
+	}
+	sessionID, err := uuid.Parse(strings.TrimSpace(actorSessionID))
+	if err != nil {
+		return schedule.StaffActor{}, err
+	}
+	role, err := authz.NormalizeRole(strings.TrimSpace(actorRole))
+	if err != nil {
+		return schedule.StaffActor{}, err
+	}
+	if requireOwner && role != authz.RoleOwner {
+		return schedule.StaffActor{}, fmt.Errorf("schedule graph authoring requires owner role")
+	}
+	if !requireOwner && capability == authz.CapabilityScheduleManage && role != authz.RoleManager && role != authz.RoleOwner {
+		return schedule.StaffActor{}, fmt.Errorf("schedule writes require manager or owner role")
+	}
+	label := strings.TrimSpace(trustedSurfaceLabel)
+	if label == "" {
+		label = strings.TrimSpace(trustedSurfaceKey)
+	}
+	actor := schedule.StaffActor{
+		UserID:              userID,
+		SessionID:           sessionID,
+		Role:                role,
+		Capability:          capability,
+		TrustedSurfaceKey:   strings.TrimSpace(trustedSurfaceKey),
+		TrustedSurfaceLabel: label,
+	}
+	if err := scheduleValidateActor(actor); err != nil {
+		return schedule.StaffActor{}, err
+	}
+	_ = cmd
+	return actor, nil
+}
+
+func scheduleValidateActor(actor schedule.StaffActor) error {
+	if actor.UserID == uuid.Nil || actor.SessionID == uuid.Nil {
+		return fmt.Errorf("actor attribution is required")
+	}
+	if strings.TrimSpace(actor.TrustedSurfaceKey) == "" {
+		return fmt.Errorf("trusted surface key is required")
+	}
+	return nil
+}
+
+func parseScheduleWindow(from string, until string) (time.Time, time.Time, error) {
+	windowFrom, err := parseScheduleBoundary(from, false)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	windowUntil, err := parseScheduleBoundary(until, true)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	return windowFrom, windowUntil, nil
+}
+
+func parseScheduleBoundary(raw string, _ bool) (time.Time, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("window boundary is required")
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("window boundary must be RFC3339")
 }
 
 func newSportCmd() *cobra.Command {
