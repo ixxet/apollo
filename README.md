@@ -91,9 +91,9 @@ flowchart LR
 | --- | --- | --- | --- |
 | HTTP health | `GET /api/v1/health` | Real | Indicates service health and whether the NATS consumer is enabled |
 | Serve command | `apollo serve` | Real | Starts the health endpoint and optional NATS consumer |
-| Shell root | `GET /` | Real | Redirects to `/app/login` or `/app` based on whether the session cookie is valid |
+| Shell root | `GET /` | Real | Redirects to `/app/login` or `/app/home` based on whether the session cookie is valid |
 | Member login shell | `GET /app/login` | Real | Public HTML bootstrap for verification start + token verification over the existing auth APIs |
-| Member web shell | `GET /app` | Real | Protected HTML shell that reads profile, explicit lobby membership, deterministic match preview, workouts, and recommendation state through the existing JSON APIs and now replaces total bootstrap or refresh network failure with explicit recoverable error UI |
+| Member web shell | `GET /app`, `GET /app/{section}` | Real | Protected routed HTML shell over `/app/home`, `/app/workouts`, `/app/meals`, `/app/tournaments`, and `/app/settings`; it stays member-safe, keeps schedule and booking out until a real member-safe schedule read exists, and replaces total bootstrap or section failure with explicit recoverable UI |
 | Verification start | `POST /api/v1/auth/verification/start` | Real | Starts registration or passwordless sign-in with student ID + email |
 | Verification consume | `GET/POST /api/v1/auth/verify` | Real | Consumes a stored token, marks it used, verifies email ownership, and issues a signed session cookie |
 | Profile read | `GET /api/v1/profile` | Real | Requires a valid session cookie and returns persisted member profile state |
@@ -250,6 +250,8 @@ exercise, recommendations, or matchmaking.
 | Verification delivery | The default runtime is still dev-first; verification is easy to test locally but not yet a full production-grade delivery path | APOLLO proves ownership and sessions, but not yet a polished end-user delivery experience |
 | Claimed tags | `apollo.claimed_tags` is real schema and runtime dependency, but there is still no end-user flow to manage tag linkage | Visit ingest is narrower than the eventual member-account model |
 | Product shell | The current line now has one narrow embedded member shell only and Phase 2 keeps it that way | Do not confuse one authenticated shell with a full product frontend, offline support, or broader design-system work |
+| Calendar window contract | Staff schedule calendar reads are RFC3339-only on purpose | Later user-friendly date pickers or labels must still compile down to explicit RFC3339 window boundaries instead of reintroducing ambiguous date-only semantics |
+| Admin role | APOLLO still has no distinct admin role | Owner currently stands in for the owner/admin CLI posture; any future admin parity must be an explicit authz widening, not an assumption |
 | ARES and recommendation persistence | Runtime scope now includes a deterministic match preview read, but historical ARES writes and recommendation persistence are still deferred | Readers should not mistake the preview runtime for assignment, invitations, notifications, or stored coaching |
 
 ## Current State Block
@@ -324,16 +326,26 @@ exercise, recommendations, or matchmaking.
   local/runtime and returns conservative calorie/macro range output with
   strategy flags plus structured non-clinical limitations over explicit
   profile/history inputs only
-- `GET /`, `GET /app/login`, and protected `GET /app` are real and provide one
-  minimal member web shell over the already-real auth, profile, workout, and
-  recommendation APIs
-- the web shell stays API-backed and backend-authoritative: it does not invent
-  recommendation state, it does not optimistic-write workout transitions, and
-  it does not bypass session ownership checks
-- the web shell now shows one narrow lobby membership panel with explicit
-  `Join` and `Leave` actions over the real membership APIs
-- the web shell now shows one narrow read-only match preview panel with grouped
-  matches, reasons, unmatched members, and explicit failure state without
+- `GET /`, `GET /app/login`, protected `GET /app`, and protected
+  `GET /app/{home,workouts,meals,tournaments,settings}` are real and provide
+  one routed embedded member shell over the already-real auth, profile,
+  presence, planner, workout, nutrition, lobby, match-preview, competition
+  member-stats, and recommendation APIs
+- the member shell stays API-backed and backend-authoritative: it does not
+  invent recommendation state, it does not optimistic-write workout or settings
+  transitions, it does not bypass session ownership checks, and it does not
+  consume staff schedule routes
+- the member shell makes section boundaries explicit where member-safe backend
+  truth does not yet exist, so schedule and booking stay out instead of being
+  faked through staff surfaces
+- the member shell now keeps one stable nav/frame posture across home,
+  workouts, meals, tournaments, and settings while keeping failure and retry
+  state scoped to the shell or section that actually failed
+- the member shell continues to show one narrow lobby membership panel with
+  explicit `Join` and `Leave` actions over the real membership APIs
+- the member shell continues to show one narrow read-only match preview panel
+  with grouped matches, reasons, unmatched members, and explicit failure state
+  without
   adding action buttons
 - total shell bootstrap or refresh network failure now replaces loading copy
   with explicit recoverable error states for profile, membership, match
@@ -497,7 +509,7 @@ lines begin below.
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
-| later than `v0.19.1` | `Phase 3 shared substrate B` on `main`: APOLLO-owned scheduling and booking substrate over facility/zone refs, bookable resource refs, schedule blocks, and resource-graph truth | keep the first line staff-first, keep calendar windows RFC3339-only, keep weekly recurrence block-timezone based, make `active`/`bookable` authoritative for inventory claims, and keep graph authoring on migrations plus owner/admin CLI first | do not widen into business booking requests, quotes/payments, public booking entrypoint, dashboards, prediction, AI summaries, or HERMES write orchestration |
+| later than `v0.19.1` | `Phase 3A.1 member shell foundation` on `main`: routed embedded member shell posture over already-real member-safe APIs plus the closed Phase 3 shared substrate B schedule runtime beneath it | keep the shell APOLLO-only and embedded-only, keep section truth bounded to real member-safe APIs, keep schedule out until a real member-safe read exists, and remember owner currently stands in for owner/admin CLI posture until APOLLO has a distinct admin role | do not widen into `ashton-web`, public booking, staff shell, manager UI, fake schedule UI, gateway widening, or HERMES work |
 
 ## Versioning Discipline
 

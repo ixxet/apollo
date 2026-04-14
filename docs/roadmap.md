@@ -58,6 +58,11 @@ the Milestone 2.0 hardening follow-up now closed on `v0.19.1`
   RFC3339-windowed calendar reads, block-timezone weekly recurrence, active +
   bookable inventory-claim gating, date exceptions, staff-gated reads, and
   staff-gated block writes are in place while deployed truth remains separate
+- Phase 3A.1 member shell foundation is now real in repo/runtime on `main`:
+  `/app/home`, `/app/workouts`, `/app/meals`, `/app/tournaments`, and
+  `/app/settings` now share one embedded member shell frame over already-real
+  member-safe APIs, section failures stay explicit and recoverable, and
+  schedule/booking stay out until a real member-safe schedule read exists
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
