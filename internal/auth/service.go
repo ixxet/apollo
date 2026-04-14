@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"slices"
 
 	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/store"
@@ -179,11 +180,14 @@ func (s *Service) AuthenticateSession(ctx context.Context, cookieValue string) (
 		return Principal{}, err
 	}
 
+	capabilities := append(authz.CapabilitiesForRole(session.Role), authz.ScheduleCapabilitiesForRole(session.Role)...)
+	slices.Sort(capabilities)
+
 	return Principal{
 		SessionID:    session.SessionID,
 		UserID:       session.UserID,
 		Role:         session.Role,
-		Capabilities: authz.CapabilitiesForRole(session.Role),
+		Capabilities: capabilities,
 	}, nil
 }
 

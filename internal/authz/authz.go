@@ -20,6 +20,8 @@ const (
 	CapabilityCompetitionRead            Capability = "competition_read"
 	CapabilityCompetitionLiveManage      Capability = "competition_live_manage"
 	CapabilityCompetitionStructureManage Capability = "competition_structure_manage"
+	CapabilityScheduleRead               Capability = "schedule_read"
+	CapabilityScheduleManage             Capability = "schedule_manage"
 )
 
 var (
@@ -37,6 +39,13 @@ var capabilitiesByRole = map[Role][]Capability{
 	RoleOwner:      {CapabilityCompetitionRead, CapabilityCompetitionLiveManage, CapabilityCompetitionStructureManage},
 }
 
+var scheduleCapabilitiesByRole = map[Role][]Capability{
+	RoleMember:     {},
+	RoleSupervisor: {CapabilityScheduleRead},
+	RoleManager:    {CapabilityScheduleManage, CapabilityScheduleRead},
+	RoleOwner:      {CapabilityScheduleManage, CapabilityScheduleRead},
+}
+
 func NormalizeRole(value string) (Role, error) {
 	role := Role(value)
 	if _, ok := capabilitiesByRole[role]; !ok {
@@ -48,6 +57,17 @@ func NormalizeRole(value string) (Role, error) {
 
 func CapabilitiesForRole(role Role) []Capability {
 	capabilities, ok := capabilitiesByRole[role]
+	if !ok {
+		return nil
+	}
+
+	cloned := append([]Capability(nil), capabilities...)
+	slices.Sort(cloned)
+	return cloned
+}
+
+func ScheduleCapabilitiesForRole(role Role) []Capability {
+	capabilities, ok := scheduleCapabilitiesByRole[role]
 	if !ok {
 		return nil
 	}

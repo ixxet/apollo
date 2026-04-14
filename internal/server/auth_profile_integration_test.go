@@ -29,6 +29,7 @@ import (
 	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
+	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/store"
 	"github.com/ixxet/apollo/internal/testutil"
 	"github.com/ixxet/apollo/internal/visits"
@@ -322,6 +323,7 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	coachingService := coaching.NewService(coaching.NewRepository(db.DB), plannerService, profileService)
 	nutritionService := nutrition.NewService(nutrition.NewRepository(db.DB), profileService)
 	workoutService := workouts.NewService(workouts.NewRepository(db.DB))
+	scheduleService := schedule.NewService(schedule.NewRepository(db.DB))
 
 	return &authProfileServerEnv{
 		db: db,
@@ -336,6 +338,7 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 			Membership:      membershipService,
 			MatchPreview:    matchPreviewService,
 			Recommendations: recommendationService,
+			Schedule:        scheduleService,
 			Coaching:        coachingService,
 			Nutrition:       nutritionService,
 			Workouts:        workoutService,
@@ -394,7 +397,7 @@ func (e *authProfileServerEnv) doRequestInternal(t *testing.T, method string, pa
 	if method == http.MethodPost || method == http.MethodPatch || method == http.MethodPut {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	if autoTrustedSurface && method == http.MethodPost && strings.HasPrefix(path, "/api/v1/competition/") {
+	if autoTrustedSurface && method == http.MethodPost && (strings.HasPrefix(path, "/api/v1/competition/") || strings.HasPrefix(path, "/api/v1/schedule/")) {
 		request.Header.Set(authz.TrustedSurfaceHeader, e.trustedSurfaceKey)
 		request.Header.Set(authz.TrustedSurfaceTokenHeader, e.trustedSurfaceToken)
 	}

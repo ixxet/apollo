@@ -27,6 +27,7 @@ import (
 	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
+	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/workouts"
 )
 
@@ -101,6 +102,14 @@ type RecommendationReader interface {
 	GetWorkoutRecommendation(ctx context.Context, userID uuid.UUID) (recommendations.WorkoutRecommendation, error)
 }
 
+type ScheduleManager interface {
+	ListBlocks(ctx context.Context, facilityKey string) ([]schedule.Block, error)
+	GetCalendar(ctx context.Context, facilityKey string, window schedule.CalendarWindow) ([]schedule.Occurrence, error)
+	CreateBlock(ctx context.Context, actor schedule.StaffActor, input schedule.BlockInput) (schedule.Block, error)
+	AddException(ctx context.Context, actor schedule.StaffActor, blockID uuid.UUID, expectedVersion int, input schedule.BlockExceptionInput) (schedule.Block, error)
+	CancelBlock(ctx context.Context, actor schedule.StaffActor, blockID uuid.UUID, expectedVersion int) (schedule.Block, error)
+}
+
 type CoachingManager interface {
 	GetCoachingRecommendation(ctx context.Context, userID uuid.UUID, weekStart string) (coaching.CoachingRecommendation, error)
 	GetHelperRead(ctx context.Context, userID uuid.UUID, weekStart string) (coaching.CoachingHelperRead, error)
@@ -143,6 +152,7 @@ type Dependencies struct {
 	Membership      MembershipManager
 	MatchPreview    MatchPreviewReader
 	Recommendations RecommendationReader
+	Schedule        ScheduleManager
 	Coaching        CoachingManager
 	Nutrition       NutritionManager
 	Workouts        WorkoutManager
@@ -203,6 +213,12 @@ type createCompetitionMatchRequest struct {
 
 type recordCompetitionMatchResultRequest struct {
 	Sides []competition.MatchResultSideInput `json:"sides"`
+}
+
+type scheduleBlockMutationRequest struct {
+	ExpectedVersion int                 `json:"expected_version"`
+	ExceptionDate   string              `json:"exception_date,omitempty"`
+	Block           schedule.BlockInput `json:"block,omitempty"`
 }
 
 type createWorkoutRequest struct {
@@ -818,6 +834,119 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, session)
+		}))
+		authenticated.Get("/api/v1/schedule/blocks", withScheduleAccess(authz.CapabilityScheduleRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ schedule.StaffActor) {
+			facilityKey := strings.TrimSpace(r.URL.Query().Get("facility_key"))
+			if facilityKey == "" {
+				writeError(w, http.StatusBadRequest, errors.New("facility_key is required"))
+				return
+			}
+
+			blocks, err := deps.Schedule.ListBlocks(r.Context(), facilityKey)
+			if err != nil {
+				writeScheduleError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, blocks)
+		}))
+		authenticated.Get("/api/v1/schedule/calendar", withScheduleAccess(authz.CapabilityScheduleRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ schedule.StaffActor) {
+			facilityKey := strings.TrimSpace(r.URL.Query().Get("facility_key"))
+			if facilityKey == "" {
+				writeError(w, http.StatusBadRequest, errors.New("facility_key is required"))
+				return
+			}
+
+			from, err := parseScheduleWindowBoundary(r.URL.Query().Get("from"), false)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			until, err := parseScheduleWindowBoundary(r.URL.Query().Get("until"), true)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			occurrences, err := deps.Schedule.GetCalendar(r.Context(), facilityKey, schedule.CalendarWindow{From: from, Until: until})
+			if err != nil {
+				writeScheduleError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, occurrences)
+		}))
+		authenticated.Post("/api/v1/schedule/blocks", withScheduleAccess(authz.CapabilityScheduleManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor schedule.StaffActor) {
+			var request schedule.BlockInput
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			block, err := deps.Schedule.CreateBlock(r.Context(), actor, request)
+			if err != nil {
+				writeScheduleError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, block)
+		}))
+		authenticated.Post("/api/v1/schedule/blocks/{blockID}/exceptions", withScheduleAccess(authz.CapabilityScheduleManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor schedule.StaffActor) {
+			blockID, err := parseUUIDParam(r, "blockID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request struct {
+				ExpectedVersion int    `json:"expected_version"`
+				ExceptionDate   string `json:"exception_date"`
+			}
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if request.ExpectedVersion <= 0 {
+				writeError(w, http.StatusBadRequest, errors.New("expected_version must be positive"))
+				return
+			}
+
+			block, err := deps.Schedule.AddException(r.Context(), actor, blockID, request.ExpectedVersion, schedule.BlockExceptionInput{
+				ExceptionDate: request.ExceptionDate,
+			})
+			if err != nil {
+				writeScheduleError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, block)
+		}))
+		authenticated.Post("/api/v1/schedule/blocks/{blockID}/cancel", withScheduleAccess(authz.CapabilityScheduleManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor schedule.StaffActor) {
+			blockID, err := parseUUIDParam(r, "blockID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request struct {
+				ExpectedVersion int `json:"expected_version"`
+			}
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if request.ExpectedVersion <= 0 {
+				writeError(w, http.StatusBadRequest, errors.New("expected_version must be positive"))
+				return
+			}
+
+			block, err := deps.Schedule.CancelBlock(r.Context(), actor, blockID, request.ExpectedVersion)
+			if err != nil {
+				writeScheduleError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, block)
 		}))
 		authenticated.Post("/api/v1/lobby/membership/join", func(w http.ResponseWriter, r *http.Request) {
 			principal := principalFromContext(r.Context())
@@ -1457,8 +1586,44 @@ func withCompetitionAccess(required authz.Capability, requireTrustedSurface bool
 	}
 }
 
+func withScheduleAccess(required authz.Capability, requireTrustedSurface bool, verifier *authz.TrustedSurfaceVerifier, next func(http.ResponseWriter, *http.Request, schedule.StaffActor)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		principal := principalFromContext(r.Context())
+		if !authz.HasCapability(principal.Capabilities, required) {
+			writeError(w, http.StatusForbidden, authz.ErrCapabilityDenied)
+			return
+		}
+
+		if requireTrustedSurface {
+			surface, err := verifier.VerifyRequest(r)
+			if err != nil {
+				writeError(w, http.StatusForbidden, err)
+				return
+			}
+			principal = principal.WithTrustedSurface(surface)
+		}
+
+		next(w, r, scheduleActorFromPrincipal(principal, required))
+	}
+}
+
 func competitionActorFromPrincipal(principal auth.Principal, capability authz.Capability) competition.StaffActor {
 	actor := competition.StaffActor{
+		UserID:     principal.UserID,
+		Role:       principal.Role,
+		SessionID:  principal.SessionID,
+		Capability: capability,
+	}
+	if principal.TrustedSurface != nil {
+		actor.TrustedSurfaceKey = principal.TrustedSurface.Key
+		actor.TrustedSurfaceLabel = principal.TrustedSurface.Label
+	}
+
+	return actor
+}
+
+func scheduleActorFromPrincipal(principal auth.Principal, capability authz.Capability) schedule.StaffActor {
+	actor := schedule.StaffActor{
 		UserID:     principal.UserID,
 		Role:       principal.Role,
 		SessionID:  principal.SessionID,
@@ -1631,6 +1796,65 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 	default:
 		writeError(w, http.StatusInternalServerError, err)
 	}
+}
+
+func writeScheduleError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, schedule.ErrResourceNotFound), errors.Is(err, schedule.ErrBlockNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, schedule.ErrBlockVersionStale):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, schedule.ErrBlockConflictRejected),
+		errors.Is(err, schedule.ErrBlockResourceNotClaimable),
+		errors.Is(err, schedule.ErrBlockClaimableScopeEmpty),
+		errors.Is(err, schedule.ErrBlockOperatingHoursOverlap),
+		errors.Is(err, schedule.ErrBlockCancelled):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, schedule.ErrResourceKeyRequired),
+		errors.Is(err, schedule.ErrResourceTypeRequired),
+		errors.Is(err, schedule.ErrResourceDisplayNameRequired),
+		errors.Is(err, schedule.ErrResourceFacilityRequired),
+		errors.Is(err, schedule.ErrResourceFacilityInvalid),
+		errors.Is(err, schedule.ErrResourceZoneInvalid),
+		errors.Is(err, schedule.ErrResourceEdgeInvalid),
+		errors.Is(err, schedule.ErrResourceEdgeSelfReference),
+		errors.Is(err, schedule.ErrResourceEdgeCycle),
+		errors.Is(err, schedule.ErrBlockScopeInvalid),
+		errors.Is(err, schedule.ErrBlockShapeInvalid),
+		errors.Is(err, schedule.ErrBlockKindInvalid),
+		errors.Is(err, schedule.ErrBlockEffectInvalid),
+		errors.Is(err, schedule.ErrBlockVisibilityInvalid),
+		errors.Is(err, schedule.ErrBlockTimezoneRequired),
+		errors.Is(err, schedule.ErrBlockRecurrenceInvalid),
+		errors.Is(err, schedule.ErrBlockDateWindowInvalid),
+		errors.Is(err, schedule.ErrBlockDateWindowTooLarge),
+		errors.Is(err, schedule.ErrExceptionDateRequired),
+		errors.Is(err, schedule.ErrExceptionNotAllowed),
+		errors.Is(err, schedule.ErrExceptionWindowInvalid),
+		errors.Is(err, schedule.ErrActorAttributionRequired),
+		errors.Is(err, schedule.ErrActorTrustedSurfaceMissing):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, authz.ErrCapabilityDenied),
+		errors.Is(err, authz.ErrTrustedSurfaceMissing),
+		errors.Is(err, authz.ErrTrustedSurfaceKey),
+		errors.Is(err, authz.ErrTrustedSurfaceInvalid):
+		writeError(w, http.StatusForbidden, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
+}
+
+func parseScheduleWindowBoundary(raw string, _ bool) (time.Time, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return time.Time{}, errors.New("from and until are required")
+	}
+
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed.UTC(), nil
+	}
+
+	return time.Time{}, errors.New("from and until must be RFC3339")
 }
 
 func writePlannerError(w http.ResponseWriter, err error) {
