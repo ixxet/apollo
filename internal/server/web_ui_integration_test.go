@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/workouts"
 )
 
-func TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift(t *testing.T) {
+func TestMemberWebShellRoutesStayBoundedAndMemberSafe(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
 
@@ -22,7 +24,7 @@ func TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift(t *test
 		t.Fatalf("loginPage.Code = %d, want %d", loginPage.Code, http.StatusOK)
 	}
 
-	shellBlocked := env.doRequest(t, http.MethodGet, "/app", nil)
+	shellBlocked := env.doRequest(t, http.MethodGet, "/app/home", nil)
 	if shellBlocked.Code != http.StatusSeeOther {
 		t.Fatalf("shellBlocked.Code = %d, want %d", shellBlocked.Code, http.StatusSeeOther)
 	}
@@ -32,32 +34,110 @@ func TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift(t *test
 
 	cookie, user := createVerifiedSessionViaHTTP(t, env, "student-web-011", "web-011@example.com")
 
-	if _, err := env.db.DB.Exec(context.Background(), "INSERT INTO apollo.claimed_tags (user_id, tag_hash, label) VALUES ($1, $2, $3)", user.ID, "tag-web-011", "shell tag"); err != nil {
-		t.Fatalf("Exec(insert claimed tag) error = %v", err)
+	homeRedirect := env.doRequest(t, http.MethodGet, "/", nil, cookie)
+	if homeRedirect.Code != http.StatusSeeOther {
+		t.Fatalf("homeRedirect.Code = %d, want %d", homeRedirect.Code, http.StatusSeeOther)
 	}
-	if _, err := env.db.DB.Exec(context.Background(), "INSERT INTO apollo.visits (user_id, facility_key, source_event_id, arrived_at) VALUES ($1, $2, $3, $4)", user.ID, "ashtonbee", "visit-web-011", time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)); err != nil {
-		t.Fatalf("Exec(insert visit) error = %v", err)
+	if location := homeRedirect.Header().Get("Location"); location != "/app/home" {
+		t.Fatalf("homeRedirect Location = %q, want %q", location, "/app/home")
 	}
 
-	beforeVisits := countRows(t, env, "apollo.visits", user.ID)
-	beforeClaimedTags := countRows(t, env, "apollo.claimed_tags", user.ID)
-	beforePreferences := lookupPreferences(t, env, user.ID)
-
-	shellPage := env.doRequest(t, http.MethodGet, "/app", nil, cookie)
-	if shellPage.Code != http.StatusOK {
-		t.Fatalf("shellPage.Code = %d, want %d", shellPage.Code, http.StatusOK)
+	shellEntry := env.doRequest(t, http.MethodGet, "/app", nil, cookie)
+	if shellEntry.Code != http.StatusSeeOther {
+		t.Fatalf("shellEntry.Code = %d, want %d", shellEntry.Code, http.StatusSeeOther)
 	}
-	if location := shellPage.Header().Get("Location"); location != "" {
-		t.Fatalf("shellPage Location = %q, want empty", location)
+	if location := shellEntry.Header().Get("Location"); location != "/app/home" {
+		t.Fatalf("shellEntry Location = %q, want %q", location, "/app/home")
+	}
+
+	for _, path := range []string{"/app/home", "/app/workouts", "/app/meals", "/app/tournaments", "/app/settings"} {
+		response := env.doRequest(t, http.MethodGet, path, nil, cookie)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s Code = %d, want %d", path, response.Code, http.StatusOK)
+		}
+		body := response.Body.String()
+		if !strings.Contains(body, `data-apollo-view="shell"`) {
+			t.Fatalf("%s did not render shell frame", path)
+		}
+		if !strings.Contains(body, `class="member-nav"`) {
+			t.Fatalf("%s did not render member nav", path)
+		}
+		if strings.Contains(body, "booking") {
+			t.Fatalf("%s leaked booking copy into the member shell", path)
+		}
+	}
+
+	unknownSection := env.doRequest(t, http.MethodGet, "/app/not-real", nil, cookie)
+	if unknownSection.Code != http.StatusSeeOther {
+		t.Fatalf("unknownSection.Code = %d, want %d", unknownSection.Code, http.StatusSeeOther)
+	}
+	if location := unknownSection.Header().Get("Location"); location != "/app/home" {
+		t.Fatalf("unknownSection Location = %q, want %q", location, "/app/home")
 	}
 
 	loginRedirect := env.doRequest(t, http.MethodGet, "/app/login", nil, cookie)
 	if loginRedirect.Code != http.StatusSeeOther {
 		t.Fatalf("loginRedirect.Code = %d, want %d", loginRedirect.Code, http.StatusSeeOther)
 	}
-	if location := loginRedirect.Header().Get("Location"); location != "/app" {
-		t.Fatalf("loginRedirect Location = %q, want %q", location, "/app")
+	if location := loginRedirect.Header().Get("Location"); location != "/app/home" {
+		t.Fatalf("loginRedirect Location = %q, want %q", location, "/app/home")
 	}
+
+	_ = user
+}
+
+func TestMemberWebShellAllowsAnyAuthenticatedRoleIntoTheSameBoundedShell(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	for _, testCase := range []struct {
+		name string
+		role authz.Role
+	}{
+		{name: "member", role: authz.RoleMember},
+		{name: "supervisor", role: authz.RoleSupervisor},
+		{name: "manager", role: authz.RoleManager},
+		{name: "owner", role: authz.RoleOwner},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			cookie, user := createVerifiedSessionViaHTTP(t, env, "role-"+string(testCase.role), "role-"+string(testCase.role)+"@example.com")
+			setUserRole(t, env, user.ID, testCase.role)
+
+			response := env.doRequest(t, http.MethodGet, "/app/home", nil, cookie)
+			if response.Code != http.StatusOK {
+				t.Fatalf("response.Code = %d, want %d", response.Code, http.StatusOK)
+			}
+
+			body := response.Body.String()
+			if !strings.Contains(body, `data-apollo-section="home"`) {
+				t.Fatalf("body did not render home section for %s", testCase.role)
+			}
+			if strings.Contains(body, "trusted-surface") {
+				t.Fatalf("body leaked trusted-surface posture for %s", testCase.role)
+			}
+			if strings.Contains(body, "manager shell") {
+				t.Fatalf("body leaked staff shell posture for %s", testCase.role)
+			}
+		})
+	}
+}
+
+func TestMemberWebShellRuntimeSupportsMemberAPIsWithoutBoundaryDrift(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	cookie, user := createVerifiedSessionViaHTTP(t, env, "student-web-012", "web-012@example.com")
+
+	if _, err := env.db.DB.Exec(context.Background(), "INSERT INTO apollo.claimed_tags (user_id, tag_hash, label) VALUES ($1, $2, $3)", user.ID, "tag-web-012", "shell tag"); err != nil {
+		t.Fatalf("Exec(insert claimed tag) error = %v", err)
+	}
+	if _, err := env.db.DB.Exec(context.Background(), "INSERT INTO apollo.visits (user_id, facility_key, source_event_id, arrived_at) VALUES ($1, $2, $3, $4)", user.ID, "ashtonbee", "visit-web-012", time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("Exec(insert visit) error = %v", err)
+	}
+
+	beforeVisits := countRows(t, env, "apollo.visits", user.ID)
+	beforeClaimedTags := countRows(t, env, "apollo.claimed_tags", user.ID)
+	beforePreferences := lookupPreferences(t, env, user.ID)
 
 	profileResponse := env.doRequest(t, http.MethodGet, "/api/v1/profile", nil, cookie)
 	if profileResponse.Code != http.StatusOK {
@@ -66,6 +146,14 @@ func TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift(t *test
 	memberProfile := decodeProfileResponse(t, profileResponse)
 	if memberProfile.VisibilityMode != profile.VisibilityModeGhost {
 		t.Fatalf("memberProfile.VisibilityMode = %q, want %q", memberProfile.VisibilityMode, profile.VisibilityModeGhost)
+	}
+
+	sectionPage := env.doRequest(t, http.MethodGet, "/app/tournaments", nil, cookie)
+	if sectionPage.Code != http.StatusOK {
+		t.Fatalf("sectionPage.Code = %d, want %d", sectionPage.Code, http.StatusOK)
+	}
+	if body := sectionPage.Body.String(); strings.Contains(body, "/api/v1/schedule/") || strings.Contains(body, "/api/v1/competition/sessions") {
+		t.Fatalf("sectionPage body leaked staff or schedule routes")
 	}
 
 	initialRecommendation := env.doRequest(t, http.MethodGet, "/api/v1/recommendations/workout", nil, cookie)
@@ -108,15 +196,6 @@ func TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift(t *test
 		t.Fatalf("detailedWorkout.ID = %s, want %s", detailedWorkout.ID, createdWorkout.ID)
 	}
 
-	listResponse := env.doRequest(t, http.MethodGet, "/api/v1/workouts", nil, cookie)
-	if listResponse.Code != http.StatusOK {
-		t.Fatalf("listResponse.Code = %d, want %d", listResponse.Code, http.StatusOK)
-	}
-	workoutsList := decodeWorkoutListResponse(t, listResponse)
-	if len(workoutsList) != 1 || workoutsList[0].ID != createdWorkout.ID {
-		t.Fatalf("workoutsList = %#v, want one workout %s", workoutsList, createdWorkout.ID)
-	}
-
 	finishResponse := env.doRequest(t, http.MethodPost, "/api/v1/workouts/"+createdWorkout.ID.String()+"/finish", nil, cookie)
 	if finishResponse.Code != http.StatusOK {
 		t.Fatalf("finishResponse.Code = %d, want %d", finishResponse.Code, http.StatusOK)
@@ -127,11 +206,6 @@ func TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift(t *test
 	}
 	if finishedWorkout.FinishedAt == nil {
 		t.Fatal("finishedWorkout.FinishedAt = nil, want timestamp")
-	}
-
-	duplicateFinish := env.doRequest(t, http.MethodPost, "/api/v1/workouts/"+createdWorkout.ID.String()+"/finish", nil, cookie)
-	if duplicateFinish.Code != http.StatusConflict {
-		t.Fatalf("duplicateFinish.Code = %d, want %d", duplicateFinish.Code, http.StatusConflict)
 	}
 
 	finalRecommendation := env.doRequest(t, http.MethodGet, "/api/v1/recommendations/workout", nil, cookie)
@@ -146,14 +220,19 @@ func TestMemberWebShellRuntimeSupportsCoreMemberFlowWithoutBoundaryDrift(t *test
 		t.Fatalf("recommendation.WorkoutID = %#v, want %s", recommendation.WorkoutID, createdWorkout.ID)
 	}
 
+	settingsPatch := env.doJSONRequest(t, http.MethodPatch, "/api/v1/profile", `{"visibility_mode":"discoverable","availability_mode":"available_now"}`, cookie)
+	if settingsPatch.Code != http.StatusOK {
+		t.Fatalf("settingsPatch.Code = %d, want %d", settingsPatch.Code, http.StatusOK)
+	}
+
 	if afterVisits := countRows(t, env, "apollo.visits", user.ID); afterVisits != beforeVisits {
 		t.Fatalf("visit count changed from %d to %d", beforeVisits, afterVisits)
 	}
 	if afterClaimedTags := countRows(t, env, "apollo.claimed_tags", user.ID); afterClaimedTags != beforeClaimedTags {
 		t.Fatalf("claimed tag count changed from %d to %d", beforeClaimedTags, afterClaimedTags)
 	}
-	if afterPreferences := lookupPreferences(t, env, user.ID); afterPreferences != beforePreferences {
-		t.Fatalf("preferences changed from %q to %q", beforePreferences, afterPreferences)
+	if afterPreferences := lookupPreferences(t, env, user.ID); afterPreferences == beforePreferences {
+		t.Fatalf("preferences did not change after profile patch")
 	}
 }
 

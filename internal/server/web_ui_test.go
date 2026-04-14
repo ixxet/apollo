@@ -9,13 +9,17 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/authz"
 )
 
 func TestWebUIRoutesRedirectAndRenderAgainstSessionState(t *testing.T) {
 	handler := NewHandler(Dependencies{
 		Auth: stubAuthenticator{
 			cookieName: "apollo_session",
-			principal:  auth.Principal{UserID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")},
+			principal: auth.Principal{
+				UserID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+				Role:   authz.RoleMember,
+			},
 		},
 	})
 
@@ -34,11 +38,11 @@ func TestWebUIRoutesRedirectAndRenderAgainstSessionState(t *testing.T) {
 			wantLocation: "/app/login",
 		},
 		{
-			name:         "root redirects authenticated member to shell",
+			name:         "root redirects authenticated member to home",
 			path:         "/",
 			cookies:      []*http.Cookie{{Name: "apollo_session", Value: "signed"}},
 			wantStatus:   http.StatusSeeOther,
-			wantLocation: "/app",
+			wantLocation: "/app/home",
 		},
 		{
 			name:       "login page renders for unauthenticated member",
@@ -47,24 +51,38 @@ func TestWebUIRoutesRedirectAndRenderAgainstSessionState(t *testing.T) {
 			wantBody:   `data-apollo-view="login"`,
 		},
 		{
-			name:         "login page redirects authenticated member to shell",
+			name:         "login page redirects authenticated member to home",
 			path:         "/app/login",
 			cookies:      []*http.Cookie{{Name: "apollo_session", Value: "signed"}},
 			wantStatus:   http.StatusSeeOther,
-			wantLocation: "/app",
+			wantLocation: "/app/home",
 		},
 		{
-			name:         "shell redirects unauthenticated member to login",
+			name:         "app root redirects unauthenticated member to login",
 			path:         "/app",
 			wantStatus:   http.StatusSeeOther,
 			wantLocation: "/app/login",
 		},
 		{
-			name:       "shell renders for authenticated member",
-			path:       "/app",
+			name:         "app root redirects authenticated member to home",
+			path:         "/app",
+			cookies:      []*http.Cookie{{Name: "apollo_session", Value: "signed"}},
+			wantStatus:   http.StatusSeeOther,
+			wantLocation: "/app/home",
+		},
+		{
+			name:         "unknown section redirects authenticated member to default section",
+			path:         "/app/not-real",
+			cookies:      []*http.Cookie{{Name: "apollo_session", Value: "signed"}},
+			wantStatus:   http.StatusSeeOther,
+			wantLocation: "/app/home",
+		},
+		{
+			name:       "section shell renders for authenticated member",
+			path:       "/app/tournaments",
 			cookies:    []*http.Cookie{{Name: "apollo_session", Value: "signed"}},
 			wantStatus: http.StatusOK,
-			wantBody:   `id="membership-card"`,
+			wantBody:   `data-apollo-section="tournaments"`,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -104,7 +122,7 @@ func TestWebUIAssetsAreServedThroughTheEmbeddedShell(t *testing.T) {
 		{
 			path:         "/app/assets/app.css",
 			wantStatus:   http.StatusOK,
-			wantContains: ".workout-shell-grid",
+			wantContains: ".member-nav",
 		},
 		{
 			path:         "/app/assets/app.mjs",
@@ -121,6 +139,41 @@ func TestWebUIAssetsAreServedThroughTheEmbeddedShell(t *testing.T) {
 		}
 		if !strings.Contains(recorder.Body.String(), testCase.wantContains) {
 			t.Fatalf("%s body = %q, want substring %q", testCase.path, recorder.Body.String(), testCase.wantContains)
+		}
+	}
+}
+
+func TestEmbeddedMemberShellAssetsDoNotLeakStaffOrScheduleSurfaces(t *testing.T) {
+	handler := NewHandler(Dependencies{
+		Auth: stubAuthenticator{
+			cookieName: "apollo_session",
+			principal: auth.Principal{
+				UserID: uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+				Role:   authz.RoleOwner,
+			},
+		},
+	})
+
+	for _, path := range []string{"/app/assets/app.mjs", "/app/home"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		if path == "/app/home" {
+			request.AddCookie(&http.Cookie{Name: "apollo_session", Value: "signed"})
+		}
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code >= http.StatusBadRequest {
+			t.Fatalf("%s status = %d, want success", path, recorder.Code)
+		}
+
+		body := recorder.Body.String()
+		if strings.Contains(body, "/api/v1/schedule/") {
+			t.Fatalf("%s leaked staff schedule route", path)
+		}
+		if strings.Contains(body, "/api/v1/competition/sessions") {
+			t.Fatalf("%s leaked staff competition route", path)
+		}
+		if strings.Contains(strings.ToLower(body), "trusted-surface") {
+			t.Fatalf("%s leaked trusted-surface posture", path)
 		}
 	}
 }

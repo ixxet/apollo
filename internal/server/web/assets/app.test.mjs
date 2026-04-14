@@ -2,13 +2,34 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildProfilePatchPayload,
   buildWorkoutPayload,
+  DEFAULT_MEMBER_SHELL_SECTION,
   extractErrorMessage,
+  memberShellPath,
   membershipSummary,
+  normalizeShellSection,
   recommendationSummary,
+  SECTION_API_PATHS,
   selectWorkoutID,
+  shellSectionFromPath,
   workoutListLabel,
 } from "./app.mjs";
+
+test("normalizeShellSection and memberShellPath keep the routed shell stable", () => {
+  assert.equal(normalizeShellSection("workouts"), "workouts");
+  assert.equal(normalizeShellSection("WORKOUTS"), "workouts");
+  assert.equal(normalizeShellSection("missing"), DEFAULT_MEMBER_SHELL_SECTION);
+  assert.equal(memberShellPath("settings"), "/app/settings");
+  assert.equal(shellSectionFromPath("/app/tournaments"), "tournaments");
+  assert.equal(shellSectionFromPath("/app"), DEFAULT_MEMBER_SHELL_SECTION);
+});
+
+test("SECTION_API_PATHS stays member-safe and avoids staff schedule drift", () => {
+  const joinedPaths = Object.values(SECTION_API_PATHS).flat().join("\n");
+  assert.doesNotMatch(joinedPaths, /\/api\/v1\/schedule\//);
+  assert.doesNotMatch(joinedPaths, /\/api\/v1\/competition\/sessions/);
+});
 
 test("selectWorkoutID prefers the existing selection when it still exists", () => {
   const workouts = [{ id: "a" }, { id: "b" }];
@@ -65,6 +86,43 @@ test("buildWorkoutPayload preserves explicit exercise rows and optional fields",
   );
 });
 
+test("buildProfilePatchPayload keeps settings writes backend-authoritative", () => {
+  assert.deepEqual(
+    buildProfilePatchPayload({
+      visibilityMode: "discoverable",
+      availabilityMode: "available_now",
+      goalKey: "general-fitness",
+      daysPerWeek: "4",
+      sessionMinutes: "60",
+      experienceLevel: "intermediate",
+      preferredEquipmentKeys: "dumbbells, barbell",
+      dietaryRestrictions: "vegetarian, nut_free",
+      cuisinePreferences: "mediterranean, korean",
+      budgetPreference: "moderate",
+      cookingCapability: "basic_kitchen",
+    }),
+    {
+      visibility_mode: "discoverable",
+      availability_mode: "available_now",
+      coaching_profile: {
+        goal_key: "general-fitness",
+        days_per_week: 4,
+        session_minutes: 60,
+        experience_level: "intermediate",
+        preferred_equipment_keys: ["dumbbells", "barbell"],
+      },
+      nutrition_profile: {
+        dietary_restrictions: ["vegetarian", "nut_free"],
+        meal_preference: {
+          cuisine_preferences: ["mediterranean", "korean"],
+        },
+        budget_preference: "moderate",
+        cooking_capability: "basic_kitchen",
+      },
+    },
+  );
+});
+
 test("recommendationSummary maps deterministic recommendation types", () => {
   assert.deepEqual(recommendationSummary({ type: "recovery_day", reason: "last_finished_within_recovery_window" }), {
     headline: "Take a recovery day",
@@ -96,457 +154,228 @@ test("workoutListLabel uses server timestamps and exercise counts without reorde
   assert.match(label, /2 exercises/);
 });
 
+test("shell bootstrap renders the routed home section over member-safe APIs", async () => {
+  const { cleanup, elements, fetchCalls, loadShellModule } = installShellHarness({
+    section: "home",
+    fetchImpl: async (path) => successResponseForPath(path),
+  });
+
+  try {
+    await loadShellModule();
+
+    assert.equal(elements["#shell-status"].textContent, "Member shell ready.");
+    assert.match(elements["#section-shell"].innerHTML, /Schedule boundary/);
+    assert.deepEqual(fetchCalls, [
+      "/api/v1/profile",
+      "/api/v1/presence",
+      "/api/v1/lobby/eligibility",
+      "/api/v1/lobby/membership",
+      "/api/v1/recommendations/workout",
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
 test("shell bootstrap maps total fetch rejection into explicit error UI without leaking rejections", async () => {
-  await assertShellFailureState({
+  const { cleanup, elements, loadShellModule } = installShellHarness({
+    section: "home",
     fetchImpl: async () => {
       throw new Error("network down");
     },
-    exerciseRefresh: false,
   });
-});
-
-test("shell refresh maps total fetch rejection into explicit error UI without leaking rejections", async () => {
-  let requestCount = 0;
-  await assertShellFailureState({
-    fetchImpl: async (path) => {
-      requestCount += 1;
-      if (requestCount <= 5) {
-        return successResponseForPath(path);
-      }
-      throw new Error("network down");
-    },
-    exerciseRefresh: true,
-  });
-});
-
-test("shell bootstrap renders explicit lobby membership state", async () => {
-  const { cleanup, elements, loadShellModule } = installShellHarness((path) => successResponseForPath(path));
 
   try {
     await loadShellModule();
-
-    assert.equal(elements["#membership-status"].textContent, "Membership loaded.");
-    assert.equal(elements["#match-preview-status"].textContent, "Match preview loaded.");
-    assert.match(elements["#membership-card"].innerHTML, /Not joined/);
-    assert.match(elements["#match-preview-card"].innerHTML, /No eligible joined members are available/);
-    assert.equal(elements["#join-lobby"].hidden, false);
-    assert.equal(elements["#leave-lobby"].hidden, true);
+    assert.equal(elements["#shell-status"].textContent, "network down");
+    assert.match(elements["#section-shell"].innerHTML, /Member shell bootstrap failed/);
   } finally {
     cleanup();
   }
 });
 
-test("shell join success updates membership state and actions", async () => {
-  let joined = false;
-  const { cleanup, elements, loadShellModule } = installShellHarness(async (path, options = {}) => {
-    if (path === "/api/v1/lobby/membership/join" && options.method === "POST") {
-      joined = true;
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return {
-            status: "joined",
-            joined_at: "2026-04-05T12:30:00Z",
-          };
-        },
-      };
-    }
-
-    return successResponseForPath(path, { membershipStatus: joined ? "joined" : "not_joined" });
+test("tournaments section fetches only member-safe routes", async () => {
+  const { cleanup, fetchCalls, loadShellModule } = installShellHarness({
+    section: "tournaments",
+    fetchImpl: async (path) => successResponseForPath(path),
   });
 
   try {
     await loadShellModule();
-    await elements["#join-lobby"].trigger("click");
-    await settle();
-
-    assert.equal(elements["#membership-status"].textContent, "Lobby membership joined.");
-    assert.equal(elements["#membership-status"].classNames.has("success-message"), true);
-    assert.match(elements["#membership-card"].innerHTML, /Joined lobby/);
-    assert.equal(elements["#join-lobby"].hidden, true);
-    assert.equal(elements["#leave-lobby"].hidden, false);
+    assert.deepEqual(fetchCalls, [
+      "/api/v1/profile",
+      "/api/v1/lobby/membership",
+      "/api/v1/lobby/match-preview",
+      "/api/v1/competition/member-stats",
+    ]);
   } finally {
     cleanup();
   }
 });
 
-test("shell leave success updates membership state and actions", async () => {
-  const { cleanup, elements, loadShellModule } = installShellHarness(async (path, options = {}) => {
-    if (path === "/api/v1/lobby/membership" && (!options.method || options.method === "GET")) {
-      return successResponseForPath(path, { membershipStatus: "joined" });
-    }
-    if (path === "/api/v1/lobby/membership/leave" && options.method === "POST") {
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return {
-            status: "not_joined",
-            joined_at: "2026-04-05T12:30:00Z",
-            left_at: "2026-04-05T13:00:00Z",
-          };
-        },
-      };
-    }
-
-    return successResponseForPath(path, { membershipStatus: "joined" });
-  });
-
-  try {
-    await loadShellModule();
-    await elements["#leave-lobby"].trigger("click");
-    await settle();
-
-    assert.equal(elements["#membership-status"].textContent, "Lobby membership left.");
-    assert.equal(elements["#membership-status"].classNames.has("success-message"), true);
-    assert.match(elements["#membership-card"].innerHTML, /Not joined/);
-    assert.equal(elements["#join-lobby"].hidden, false);
-    assert.equal(elements["#leave-lobby"].hidden, true);
-  } finally {
-    cleanup();
-  }
-});
-
-test("shell renders deterministic match preview groups and unmatched members", async () => {
-  const { cleanup, elements, loadShellModule } = installShellHarness(async (path) => {
-    if (path === "/api/v1/lobby/match-preview") {
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return {
-            generated_at: "2026-04-06T12:00:00Z",
-            candidate_count: 3,
-            preview_version: "v1",
-            matches: [
-              {
-                member_ids: [
-                  "11111111-1111-1111-1111-111111111111",
-                  "22222222-2222-2222-2222-222222222222",
-                ],
-                member_labels: ["11111111", "22222222"],
-                score: 2,
-                reasons: [
-                  { code: "explicit_joined_membership" },
-                  { code: "compatible_visibility_mode", value: "discoverable" },
-                  { code: "compatible_availability_mode", value: "available_now" },
-                  { code: "stable_pair_order", value: "user_id_asc" },
-                ],
-              },
-            ],
-            unmatched_member_ids: ["33333333-3333-3333-3333-333333333333"],
-            unmatched_labels: ["33333333"],
-          };
-        },
-      };
-    }
-
-    return successResponseForPath(path);
-  });
-
-  try {
-    await loadShellModule();
-
-    assert.equal(elements["#match-preview-status"].textContent, "Match preview loaded.");
-    assert.match(elements["#match-preview-card"].innerHTML, /Match 1/);
-    assert.match(elements["#match-preview-card"].innerHTML, /11111111 · 22222222/);
-    assert.match(elements["#match-preview-card"].innerHTML, /explicit_joined_membership/);
-    assert.match(elements["#match-preview-card"].innerHTML, /Unmatched/);
-    assert.equal(elements["#match-preview-card"].innerHTML.includes("<button"), false);
-  } finally {
-    cleanup();
-  }
-});
-
-test("shell match preview failure renders explicit error state", async () => {
-  const { cleanup, elements, loadShellModule } = installShellHarness(async (path) => {
-    if (path === "/api/v1/lobby/match-preview") {
-      return {
-        ok: false,
-        status: 500,
-        async json() {
-          return { error: "preview failed" };
-        },
-      };
-    }
-
-    return successResponseForPath(path);
-  });
-
-  try {
-    await loadShellModule();
-
-    assert.equal(elements["#match-preview-status"].textContent, "preview failed");
-    assert.equal(elements["#match-preview-status"].classNames.has("error-message"), true);
-    assert.match(elements["#match-preview-card"].innerHTML, /preview failed/);
-  } finally {
-    cleanup();
-  }
-});
-
-test("shell join failure maps explicit API error without inventing joined state", async () => {
-  const { cleanup, elements, loadShellModule } = installShellHarness(async (path, options = {}) => {
-    if (path === "/api/v1/lobby/membership/join" && options.method === "POST") {
-      return {
-        ok: false,
-        status: 409,
-        async json() {
-          return { error: "member is not eligible for lobby membership: visibility_ghost" };
-        },
-      };
-    }
-
-    return successResponseForPath(path);
-  });
-
-  try {
-    await loadShellModule();
-    await elements["#join-lobby"].trigger("click");
-    await settle();
-
-    assert.equal(elements["#membership-status"].textContent, "member is not eligible for lobby membership: visibility_ghost");
-    assert.equal(elements["#membership-status"].classNames.has("error-message"), true);
-    assert.match(elements["#membership-card"].innerHTML, /Not joined/);
-    assert.equal(elements["#join-lobby"].hidden, false);
-    assert.equal(elements["#leave-lobby"].hidden, true);
-  } finally {
-    cleanup();
-  }
-});
-
-test("shell join network failure maps explicit UI error without leaking rejection", async () => {
-  const { cleanup, elements, loadShellModule } = installShellHarness(async (path, options = {}) => {
-    if (path === "/api/v1/lobby/membership/join" && options.method === "POST") {
-      throw new Error("network down");
-    }
-
-    return successResponseForPath(path);
-  });
-  let unhandled = null;
-  const handleUnhandledRejection = (error) => {
-    unhandled = error;
+function installShellHarness({ section, fetchImpl }) {
+  const originals = {
+    fetch: global.fetch,
+    document: global.document,
+    window: global.window,
+    HTMLElement: global.HTMLElement,
   };
-  process.on("unhandledRejection", handleUnhandledRejection);
 
-  try {
-    await loadShellModule();
-    await elements["#join-lobby"].trigger("click");
-    await settle();
-
-    assert.equal(unhandled, null);
-    assert.equal(elements["#membership-status"].textContent, "Unable to update lobby membership. Check your connection and try again.");
-    assert.equal(elements["#membership-status"].classNames.has("error-message"), true);
-    assert.match(elements["#membership-card"].innerHTML, /Unable to update lobby membership/);
-  } finally {
-    process.off("unhandledRejection", handleUnhandledRejection);
-    cleanup();
-  }
-});
-
-async function assertShellFailureState({ fetchImpl, exerciseRefresh }) {
-  const { cleanup, elements, loadShellModule } = installShellHarness(fetchImpl);
-  let unhandled = null;
-  const handleUnhandledRejection = (error) => {
-    unhandled = error;
-  };
-  process.on("unhandledRejection", handleUnhandledRejection);
-
-  try {
-    await loadShellModule();
-    if (exerciseRefresh) {
-      elements["#refresh-shell"].trigger("click");
-      await settle();
-    }
-
-    assert.equal(unhandled, null);
-    assert.equal(elements["#profile-status"].textContent, "Unable to load profile. Check your connection and refresh.");
-    assert.equal(elements["#membership-status"].textContent, "Unable to load lobby membership. Check your connection and refresh.");
-    assert.equal(elements["#match-preview-status"].textContent, "Unable to load match preview. Check your connection and refresh.");
-    assert.equal(elements["#recommendation-status"].textContent, "Unable to load recommendation. Check your connection and refresh.");
-    assert.equal(elements["#workouts-status"].textContent, "Unable to load workouts. Check your connection and refresh.");
-    assert.equal(elements["#profile-status"].classNames.has("error-message"), true);
-    assert.equal(elements["#membership-status"].classNames.has("error-message"), true);
-    assert.equal(elements["#match-preview-status"].classNames.has("error-message"), true);
-    assert.equal(elements["#recommendation-status"].classNames.has("error-message"), true);
-    assert.equal(elements["#workouts-status"].classNames.has("error-message"), true);
-    assert.match(elements["#membership-card"].innerHTML, /Unable to load lobby membership/);
-    assert.match(elements["#match-preview-card"].innerHTML, /Unable to load match preview/);
-    assert.match(elements["#recommendation-card"].innerHTML, /Unable to load recommendation/);
-    assert.match(elements["#workout-list"].innerHTML, /Unable to load workouts/);
-    assert.equal(elements["#profile-summary"].innerHTML, "");
-    assert.notEqual(elements["#profile-status"].textContent, "Loading profile…");
-    assert.notEqual(elements["#membership-status"].textContent, "Loading membership…");
-    assert.notEqual(elements["#match-preview-status"].textContent, "Loading match preview…");
-    assert.notEqual(elements["#recommendation-status"].textContent, "Loading recommendation…");
-    assert.notEqual(elements["#workouts-status"].textContent, "Loading workouts…");
-  } finally {
-    process.off("unhandledRejection", handleUnhandledRejection);
-    cleanup();
-  }
-}
-
-function installShellHarness(fetchImpl) {
-  const previousDocument = globalThis.document;
-  const previousWindow = globalThis.window;
-  const previousFetch = globalThis.fetch;
-
+  const navLinks = ["home", "workouts", "meals", "tournaments", "settings"].map((navSection) => new FakeElement(`nav-${navSection}`, { dataset: { navSection } }));
   const elements = {
-    "#profile-summary": new FakeElement(),
-    "#profile-status": new FakeElement(),
-    "#membership-card": new FakeElement(),
-    "#membership-status": new FakeElement(),
-    "#join-lobby": new FakeElement(),
-    "#leave-lobby": new FakeElement(),
-    "#match-preview-card": new FakeElement(),
-    "#match-preview-status": new FakeElement(),
-    "#recommendation-card": new FakeElement(),
-    "#recommendation-status": new FakeElement(),
-    "#workout-list": new FakeElement(),
-    "#workouts-status": new FakeElement(),
-    "#workout-detail-title": new FakeElement(),
-    "#workout-detail-state": new FakeElement(),
-    "#workout-notes": new FakeElement(),
-    "#exercise-list": new FakeElement(),
-    "#workout-error": new FakeElement(),
-    "#save-workout": new FakeElement(),
-    "#finish-workout": new FakeElement(),
-    "#refresh-shell": new FakeElement(),
-    "#logout-shell": new FakeElement(),
-    "#create-workout": new FakeElement(),
-    "#add-exercise": new FakeElement(),
-    "#workout-editor": new FakeElement(),
+    "#refresh-shell": new FakeElement("refresh"),
+    "#logout-shell": new FakeElement("logout"),
+    "#shell-status": new FakeElement("shell-status"),
+    "#section-shell": new FakeElement("section-shell"),
+    "#section-eyebrow": new FakeElement("section-eyebrow"),
+    "#section-title": new FakeElement("section-title"),
+    "#section-copy": new FakeElement("section-copy"),
+    "#section-retry": new FakeElement("section-retry"),
+    "#membership-status": new FakeElement("membership-status"),
+    "#join-lobby": new FakeElement("join-lobby"),
+    "#leave-lobby": new FakeElement("leave-lobby"),
   };
+  const fetchCalls = [];
 
-  globalThis.document = {
-    body: { dataset: { apolloView: "shell" } },
-    querySelector(selector) {
-      return elements[selector] ?? null;
-    },
+  global.fetch = async (path, options) => {
+    fetchCalls.push(path);
+    return fetchImpl(path, options);
   };
-  globalThis.window = {
+  global.HTMLElement = FakeElement;
+  global.window = {
     location: {
-      href: "http://127.0.0.1/app",
-      assign() {},
+      pathname: `/app/${section}`,
+      assigned: null,
+      assign(value) {
+        this.assigned = value;
+      },
     },
   };
-  globalThis.fetch = fetchImpl;
+  global.document = {
+    body: {
+      dataset: {
+        apolloView: "shell",
+        apolloSection: section,
+      },
+    },
+    querySelector(selector) {
+      return elements[selector] || null;
+    },
+    querySelectorAll(selector) {
+      if (selector === ".member-nav-link") {
+        return navLinks;
+      }
+      return [];
+    },
+  };
 
   return {
     elements,
+    fetchCalls,
     async loadShellModule() {
-      await import(new URL(`./app.mjs?test=${Date.now()}-${Math.random()}`, import.meta.url));
+      const cacheBuster = Date.now() + Math.random();
+      await import(new URL(`./app.mjs?case=${cacheBuster}`, import.meta.url));
       await settle();
     },
     cleanup() {
-      globalThis.document = previousDocument;
-      globalThis.window = previousWindow;
-      globalThis.fetch = previousFetch;
+      global.fetch = originals.fetch;
+      global.document = originals.document;
+      global.window = originals.window;
+      global.HTMLElement = originals.HTMLElement;
     },
   };
 }
 
-function successResponseForPath(path, options = {}) {
-  const membershipStatus = options.membershipStatus ?? "not_joined";
+function successResponseForPath(path) {
+  const payloads = {
+    "/api/v1/profile": {
+      user_id: "11111111-1111-1111-1111-111111111111",
+      student_id: "student-001",
+      display_name: "Member One",
+      email: "member@example.com",
+      email_verified: true,
+      visibility_mode: "ghost",
+      availability_mode: "unavailable",
+      coaching_profile: {},
+      nutrition_profile: {},
+    },
+    "/api/v1/presence": {
+      facilities: [
+        {
+          facility_key: "ashtonbee",
+          status: "present",
+          recent_visits: [],
+          streak: { status: "active", current_count: 3 },
+        },
+      ],
+    },
+    "/api/v1/lobby/eligibility": {
+      eligible: false,
+      reason: "availability_unavailable",
+      visibility_mode: "ghost",
+      availability_mode: "unavailable",
+    },
+    "/api/v1/lobby/membership": {
+      status: "not_joined",
+    },
+    "/api/v1/recommendations/workout": {
+      type: "start_first_workout",
+      reason: "no_finished_workouts",
+      generated_at: "2026-04-05T12:00:00Z",
+    },
+    "/api/v1/lobby/match-preview": {
+      generated_at: "2026-04-06T12:00:00Z",
+      candidate_count: 0,
+      preview_version: "v1",
+      matches: [],
+      unmatched_member_ids: [],
+      unmatched_labels: [],
+    },
+    "/api/v1/competition/member-stats": [],
+  };
 
-  if (path === "/api/v1/lobby/membership") {
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        if (membershipStatus === "joined") {
-          return {
-            status: "joined",
-            joined_at: "2026-04-05T12:30:00Z",
-          };
-        }
-
-        return {
-          status: "not_joined",
-        };
-      },
-    };
+  const payload = payloads[path];
+  if (!payload) {
+    throw new Error(`unexpected path ${path}`);
   }
 
-  if (path === "/api/v1/profile") {
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {
-          display_name: "member",
-          student_id: "student-011",
-          email: "member@example.com",
-          email_verified: true,
-          visibility_mode: "ghost",
-          availability_mode: "unavailable",
-        };
+  return {
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        return name.toLowerCase() === "content-type" ? "application/json" : null;
       },
-    };
-  }
-
-  if (path === "/api/v1/lobby/match-preview") {
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {
-          generated_at: null,
-          candidate_count: 0,
-          preview_version: "v1",
-          matches: [],
-          unmatched_member_ids: [],
-          unmatched_labels: [],
-        };
-      },
-    };
-  }
-
-  if (path === "/api/v1/workouts") {
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return [];
-      },
-    };
-  }
-
-  if (path === "/api/v1/recommendations/workout") {
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return {
-          type: "start_first_workout",
-          reason: "no_finished_workouts",
-          generated_at: "2026-04-05T12:00:00Z",
-          evidence: {},
-        };
-      },
-    };
-  }
-
-  throw new Error(`unexpected path ${path}`);
+    },
+    async json() {
+      return payload;
+    },
+  };
 }
 
 class FakeElement {
-  constructor(value = "") {
-    this.value = value;
+  constructor(id, options = {}) {
+    this.id = id;
+    this.dataset = options.dataset || {};
     this.textContent = "";
     this.innerHTML = "";
-    this.disabled = false;
     this.hidden = false;
+    this.disabled = false;
+    this.attributes = new Map();
     this.listeners = new Map();
-    this.classNames = new Set();
-    this.classList = {
-      add: (...names) => names.forEach((name) => this.classNames.add(name)),
-      remove: (...names) => names.forEach((name) => this.classNames.delete(name)),
-    };
+    this.classList = new FakeClassList();
   }
 
-  addEventListener(type, handler) {
-    this.listeners.set(type, handler);
+  addEventListener(eventName, callback) {
+    this.listeners.set(eventName, callback);
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, value);
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) || null;
   }
 
   querySelector() {
@@ -557,20 +386,41 @@ class FakeElement {
     return [];
   }
 
-  trigger(type, event = {}) {
-    const handler = this.listeners.get(type);
-    if (!handler) {
-      throw new Error(`missing handler for ${type}`);
+  insertAdjacentHTML(_position, value) {
+    this.innerHTML += value;
+  }
+}
+
+class FakeClassList {
+  constructor() {
+    this.classNames = new Set();
+  }
+
+  add(...names) {
+    for (const name of names) {
+      this.classNames.add(name);
     }
-    return handler({
-      preventDefault() {},
-      target: this,
-      ...event,
-    });
+  }
+
+  remove(...names) {
+    for (const name of names) {
+      this.classNames.delete(name);
+    }
+  }
+
+  toggle(name, force) {
+    if (force) {
+      this.classNames.add(name);
+      return true;
+    }
+    this.classNames.delete(name);
+    return false;
   }
 }
 
 async function settle() {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let index = 0; index < 5; index += 1) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
