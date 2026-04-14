@@ -1,756 +1,1077 @@
-const recommendationHeadlines = {
-  resume_in_progress_workout: "Resume your in-progress workout",
-  start_first_workout: "Start your first workout",
-  recovery_day: "Take a recovery day",
-  repeat_last_finished_workout: "Repeat your last finished workout",
+export const MEMBER_SHELL_SECTIONS = ["home", "workouts", "meals", "tournaments", "settings"];
+export const DEFAULT_MEMBER_SHELL_SECTION = "home";
+
+const SECTION_META = {
+  home: {
+    eyebrow: "Home",
+    title: "Member-safe summaries",
+    copy: "Profile, presence, lobby intent, recommendation, and explicit shell boundaries over already-real member APIs.",
+  },
+  workouts: {
+    eyebrow: "Workouts",
+    title: "Workout runtime",
+    copy: "Workout CRUD stays backend-authoritative. Planner reads stay bounded to existing member APIs.",
+  },
+  meals: {
+    eyebrow: "Meals",
+    title: "Nutrition and meal history",
+    copy: "Nutrition guidance, meal logs, and meal templates stay read-only in this shell packet.",
+  },
+  tournaments: {
+    eyebrow: "Tournaments",
+    title: "Member competition posture",
+    copy: "Lobby intent, deterministic match preview, and self-scoped competition stats only.",
+  },
+  settings: {
+    eyebrow: "Settings",
+    title: "Profile settings",
+    copy: "Profile writes remain backend-authoritative through the existing member profile patch surface.",
+  },
 };
 
-const recommendationReasonCopy = {
-  in_progress_workout_exists: "APOLLO found one in-progress workout that still belongs to you.",
-  no_finished_workouts: "APOLLO found no finished workouts for this member yet.",
-  last_finished_within_recovery_window: "Your latest finished workout is still inside the 24-hour recovery window.",
-  last_finished_outside_recovery_window: "Your latest finished workout is outside the 24-hour recovery window.",
+export const SECTION_API_PATHS = {
+  home: [
+    "/api/v1/presence",
+    "/api/v1/lobby/eligibility",
+    "/api/v1/lobby/membership",
+    "/api/v1/recommendations/workout",
+  ],
+  workouts: [
+    "/api/v1/workouts",
+    "/api/v1/planner/templates",
+    "/api/v1/planner/exercises",
+    "/api/v1/planner/equipment",
+  ],
+  meals: [
+    "/api/v1/recommendations/nutrition",
+    "/api/v1/nutrition/meal-logs",
+    "/api/v1/nutrition/meal-templates",
+  ],
+  tournaments: [
+    "/api/v1/lobby/membership",
+    "/api/v1/lobby/match-preview",
+    "/api/v1/competition/member-stats",
+  ],
+  settings: ["/api/v1/profile"],
 };
 
-const shellLoadFailureMessages = {
-  profile: "Unable to load profile. Check your connection and refresh.",
-  membership: "Unable to load lobby membership. Check your connection and refresh.",
-  matchPreview: "Unable to load match preview. Check your connection and refresh.",
-  recommendation: "Unable to load recommendation. Check your connection and refresh.",
-  workouts: "Unable to load workouts. Check your connection and refresh.",
+const shellState = {
+  profile: null,
+  section: DEFAULT_MEMBER_SHELL_SECTION,
+  workouts: [],
+  selectedWorkoutID: null,
+  sectionMessage: "",
 };
+
+export function normalizeShellSection(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return MEMBER_SHELL_SECTIONS.includes(normalized) ? normalized : DEFAULT_MEMBER_SHELL_SECTION;
+}
+
+export function memberShellPath(section) {
+  return `/app/${normalizeShellSection(section)}`;
+}
+
+export function shellSectionFromPath(pathname) {
+  const value = String(pathname || "").replace(/\/+$/, "");
+  if (value === "/app" || value === "") {
+    return DEFAULT_MEMBER_SHELL_SECTION;
+  }
+  const parts = value.split("/").filter(Boolean);
+  return parts[0] === "app" ? normalizeShellSection(parts[1]) : DEFAULT_MEMBER_SHELL_SECTION;
+}
+
+export function currentISOWeekStart(date) {
+  const current = new Date(date);
+  const utcDay = current.getUTCDay();
+  const diff = utcDay === 0 ? -6 : 1 - utcDay;
+  current.setUTCDate(current.getUTCDate() + diff);
+  current.setUTCHours(0, 0, 0, 0);
+  return current.toISOString().slice(0, 10);
+}
 
 export function formatTimestamp(value) {
   if (!value) {
-    return "Unknown time";
+    return "Not recorded";
   }
 
-  return new Date(value).toLocaleString("en-CA", {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf())) {
+    return "Invalid timestamp";
+  }
+
+  return parsed.toLocaleString(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   });
 }
 
-export function workoutListLabel(workout) {
-  const exerciseCount = Array.isArray(workout.exercises) ? workout.exercises.length : 0;
-  const suffix = exerciseCount === 1 ? "1 exercise" : `${exerciseCount} exercises`;
-  return `${formatTimestamp(workout.started_at)} · ${suffix}`;
-}
-
-export function selectWorkoutID(workouts, currentID) {
-  if (!Array.isArray(workouts) || workouts.length === 0) {
-    return null;
+export function extractErrorMessage(payload, fallback) {
+  if (payload && typeof payload.error === "string" && payload.error.trim() !== "") {
+    return payload.error.trim();
   }
 
-  const existing = workouts.find((workout) => workout.id === currentID);
-  if (existing) {
-    return existing.id;
-  }
-
-  return workouts[0].id;
-}
-
-export function buildWorkoutPayload(notesValue, exerciseRows) {
-  return {
-    notes: normalizeOptionalText(notesValue),
-    exercises: exerciseRows.map((row) => ({
-      name: row.name.trim(),
-      sets: Number.parseInt(row.sets, 10),
-      reps: Number.parseInt(row.reps, 10),
-      weight_kg: parseOptionalNumber(row.weightKg),
-      rpe: parseOptionalNumber(row.rpe),
-      notes: normalizeOptionalText(row.notes),
-    })),
-  };
+  return fallback;
 }
 
 export function recommendationSummary(recommendation) {
-  return {
-    headline: recommendationHeadlines[recommendation.type] ?? "Recommendation",
-    detail: recommendationReasonCopy[recommendation.reason] ?? "APOLLO returned a deterministic recommendation.",
-  };
+  switch (recommendation?.type) {
+    case "resume_in_progress_workout":
+      return {
+        headline: "Resume your in-progress workout",
+        detail: "APOLLO already has an in-progress workout for you, so the member shell keeps that as the next action.",
+      };
+    case "start_first_workout":
+      return {
+        headline: "Start your first workout",
+        detail: "No finished workouts exist yet, so the deterministic recommendation is to start a first session.",
+      };
+    case "repeat_last_finished_workout":
+      return {
+        headline: "Repeat the last finished workout",
+        detail: "The latest finished workout is outside the recovery window, so repeating it is the current deterministic read.",
+      };
+    case "recovery_day":
+      return {
+        headline: "Take a recovery day",
+        detail: "Your latest finished workout is still inside the 24-hour recovery window.",
+      };
+    default:
+      return {
+        headline: "Recommendation unavailable",
+        detail: "APOLLO did not return a deterministic recommendation payload.",
+      };
+  }
 }
 
 export function membershipSummary(membership) {
   if (membership?.status === "joined") {
     return {
       headline: "Joined lobby",
-      detail: membership.joined_at
-        ? `APOLLO recorded explicit lobby membership at ${formatTimestamp(membership.joined_at)}.`
-        : "APOLLO recorded explicit lobby membership for this member.",
+      detail: `APOLLO recorded explicit lobby membership at ${formatTimestamp(membership.joined_at)}.`,
     };
   }
 
   return {
     headline: "Not joined",
-    detail: membership?.left_at
-      ? `APOLLO recorded a leave at ${formatTimestamp(membership.left_at)}. Rejoin explicitly if you want lobby membership again.`
-      : "Lobby membership stays explicit. Join only when you intend to be in the lobby.",
+    detail: "Lobby membership stays explicit. Join only when you intend to be in the lobby.",
   };
 }
 
-export function extractErrorMessage(payload, fallback) {
-  if (payload && typeof payload === "object" && typeof payload.error === "string" && payload.error.length > 0) {
-    return payload.error;
-  }
-
-  return fallback;
+export function workoutListLabel(workout) {
+  const exerciseCount = Array.isArray(workout?.exercises) ? workout.exercises.length : 0;
+  const countLabel = `${exerciseCount} ${exerciseCount === 1 ? "exercise" : "exercises"}`;
+  return `${formatTimestamp(workout?.started_at)} | ${countLabel}`;
 }
 
-function normalizeOptionalText(value) {
-  const normalized = String(value ?? "").trim();
-  return normalized === "" ? null : normalized;
+export function selectWorkoutID(workouts, currentSelection) {
+  if (Array.isArray(workouts) && workouts.some((workout) => workout.id === currentSelection)) {
+    return currentSelection;
+  }
+  if (Array.isArray(workouts) && workouts.length > 0) {
+    return workouts[0].id;
+  }
+  return null;
 }
 
-function parseOptionalNumber(value) {
-  const normalized = String(value ?? "").trim();
-  if (normalized === "") {
-    return null;
-  }
+export function buildWorkoutPayload(notesValue, exerciseRows) {
+  const notes = normalizeOptionalString(notesValue);
+  const exercises = (exerciseRows || [])
+    .map((row) => ({
+      name: normalizeOptionalString(row.name),
+      sets: parseWholeNumber(row.sets),
+      reps: parseWholeNumber(row.reps),
+      weight_kg: parseOptionalDecimal(row.weightKg),
+      rpe: parseOptionalDecimal(row.rpe),
+      notes: normalizeOptionalString(row.notes),
+    }))
+    .filter((row) => row.name);
 
-  return Number.parseFloat(normalized);
+  return {
+    notes,
+    exercises,
+  };
+}
+
+export function buildProfilePatchPayload(values) {
+  const goalKey = normalizeOptionalString(values.goalKey);
+  const experienceLevel = normalizeOptionalString(values.experienceLevel);
+  const budgetPreference = normalizeOptionalString(values.budgetPreference);
+  const cookingCapability = normalizeOptionalString(values.cookingCapability);
+  const coachingDays = parseWholeNumber(values.daysPerWeek);
+  const sessionMinutes = parseWholeNumber(values.sessionMinutes);
+
+  return {
+    visibility_mode: values.visibilityMode,
+    availability_mode: values.availabilityMode,
+    coaching_profile: {
+      goal_key: goalKey ?? undefined,
+      days_per_week: Number.isInteger(coachingDays) ? coachingDays : undefined,
+      session_minutes: Number.isInteger(sessionMinutes) ? sessionMinutes : undefined,
+      experience_level: experienceLevel ?? undefined,
+      preferred_equipment_keys: parseCSV(values.preferredEquipmentKeys),
+    },
+    nutrition_profile: {
+      dietary_restrictions: parseCSV(values.dietaryRestrictions),
+      meal_preference: {
+        cuisine_preferences: parseCSV(values.cuisinePreferences),
+      },
+      budget_preference: budgetPreference ?? undefined,
+      cooking_capability: cookingCapability ?? undefined,
+    },
+  };
 }
 
 async function requestJSON(path, options = {}) {
   const response = await fetch(path, {
+    credentials: "same-origin",
     headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
     },
     ...options,
   });
 
-  if (response.status === 204) {
-    return { ok: true, payload: null, status: response.status };
-  }
-
   let payload = null;
-  try {
+  const contentType = response.headers?.get?.("content-type") || "";
+  if (response.status !== 204 && contentType.includes("application/json")) {
     payload = await response.json();
-  } catch {
-    payload = null;
   }
 
-  return {
-    ok: response.ok,
-    payload,
-    status: response.status,
-  };
+  return { ok: response.ok, status: response.status, payload };
 }
 
-function boot() {
-  if (typeof document === "undefined") {
+async function boot() {
+  const view = document?.body?.dataset?.apolloView;
+  if (view === "login") {
+    await initLoginView();
     return;
   }
-
-  const view = document.body.dataset.apolloView;
-  if (view === "login") {
-    void initLoginView();
-  }
   if (view === "shell") {
-    void initShellView();
+    await initShellView();
   }
 }
 
 async function initLoginView() {
-  const startForm = document.querySelector("#start-verification-form");
-  const verifyForm = document.querySelector("#verify-token-form");
-  const startMessage = document.querySelector("#start-verification-message");
-  const verifyMessage = document.querySelector("#verify-token-message");
-  const tokenInput = document.querySelector("#verification-token");
-  const queryToken = new URL(window.location.href).searchParams.get("token");
-  if (queryToken) {
-    tokenInput.value = queryToken;
+  const form = document.querySelector("#start-verification-form");
+  if (!form) {
+    return;
   }
 
-  startForm.addEventListener("submit", async (event) => {
+  const studentIDInput = document.querySelector("#student-id");
+  const emailInput = document.querySelector("#email");
+  const verifyTokenInput = document.querySelector("#verification-token");
+  const requestStatus = document.querySelector("#start-verification-message");
+  const verifyStatus = document.querySelector("#verify-token-message");
+
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    setStatus(startMessage, "Starting verification…");
+    setMessage(requestStatus, "Sending verification email...", "");
 
-    const payload = {
-      student_id: document.querySelector("#student-id").value.trim(),
-      email: document.querySelector("#email").value.trim(),
-    };
+    try {
+      const result = await requestJSON("/api/v1/auth/verification/start", {
+        method: "POST",
+        body: JSON.stringify({
+          student_id: studentIDInput?.value || "",
+          email: emailInput?.value || "",
+        }),
+      });
 
-    const response = await requestJSON("/api/v1/auth/verification/start", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      setStatus(startMessage, extractErrorMessage(response.payload, "Failed to start verification."), "error");
-      return;
+      if (!result.ok) {
+        setMessage(requestStatus, extractErrorMessage(result.payload, "Verification request failed."), "error");
+        return;
+      }
+
+      setMessage(requestStatus, "Verification email sent.", "success");
+    } catch (error) {
+      setMessage(requestStatus, error instanceof Error ? error.message : "Verification request failed.", "error");
     }
-
-    setStatus(startMessage, "Verification started. Use the token from the APOLLO verification log or link.", "success");
   });
 
-  verifyForm.addEventListener("submit", async (event) => {
+  const verifyForm = document.querySelector("#verify-token-form");
+  verifyForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    setStatus(verifyMessage, "Verifying token…");
+    setMessage(verifyStatus, "Verifying token...", "");
 
-    const response = await requestJSON("/api/v1/auth/verify", {
-      method: "POST",
-      body: JSON.stringify({ token: tokenInput.value.trim() }),
-    });
-    if (!response.ok) {
-      setStatus(verifyMessage, extractErrorMessage(response.payload, "Failed to verify token."), "error");
-      return;
+    try {
+      const token = verifyTokenInput?.value || "";
+      const result = await requestJSON("/api/v1/auth/verify", {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      });
+      if (!result.ok) {
+        setMessage(verifyStatus, extractErrorMessage(result.payload, "Verification failed."), "error");
+        return;
+      }
+
+      window.location.assign(memberShellPath(DEFAULT_MEMBER_SHELL_SECTION));
+    } catch (error) {
+      setMessage(verifyStatus, error instanceof Error ? error.message : "Verification failed.", "error");
     }
-
-    setStatus(verifyMessage, "Verified. Loading member shell…", "success");
-    window.location.assign("/app");
   });
 }
 
 async function initShellView() {
-  const state = {
-    workouts: [],
-    selectedWorkoutID: null,
-    selectedWorkout: null,
-  };
+  shellState.section = normalizeShellSection(document.body.dataset.apolloSection || shellSectionFromPath(window.location.pathname));
+  highlightNav(shellState.section);
+  applySectionMeta(shellState.section);
 
-  const profileSummary = document.querySelector("#profile-summary");
-  const profileStatus = document.querySelector("#profile-status");
-  const membershipCard = document.querySelector("#membership-card");
-  const membershipStatus = document.querySelector("#membership-status");
-  const joinLobbyButton = document.querySelector("#join-lobby");
-  const leaveLobbyButton = document.querySelector("#leave-lobby");
-  const matchPreviewCard = document.querySelector("#match-preview-card");
-  const matchPreviewStatus = document.querySelector("#match-preview-status");
-  const recommendationCard = document.querySelector("#recommendation-card");
-  const recommendationStatus = document.querySelector("#recommendation-status");
-  const workoutsList = document.querySelector("#workout-list");
-  const workoutsStatus = document.querySelector("#workouts-status");
-  const workoutTitle = document.querySelector("#workout-detail-title");
-  const workoutState = document.querySelector("#workout-detail-state");
-  const workoutNotes = document.querySelector("#workout-notes");
-  const exerciseList = document.querySelector("#exercise-list");
-  const workoutError = document.querySelector("#workout-error");
-  const saveWorkoutButton = document.querySelector("#save-workout");
-  const finishWorkoutButton = document.querySelector("#finish-workout");
+  const refreshButton = document.querySelector("#refresh-shell");
+  const logoutButton = document.querySelector("#logout-shell");
 
-  document.querySelector("#refresh-shell").addEventListener("click", () => {
-    void guardedRefreshShell();
-  });
-  document.querySelector("#logout-shell").addEventListener("click", async () => {
-    await requestJSON("/api/v1/auth/logout", { method: "POST", body: "{}" });
-    window.location.assign("/app/login");
-  });
-  document.querySelector("#create-workout").addEventListener("click", async () => {
-    clearWorkoutError();
-    setStatus(workoutsStatus, "Starting workout…");
-    const response = await requestJSON("/api/v1/workouts", {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    if (!response.ok) {
-      setStatus(workoutsStatus, extractErrorMessage(response.payload, "Failed to start workout."), "error");
-      return;
-    }
-
-    setStatus(workoutsStatus, "Workout started.", "success");
-    await guardedRefreshShell(response.payload.id);
-  });
-  document.querySelector("#add-exercise").addEventListener("click", () => {
-    renderExerciseRows([...(state.selectedWorkout?.exercises ?? []), blankExercise()]);
-  });
-  document.querySelector("#workout-editor").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await saveWorkout();
-  });
-  joinLobbyButton.addEventListener("click", async () => {
-    await updateLobbyMembership("/api/v1/lobby/membership/join", "Lobby membership joined.", "Failed to join lobby.");
-  });
-  leaveLobbyButton.addEventListener("click", async () => {
-    await updateLobbyMembership("/api/v1/lobby/membership/leave", "Lobby membership left.", "Failed to leave lobby.");
-  });
-  finishWorkoutButton.addEventListener("click", async () => {
-    if (!state.selectedWorkoutID) {
-      return;
-    }
-    clearWorkoutError();
-    toggleWorkoutActions(true);
-    const response = await requestJSON(`/api/v1/workouts/${state.selectedWorkoutID}/finish`, {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    if (!response.ok) {
-      setStatus(workoutError, extractErrorMessage(response.payload, "Failed to finish workout."), "error");
-      toggleWorkoutActions(false);
-      return;
-    }
-
-    setStatus(workoutError, "Workout finished.", "success");
-    await guardedRefreshShell(state.selectedWorkoutID);
+  refreshButton?.addEventListener("click", async () => {
+    await bootShell();
   });
 
-  workoutsList.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-workout-id]");
-    if (!button) {
-      return;
-    }
-
-    void loadWorkoutDetail(button.dataset.workoutId);
-  });
-
-  await guardedRefreshShell();
-
-  async function guardedRefreshShell(preferredWorkoutID = state.selectedWorkoutID) {
+  logoutButton?.addEventListener("click", async () => {
+    logoutButton.disabled = true;
     try {
-      await refreshShell(preferredWorkoutID);
-    } catch {
-      renderShellLoadFailure();
+      await requestJSON("/api/v1/auth/logout", { method: "POST" });
+    } finally {
+      window.location.assign("/app/login");
     }
-  }
+  });
 
-  async function refreshShell(preferredWorkoutID = state.selectedWorkoutID) {
-    clearWorkoutError();
-    setStatus(membershipStatus, "Loading membership…");
-    setStatus(matchPreviewStatus, "Loading match preview…");
-    setStatus(profileStatus, "Loading profile…");
-    setStatus(recommendationStatus, "Loading recommendation…");
-    setStatus(workoutsStatus, "Loading workouts…");
+  await bootShell();
+}
 
-    const [membershipResponse, matchPreviewResponse, profileResponse, workoutsResponse, recommendationResponse] = await Promise.all([
-      requestJSON("/api/v1/lobby/membership"),
-      requestJSON("/api/v1/lobby/match-preview"),
-      requestJSON("/api/v1/profile"),
-      requestJSON("/api/v1/workouts"),
-      requestJSON("/api/v1/recommendations/workout"),
-    ]);
+async function bootShell() {
+  applySectionMeta(shellState.section);
+  renderSectionLoading("Loading member shell...");
+  setMessage(document.querySelector("#shell-status"), "Loading member shell...", "");
 
-    if (
-      membershipResponse.status === 401 ||
-      matchPreviewResponse.status === 401 ||
-      profileResponse.status === 401 ||
-      workoutsResponse.status === 401 ||
-      recommendationResponse.status === 401
-    ) {
+  try {
+    const profileResponse = await requestJSON("/api/v1/profile");
+    if (profileResponse.status === 401) {
       window.location.assign("/app/login");
       return;
     }
-
-    if (membershipResponse.ok) {
-      renderMembership(membershipResponse.payload);
-      setStatus(membershipStatus, "Membership loaded.", "success");
-    } else {
-      renderMembershipFailure(extractErrorMessage(membershipResponse.payload, "Failed to load lobby membership."));
-    }
-
-    if (matchPreviewResponse.ok) {
-      renderMatchPreview(matchPreviewResponse.payload);
-      setStatus(matchPreviewStatus, "Match preview loaded.", "success");
-    } else {
-      renderMatchPreviewFailure(extractErrorMessage(matchPreviewResponse.payload, "Failed to load match preview."));
-    }
-
-    if (profileResponse.ok) {
-      renderProfile(profileResponse.payload);
-      setStatus(profileStatus, "Profile loaded.", "success");
-    } else {
-      profileSummary.innerHTML = "";
-      setStatus(profileStatus, extractErrorMessage(profileResponse.payload, "Failed to load profile."), "error");
-    }
-
-    if (recommendationResponse.ok) {
-      renderRecommendation(recommendationResponse.payload);
-      setStatus(recommendationStatus, "Recommendation loaded.", "success");
-    } else {
-      recommendationCard.innerHTML = `<p class="empty-state">${escapeHTML(extractErrorMessage(recommendationResponse.payload, "Failed to load recommendation."))}</p>`;
-      setStatus(recommendationStatus, extractErrorMessage(recommendationResponse.payload, "Failed to load recommendation."), "error");
-    }
-
-    if (workoutsResponse.ok) {
-      state.workouts = workoutsResponse.payload;
-      state.selectedWorkoutID = selectWorkoutID(state.workouts, preferredWorkoutID);
-      renderWorkoutsList(state.workouts, state.selectedWorkoutID);
-      setStatus(workoutsStatus, `${state.workouts.length} workouts loaded.`, "success");
-      if (state.selectedWorkoutID) {
-        await loadWorkoutDetail(state.selectedWorkoutID);
-      } else {
-        renderEmptyWorkoutDetail();
-      }
-    } else {
-      state.workouts = [];
-      state.selectedWorkoutID = null;
-      workoutsList.innerHTML = `<li class="empty-state">${escapeHTML(extractErrorMessage(workoutsResponse.payload, "Failed to load workouts."))}</li>`;
-      setStatus(workoutsStatus, extractErrorMessage(workoutsResponse.payload, "Failed to load workouts."), "error");
-      renderEmptyWorkoutDetail();
-    }
-  }
-
-  function renderShellLoadFailure() {
-    state.workouts = [];
-    state.selectedWorkoutID = null;
-    state.selectedWorkout = null;
-
-    profileSummary.innerHTML = "";
-    renderMembershipFailure(shellLoadFailureMessages.membership);
-    renderMatchPreviewFailure(shellLoadFailureMessages.matchPreview);
-    recommendationCard.innerHTML = `<p class="empty-state">${escapeHTML(shellLoadFailureMessages.recommendation)}</p>`;
-    workoutsList.innerHTML = `<li class="empty-state">${escapeHTML(shellLoadFailureMessages.workouts)}</li>`;
-    renderEmptyWorkoutDetail();
-
-    setStatus(profileStatus, shellLoadFailureMessages.profile, "error");
-    setStatus(matchPreviewStatus, shellLoadFailureMessages.matchPreview, "error");
-    setStatus(recommendationStatus, shellLoadFailureMessages.recommendation, "error");
-    setStatus(workoutsStatus, shellLoadFailureMessages.workouts, "error");
-  }
-
-  async function loadWorkoutDetail(workoutID) {
-    state.selectedWorkoutID = workoutID;
-    renderWorkoutsList(state.workouts, state.selectedWorkoutID);
-    workoutTitle.textContent = "Loading workout…";
-    workoutState.textContent = "Loading";
-
-    const response = await requestJSON(`/api/v1/workouts/${workoutID}`);
-    if (!response.ok) {
-      renderEmptyWorkoutDetail();
-      setStatus(workoutError, extractErrorMessage(response.payload, "Failed to load workout detail."), "error");
+    if (!profileResponse.ok) {
+      renderShellBootstrapFailure(extractErrorMessage(profileResponse.payload, "Member shell bootstrap failed."));
       return;
     }
 
-    state.selectedWorkout = response.payload;
-    renderWorkoutDetail(response.payload);
-  }
-
-  async function saveWorkout() {
-    if (!state.selectedWorkoutID) {
-      return;
-    }
-
-    clearWorkoutError();
-    toggleWorkoutActions(true);
-    const payload = buildWorkoutPayload(
-      workoutNotes.value,
-      Array.from(exerciseList.querySelectorAll(".exercise-row")).map((row) => ({
-        name: row.querySelector("[data-field='name']").value,
-        sets: row.querySelector("[data-field='sets']").value,
-        reps: row.querySelector("[data-field='reps']").value,
-        weightKg: row.querySelector("[data-field='weight_kg']").value,
-        rpe: row.querySelector("[data-field='rpe']").value,
-        notes: row.querySelector("[data-field='notes']").value,
-      })),
-    );
-
-    const response = await requestJSON(`/api/v1/workouts/${state.selectedWorkoutID}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      setStatus(workoutError, extractErrorMessage(response.payload, "Failed to save workout."), "error");
-      toggleWorkoutActions(false);
-      return;
-    }
-
-    setStatus(workoutError, "Workout saved.", "success");
-    await guardedRefreshShell(state.selectedWorkoutID);
-  }
-
-  function renderProfile(profile) {
-    const entries = [
-      ["Display name", profile.display_name],
-      ["Student ID", profile.student_id],
-      ["Email", profile.email],
-      ["Email verified", profile.email_verified ? "Yes" : "No"],
-      ["Visibility", profile.visibility_mode],
-      ["Availability", profile.availability_mode],
-    ];
-    profileSummary.innerHTML = entries
-      .map(([label, value]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(String(value ?? "—"))}</dd></div>`)
-      .join("");
-  }
-
-  function renderMembership(membership) {
-    const summary = membershipSummary(membership);
-    membershipCard.innerHTML = `
-      <p class="headline">${escapeHTML(summary.headline)}</p>
-      <p>${escapeHTML(summary.detail)}</p>
-      <div class="meta">
-        <span class="pill">${escapeHTML(membership.status)}</span>
-        ${membership.joined_at ? `<span class="pill">Joined ${escapeHTML(formatTimestamp(membership.joined_at))}</span>` : ""}
-        ${membership.left_at ? `<span class="pill">Left ${escapeHTML(formatTimestamp(membership.left_at))}</span>` : ""}
-      </div>
-    `;
-
-    if (membership.status === "joined") {
-      joinLobbyButton.hidden = true;
-      leaveLobbyButton.hidden = false;
-    } else {
-      joinLobbyButton.hidden = false;
-      leaveLobbyButton.hidden = true;
-    }
-    toggleMembershipActions(false);
-  }
-
-  function renderMembershipFailure(message) {
-    membershipCard.innerHTML = `<p class="empty-state">${escapeHTML(message)}</p>`;
-    joinLobbyButton.hidden = true;
-    leaveLobbyButton.hidden = true;
-    toggleMembershipActions(false);
-    setStatus(membershipStatus, message, "error");
-  }
-
-  function renderMatchPreview(preview) {
-    const matches = Array.isArray(preview?.matches) ? preview.matches : [];
-    const unmatchedMemberIDs = Array.isArray(preview?.unmatched_member_ids) ? preview.unmatched_member_ids : [];
-    const unmatchedLabels = Array.isArray(preview?.unmatched_labels) ? preview.unmatched_labels : [];
-    const summary = `
-      <section class="match-preview-summary">
-        <p class="headline">Read-only preview</p>
-        <p>This preview uses explicit joined membership only and excludes members who no longer satisfy open-lobby eligibility.</p>
-        <div class="meta">
-          <span class="pill">${escapeHTML(String(preview?.preview_version ?? "unknown"))}</span>
-          <span class="pill">${escapeHTML(String(preview?.candidate_count ?? 0))} candidates</span>
-          ${
-            preview?.generated_at
-              ? `<span class="pill">Generated ${escapeHTML(formatTimestamp(preview.generated_at))}</span>`
-              : '<span class="pill">No candidates yet</span>'
-          }
-        </div>
-      </section>
-    `;
-
-    if (matches.length === 0 && unmatchedMemberIDs.length === 0) {
-      matchPreviewCard.innerHTML = `${summary}<p class="empty-state">No eligible joined members are available for a deterministic preview yet.</p>`;
-      return;
-    }
-
-    const matchMarkup = matches.length === 0
-      ? ""
-      : `<ol class="match-preview-list">${matches.map((match, index) => {
-          const memberIDs = Array.isArray(match?.member_ids) ? match.member_ids : [];
-          const memberLabels = Array.isArray(match?.member_labels) && match.member_labels.length === memberIDs.length
-            ? match.member_labels
-            : memberIDs.map(shortMemberID);
-          const reasons = Array.isArray(match?.reasons) ? match.reasons : [];
-          return `
-            <li class="match-preview-entry">
-              <div>
-                <p class="headline">Match ${index + 1}</p>
-                <p>${escapeHTML(memberLabels.join(" · "))}</p>
-              </div>
-              <div class="meta">
-                <span class="pill">Score ${escapeHTML(String(match?.score ?? 0))}</span>
-                ${memberIDs.map((memberID) => `<span class="pill">${escapeHTML(shortMemberID(memberID))}</span>`).join("")}
-              </div>
-              <ul class="reason-list">${reasons.map((reason) => `<li>${escapeHTML(formatReason(reason))}</li>`).join("")}</ul>
-            </li>
-          `;
-        }).join("")}</ol>`;
-
-    const unmatchedMarkup = unmatchedMemberIDs.length === 0
-      ? ""
-      : `
-        <section class="match-preview-entry">
-          <div>
-            <p class="headline">Unmatched</p>
-            <p>${escapeHTML((unmatchedLabels.length === unmatchedMemberIDs.length ? unmatchedLabels : unmatchedMemberIDs.map(shortMemberID)).join(" · "))}</p>
-          </div>
-          <div class="meta">
-            ${unmatchedMemberIDs.map((memberID) => `<span class="pill">${escapeHTML(shortMemberID(memberID))}</span>`).join("")}
-          </div>
-        </section>
-      `;
-
-    matchPreviewCard.innerHTML = `${summary}${matchMarkup}${unmatchedMarkup}`;
-  }
-
-  function renderMatchPreviewFailure(message) {
-    matchPreviewCard.innerHTML = `<p class="empty-state">${escapeHTML(message)}</p>`;
-    setStatus(matchPreviewStatus, message, "error");
-  }
-
-  function renderRecommendation(recommendation) {
-    const summary = recommendationSummary(recommendation);
-    const evidence = recommendation.evidence ?? {};
-    const evidenceLines = [
-      evidence.in_progress_started_at ? `In progress since ${formatTimestamp(evidence.in_progress_started_at)}` : null,
-      evidence.last_finished_at ? `Last finished at ${formatTimestamp(evidence.last_finished_at)}` : null,
-      Number.isFinite(evidence.recovery_window_hours) ? `Recovery window ${evidence.recovery_window_hours}h` : null,
-    ].filter(Boolean);
-
-    recommendationCard.innerHTML = `
-      <p class="headline">${escapeHTML(summary.headline)}</p>
-      <p>${escapeHTML(summary.detail)}</p>
-      <div class="meta">
-        <span class="pill">${escapeHTML(recommendation.type)}</span>
-        <span class="pill">${escapeHTML(recommendation.reason)}</span>
-        <span class="pill">Generated ${escapeHTML(formatTimestamp(recommendation.generated_at))}</span>
-      </div>
-      ${evidenceLines.length === 0 ? '<p class="section-copy">No additional evidence for this recommendation.</p>' : `<ul>${evidenceLines.map((line) => `<li>${escapeHTML(line)}</li>`).join("")}</ul>`}
-      ${recommendation.workout_id ? `<button type="button" id="open-recommended-workout" class="secondary-button">Open referenced workout</button>` : ""}
-    `;
-
-    const openButton = recommendationCard.querySelector("#open-recommended-workout");
-    if (openButton) {
-      openButton.addEventListener("click", () => {
-        void loadWorkoutDetail(recommendation.workout_id);
-      });
-    }
-  }
-
-  function renderWorkoutsList(workouts, selectedWorkoutID) {
-    if (!Array.isArray(workouts) || workouts.length === 0) {
-      workoutsList.innerHTML = `<li class="empty-state">No workouts yet. Start one from this shell.</li>`;
-      return;
-    }
-
-    workoutsList.innerHTML = workouts
-      .map((workout) => `
-        <li>
-          <button class="workout-list-button${workout.id === selectedWorkoutID ? " is-selected" : ""}" data-workout-id="${escapeHTML(workout.id)}" type="button">
-            <span class="label">${escapeHTML(workout.status === "in_progress" ? "In-progress workout" : "Finished workout")}</span>
-            <span class="meta">${escapeHTML(workoutListLabel(workout))}</span>
-            <span class="meta">${escapeHTML(workout.notes ?? "No notes")}</span>
-          </button>
-        </li>
-      `)
-      .join("");
-  }
-
-  function renderWorkoutDetail(workout) {
-    workoutTitle.textContent = workout.status === "in_progress" ? "In-progress workout" : "Finished workout";
-    workoutState.textContent = workout.status === "in_progress" ? "Editable draft" : "Finished";
-    workoutNotes.value = workout.notes ?? "";
-    renderExerciseRows(Array.isArray(workout.exercises) && workout.exercises.length > 0 ? workout.exercises : [blankExercise()]);
-    toggleWorkoutActions(workout.status !== "in_progress");
-  }
-
-  function renderEmptyWorkoutDetail() {
-    state.selectedWorkout = null;
-    workoutTitle.textContent = "Select a workout";
-    workoutState.textContent = "No workout selected";
-    workoutNotes.value = "";
-    exerciseList.innerHTML = `<p class="empty-state">Choose a workout from the list or start a new one.</p>`;
-    toggleWorkoutActions(true);
-  }
-
-  function renderExerciseRows(exercises) {
-    exerciseList.innerHTML = exercises
-      .map((exercise, index) => `
-        <div class="exercise-row" data-position="${index}">
-          ${inputField("Name", "name", exercise.name ?? "", "text")}
-          ${inputField("Sets", "sets", String(exercise.sets ?? 0), "number")}
-          ${inputField("Reps", "reps", String(exercise.reps ?? 0), "number")}
-          ${inputField("Weight (kg)", "weight_kg", exercise.weight_kg ?? "", "number", "0.1")}
-          ${inputField("RPE", "rpe", exercise.rpe ?? "", "number", "0.1")}
-          ${inputField("Notes", "notes", exercise.notes ?? "", "text")}
-          <button class="ghost-button" type="button" data-remove-position="${index}">Remove</button>
-        </div>
-      `)
-      .join("");
-
-    exerciseList.querySelectorAll("[data-remove-position]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const remaining = Array.from(exerciseList.querySelectorAll(".exercise-row"))
-          .filter((row) => row !== button.closest(".exercise-row"))
-          .map((row) => ({
-            name: row.querySelector("[data-field='name']").value,
-            sets: row.querySelector("[data-field='sets']").value,
-            reps: row.querySelector("[data-field='reps']").value,
-            weight_kg: row.querySelector("[data-field='weight_kg']").value,
-            rpe: row.querySelector("[data-field='rpe']").value,
-            notes: row.querySelector("[data-field='notes']").value,
-          }));
-        renderExerciseRows(remaining.length > 0 ? remaining : [blankExercise()]);
-      });
-    });
-  }
-
-  function clearWorkoutError() {
-    setStatus(workoutError, "");
-  }
-
-  async function updateLobbyMembership(path, successMessage, failureFallback) {
-    toggleMembershipActions(true);
-    setStatus(membershipStatus, successMessage.replace(/\.$/, "…"));
-
-    try {
-      const response = await requestJSON(path, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      if (response.status === 401) {
-        window.location.assign("/app/login");
-        return;
-      }
-      if (!response.ok) {
-        setStatus(membershipStatus, extractErrorMessage(response.payload, failureFallback), "error");
-        toggleMembershipActions(false);
-        return;
-      }
-
-      renderMembership(response.payload);
-      setStatus(membershipStatus, successMessage, "success");
-    } catch {
-      renderMembershipFailure("Unable to update lobby membership. Check your connection and try again.");
-    }
-  }
-
-  function toggleMembershipActions(disabled) {
-    joinLobbyButton.disabled = disabled;
-    leaveLobbyButton.disabled = disabled;
-  }
-
-  function toggleWorkoutActions(disabled) {
-    saveWorkoutButton.disabled = disabled;
-    finishWorkoutButton.disabled = disabled;
+    shellState.profile = profileResponse.payload;
+    setMessage(document.querySelector("#shell-status"), shellState.sectionMessage || "Member shell ready.", "success");
+    await loadSection(shellState.section);
+  } catch (error) {
+    renderShellBootstrapFailure(error instanceof Error ? error.message : "Member shell bootstrap failed.");
   }
 }
 
-function inputField(label, field, value, type, step = "1") {
-  const extra = type === "number" ? ` step="${step}"` : "";
-  return `
-    <label>
-      <span>${escapeHTML(label)}</span>
-      <input data-field="${escapeHTML(field)}" type="${escapeHTML(type)}" value="${escapeHTML(String(value ?? ""))}"${extra} />
-    </label>
+async function loadSection(section) {
+  shellState.section = normalizeShellSection(section);
+  highlightNav(shellState.section);
+  applySectionMeta(shellState.section);
+  renderSectionLoading(`Loading ${SECTION_META[shellState.section].eyebrow.toLowerCase()}...`);
+
+  try {
+    switch (shellState.section) {
+      case "home":
+        await loadHomeSection();
+        break;
+      case "workouts":
+        await loadWorkoutsSection();
+        break;
+      case "meals":
+        await loadMealsSection();
+        break;
+      case "tournaments":
+        await loadTournamentsSection();
+        break;
+      case "settings":
+        renderSettingsSection(shellState.profile);
+        bindSettingsSection();
+        break;
+      default:
+        window.location.assign(memberShellPath(DEFAULT_MEMBER_SHELL_SECTION));
+    }
+  } catch (error) {
+    renderSectionError(error instanceof Error ? error.message : "Section load failed.");
+  }
+}
+
+async function loadSectionPayloads(paths) {
+  const responses = await Promise.all(paths.map((path) => requestJSON(path)));
+  for (const response of responses) {
+    if (response.status === 401) {
+      window.location.assign("/app/login");
+      throw new Error("Unauthorized");
+    }
+    if (!response.ok) {
+      throw new Error(extractErrorMessage(response.payload, "Section load failed."));
+    }
+  }
+  return responses.map((response) => response.payload);
+}
+
+async function loadHomeSection() {
+  const [presence, eligibility, membership, recommendation] = await loadSectionPayloads(SECTION_API_PATHS.home);
+  const recommendationCard = recommendationSummary(recommendation);
+  const membershipCard = membershipSummary(membership);
+  const facilities = Array.isArray(presence?.facilities) ? presence.facilities : [];
+  const currentFacility = facilities.find((facility) => facility.status === "present");
+  const visibleName = shellState.profile?.display_name || shellState.profile?.student_id || "Member";
+
+  renderCards([
+    {
+      title: "Profile summary",
+      body: [
+        metricRow("Member", visibleName),
+        metricRow("Visibility", shellState.profile?.visibility_mode || "unknown"),
+        metricRow("Availability", shellState.profile?.availability_mode || "unknown"),
+        metricRow("Email", shellState.profile?.email || "unknown"),
+      ].join(""),
+    },
+    {
+      title: "Presence summary",
+      body: facilities.length
+        ? [
+            metricRow("Facilities tracked", String(facilities.length)),
+            metricRow("Current status", currentFacility ? `Present at ${currentFacility.facility_key}` : "Not currently present"),
+            metricRow("Latest streak", facilities[0]?.streak?.status || "not_started"),
+          ].join("")
+        : emptyStateMarkup("No linked facility visits exist yet."),
+    },
+    {
+      title: "Lobby eligibility",
+      body: [
+        metricRow("Eligible", eligibility?.eligible ? "yes" : "no"),
+        metricRow("Reason", eligibility?.reason || "unknown"),
+      ].join(""),
+    },
+    {
+      title: membershipCard.headline,
+      body: `<p>${escapeHTML(membershipCard.detail)}</p>`,
+    },
+    {
+      title: recommendationCard.headline,
+      body: `<p>${escapeHTML(recommendationCard.detail)}</p>${recommendation?.generated_at ? `<p class="meta-copy">Generated ${escapeHTML(formatTimestamp(recommendation.generated_at))}</p>` : ""}`,
+    },
+    {
+      title: "Schedule boundary",
+      body: `<p>No member-safe schedule read exists in APOLLO yet, so schedule and booking stay out of this shell.</p>`,
+    },
+  ]);
+}
+
+async function loadWorkoutsSection() {
+  const [workouts, templates, exercises, equipment] = await loadSectionPayloads(SECTION_API_PATHS.workouts);
+  shellState.workouts = Array.isArray(workouts) ? workouts : [];
+  shellState.selectedWorkoutID = selectWorkoutID(shellState.workouts, shellState.selectedWorkoutID);
+  const selectedWorkout = shellState.workouts.find((workout) => workout.id === shellState.selectedWorkoutID) || null;
+
+  renderWorkoutSection({
+    workouts: shellState.workouts,
+    selectedWorkout,
+    templates: Array.isArray(templates) ? templates : [],
+    exercises: Array.isArray(exercises) ? exercises : [],
+    equipment: Array.isArray(equipment) ? equipment : [],
+  });
+  bindWorkoutSection();
+}
+
+async function loadMealsSection() {
+  const [recommendation, mealLogs, mealTemplates] = await loadSectionPayloads(SECTION_API_PATHS.meals);
+  const logs = Array.isArray(mealLogs) ? mealLogs : [];
+  const templates = Array.isArray(mealTemplates) ? mealTemplates : [];
+
+  renderCards([
+    {
+      title: "Nutrition recommendation",
+      body: [
+        metricRow("Kind", recommendation?.kind || "unknown"),
+        metricRow("Goal", recommendation?.goal_key || "unknown"),
+        metricRow("Calories", recommendation?.daily_calories ? `${recommendation.daily_calories.min}-${recommendation.daily_calories.max}` : "unknown"),
+        metricRow("Policy", recommendation?.policy_version || "unknown"),
+      ].join(""),
+    },
+    {
+      title: "Meal logs",
+      body: logs.length ? renderSimpleList(logs.slice(0, 6).map((entry) => `${entry.name} | ${entry.meal_type} | ${formatTimestamp(entry.logged_at)}`)) : emptyStateMarkup("No meal logs recorded yet."),
+    },
+    {
+      title: "Meal templates",
+      body: templates.length
+        ? renderSimpleList(templates.slice(0, 6).map((entry) => `${entry.name} | ${entry.meal_type}`))
+        : emptyStateMarkup("No meal templates recorded yet."),
+    },
+  ]);
+}
+
+async function loadTournamentsSection() {
+  const [membership, preview, stats] = await loadSectionPayloads(SECTION_API_PATHS.tournaments);
+  const membershipCard = membershipSummary(membership);
+  const memberStats = Array.isArray(stats) ? stats : [];
+
+  const root = document.querySelector("#section-shell");
+  root.innerHTML = `
+    <div class="section-grid">
+      <article class="truth-card">
+        <h3>${escapeHTML(membershipCard.headline)}</h3>
+        <p>${escapeHTML(membershipCard.detail)}</p>
+        <div class="action-row">
+          <button id="join-lobby" class="primary-button" type="button"${membership?.status === "joined" ? " hidden" : ""}>Join lobby</button>
+          <button id="leave-lobby" class="secondary-button" type="button"${membership?.status === "joined" ? "" : " hidden"}>Leave lobby</button>
+        </div>
+        <p id="membership-status" class="status-message" aria-live="polite"></p>
+      </article>
+      <article class="truth-card">
+        <h3>Match preview</h3>
+        ${renderMatchPreview(preview)}
+      </article>
+      <article class="truth-card">
+        <h3>Competition member stats</h3>
+        ${memberStats.length ? renderSimpleList(memberStats.map((entry) => `${entry.sport_key}/${entry.mode_key} | ${entry.matches_played} played | ${entry.wins}W-${entry.losses}L-${entry.draws}D`)) : emptyStateMarkup("No self-scoped competition stats exist yet.")}
+      </article>
+    </div>
+  `;
+
+  bindTournamentsSection();
+}
+
+function renderSettingsSection(profile) {
+  const root = document.querySelector("#section-shell");
+  const coaching = profile?.coaching_profile || {};
+  const nutrition = profile?.nutrition_profile || {};
+
+  root.innerHTML = `
+    <form id="settings-form" class="settings-form">
+      <div class="section-grid">
+        <article class="truth-card">
+          <h3>Identity and visibility</h3>
+          <label>
+            <span>Visibility</span>
+            <select id="settings-visibility">
+              ${renderSelectOptions(["ghost", "discoverable"], profile?.visibility_mode)}
+            </select>
+          </label>
+          <label>
+            <span>Availability</span>
+            <select id="settings-availability">
+              ${renderSelectOptions(["unavailable", "available_now", "with_team"], profile?.availability_mode)}
+            </select>
+          </label>
+        </article>
+        <article class="truth-card">
+          <h3>Coaching profile</h3>
+          <label><span>Goal key</span><input id="settings-goal-key" type="text" value="${escapeHTML(coaching.goal_key || "")}" /></label>
+          <label><span>Days per week</span><input id="settings-days-per-week" type="number" min="1" max="7" value="${escapeHTML(numberValue(coaching.days_per_week))}" /></label>
+          <label><span>Session minutes</span><input id="settings-session-minutes" type="number" min="1" value="${escapeHTML(numberValue(coaching.session_minutes))}" /></label>
+          <label>
+            <span>Experience level</span>
+            <select id="settings-experience-level">
+              ${renderSelectOptions(["", "beginner", "intermediate", "advanced"], coaching.experience_level || "")}
+            </select>
+          </label>
+          <label><span>Preferred equipment keys</span><input id="settings-equipment-keys" type="text" value="${escapeHTML((coaching.preferred_equipment_keys || []).join(", "))}" /></label>
+        </article>
+        <article class="truth-card">
+          <h3>Nutrition profile</h3>
+          <label><span>Dietary restrictions</span><input id="settings-dietary-restrictions" type="text" value="${escapeHTML((nutrition.dietary_restrictions || []).join(", "))}" /></label>
+          <label><span>Cuisine preferences</span><input id="settings-cuisine-preferences" type="text" value="${escapeHTML((nutrition.meal_preference?.cuisine_preferences || []).join(", "))}" /></label>
+          <label>
+            <span>Budget preference</span>
+            <select id="settings-budget-preference">
+              ${renderSelectOptions(["", "budget_constrained", "moderate", "flexible"], nutrition.budget_preference || "")}
+            </select>
+          </label>
+          <label>
+            <span>Cooking capability</span>
+            <select id="settings-cooking-capability">
+              ${renderSelectOptions(["", "no_kitchen", "microwave_only", "basic_kitchen", "full_kitchen"], nutrition.cooking_capability || "")}
+            </select>
+          </label>
+        </article>
+      </div>
+      <div class="action-row">
+        <button id="save-settings" class="primary-button" type="submit">Save settings</button>
+      </div>
+      <p id="settings-status" class="status-message" aria-live="polite"></p>
+    </form>
   `;
 }
 
-function blankExercise() {
-  return {
-    name: "",
-    sets: 0,
-    reps: 0,
-    weight_kg: "",
-    rpe: "",
-    notes: "",
-  };
+function bindSettingsSection() {
+  const form = document.querySelector("#settings-form");
+  const status = document.querySelector("#settings-status");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setMessage(status, "Saving settings...", "");
+
+    try {
+      const payload = buildProfilePatchPayload({
+        visibilityMode: document.querySelector("#settings-visibility")?.value || "ghost",
+        availabilityMode: document.querySelector("#settings-availability")?.value || "unavailable",
+        goalKey: document.querySelector("#settings-goal-key")?.value || "",
+        daysPerWeek: document.querySelector("#settings-days-per-week")?.value || "",
+        sessionMinutes: document.querySelector("#settings-session-minutes")?.value || "",
+        experienceLevel: document.querySelector("#settings-experience-level")?.value || "",
+        preferredEquipmentKeys: document.querySelector("#settings-equipment-keys")?.value || "",
+        dietaryRestrictions: document.querySelector("#settings-dietary-restrictions")?.value || "",
+        cuisinePreferences: document.querySelector("#settings-cuisine-preferences")?.value || "",
+        budgetPreference: document.querySelector("#settings-budget-preference")?.value || "",
+        cookingCapability: document.querySelector("#settings-cooking-capability")?.value || "",
+      });
+
+      const result = await requestJSON("/api/v1/profile", {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      if (result.status === 401) {
+        window.location.assign("/app/login");
+        return;
+      }
+      if (!result.ok) {
+        setMessage(status, extractErrorMessage(result.payload, "Settings update failed."), "error");
+        return;
+      }
+
+      shellState.profile = result.payload;
+      shellState.sectionMessage = "Settings saved.";
+      setMessage(status, "Settings saved.", "success");
+      setMessage(document.querySelector("#shell-status"), "Settings saved.", "success");
+    } catch (error) {
+      setMessage(status, error instanceof Error ? error.message : "Settings update failed.", "error");
+    }
+  });
 }
 
-function shortMemberID(value) {
-  return String(value ?? "").slice(0, 8);
+function renderWorkoutSection({ workouts, selectedWorkout, templates, exercises, equipment }) {
+  const root = document.querySelector("#section-shell");
+  root.innerHTML = `
+    <div class="section-grid section-grid-wide">
+      <article class="truth-card">
+        <h3>Planner substrate</h3>
+        <div class="metrics">
+          ${metricRow("Templates", String(templates.length))}
+          ${metricRow("Exercises", String(exercises.length))}
+          ${metricRow("Equipment", String(equipment.length))}
+        </div>
+      </article>
+      <article class="truth-card truth-card-span">
+        <div class="card-header">
+          <div>
+            <h3>Workout list</h3>
+            <p class="meta-copy">Start, select, update, and finish workouts over the existing member runtime.</p>
+          </div>
+          <button id="create-workout" class="primary-button" type="button">Start workout</button>
+        </div>
+        <div class="workout-layout">
+          <ol id="workout-list" class="workout-list">
+            ${workouts.length ? workouts.map((workout) => renderWorkoutListItem(workout, selectedWorkout?.id)).join("") : `<li class="empty-list">${emptyStateMarkup("No workouts exist yet.")}</li>`}
+          </ol>
+          <section class="workout-detail">
+            <div class="card-header">
+              <div>
+                <h4 id="workout-detail-title">${selectedWorkout ? `Workout ${escapeHTML(selectedWorkout.id.slice(0, 8))}` : "Select a workout"}</h4>
+                <p id="workout-detail-state" class="meta-copy">${selectedWorkout ? escapeHTML(selectedWorkout.status) : "No workout selected"}</p>
+              </div>
+            </div>
+            <form id="workout-editor" class="editor-shell">
+              <label>
+                <span>Notes</span>
+                <textarea id="workout-notes" rows="4" placeholder="Workout notes"${selectedWorkout ? "" : " disabled"}>${escapeHTML(selectedWorkout?.notes || "")}</textarea>
+              </label>
+              <section class="exercise-section">
+                <div class="card-header">
+                  <div>
+                    <h4>Exercise rows</h4>
+                    <p class="meta-copy">These writes stay backend-authoritative.</p>
+                  </div>
+                  <button id="add-exercise" class="secondary-button" type="button"${selectedWorkout ? "" : " disabled"}>Add exercise</button>
+                </div>
+                <div id="exercise-list" class="exercise-list">
+                  ${selectedWorkout ? renderExerciseRows(selectedWorkout.exercises) : emptyStateMarkup("Start or select a workout to edit draft rows.")}
+                </div>
+              </section>
+              <div class="action-row">
+                <button id="save-workout" class="primary-button" type="submit"${selectedWorkout ? "" : " disabled"}>Save draft</button>
+                <button id="finish-workout" class="secondary-button" type="button"${selectedWorkout ? "" : " disabled"}>Finish workout</button>
+              </div>
+              <p id="workouts-status" class="status-message" aria-live="polite"></p>
+            </form>
+          </section>
+        </div>
+      </article>
+    </div>
+  `;
 }
 
-function formatReason(reason) {
-  const code = typeof reason?.code === "string" ? reason.code : "unknown_reason";
-  const value = typeof reason?.value === "string" && reason.value.length > 0 ? `: ${reason.value}` : "";
-  return `${code}${value}`;
+function bindWorkoutSection() {
+  const createButton = document.querySelector("#create-workout");
+  const list = document.querySelector("#workout-list");
+  const editor = document.querySelector("#workout-editor");
+  const addExerciseButton = document.querySelector("#add-exercise");
+  const finishButton = document.querySelector("#finish-workout");
+  const status = document.querySelector("#workouts-status");
+
+  createButton?.addEventListener("click", async () => {
+    setMessage(status, "Starting workout...", "");
+    try {
+      const result = await requestJSON("/api/v1/workouts", {
+        method: "POST",
+        body: JSON.stringify({ notes: null }),
+      });
+      if (!result.ok) {
+        setMessage(status, extractErrorMessage(result.payload, "Workout create failed."), "error");
+        return;
+      }
+
+      shellState.selectedWorkoutID = result.payload.id;
+      shellState.sectionMessage = "Workout created.";
+      await loadWorkoutsSection();
+      setMessage(document.querySelector("#shell-status"), "Workout created.", "success");
+    } catch (error) {
+      setMessage(status, error instanceof Error ? error.message : "Workout create failed.", "error");
+    }
+  });
+
+  list?.addEventListener("click", async (event) => {
+    const button = event.target instanceof HTMLElement ? event.target.closest("[data-workout-id]") : null;
+    if (!button) {
+      return;
+    }
+    shellState.selectedWorkoutID = button.getAttribute("data-workout-id");
+    await loadWorkoutsSection();
+  });
+
+  addExerciseButton?.addEventListener("click", () => {
+    const exerciseList = document.querySelector("#exercise-list");
+    if (!exerciseList) {
+      return;
+    }
+    exerciseList.insertAdjacentHTML("beforeend", renderExerciseRows([{}]));
+  });
+
+  editor?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!shellState.selectedWorkoutID) {
+      return;
+    }
+
+    setMessage(status, "Saving workout...", "");
+    try {
+      const payload = buildWorkoutPayload(
+        document.querySelector("#workout-notes")?.value || "",
+        readExerciseRows(),
+      );
+
+      const result = await requestJSON(`/api/v1/workouts/${shellState.selectedWorkoutID}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      if (!result.ok) {
+        setMessage(status, extractErrorMessage(result.payload, "Workout save failed."), "error");
+        return;
+      }
+
+      shellState.selectedWorkoutID = result.payload.id;
+      shellState.sectionMessage = "Workout saved.";
+      await loadWorkoutsSection();
+      setMessage(document.querySelector("#shell-status"), "Workout saved.", "success");
+    } catch (error) {
+      setMessage(status, error instanceof Error ? error.message : "Workout save failed.", "error");
+    }
+  });
+
+  finishButton?.addEventListener("click", async () => {
+    if (!shellState.selectedWorkoutID) {
+      return;
+    }
+
+    setMessage(status, "Finishing workout...", "");
+    try {
+      const result = await requestJSON(`/api/v1/workouts/${shellState.selectedWorkoutID}/finish`, {
+        method: "POST",
+      });
+      if (!result.ok) {
+        setMessage(status, extractErrorMessage(result.payload, "Workout finish failed."), "error");
+        return;
+      }
+
+      shellState.selectedWorkoutID = result.payload.id;
+      shellState.sectionMessage = "Workout finished.";
+      await loadWorkoutsSection();
+      setMessage(document.querySelector("#shell-status"), "Workout finished.", "success");
+    } catch (error) {
+      setMessage(status, error instanceof Error ? error.message : "Workout finish failed.", "error");
+    }
+  });
 }
 
-function escapeHTML(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;");
+function bindTournamentsSection() {
+  const status = document.querySelector("#membership-status");
+  const joinButton = document.querySelector("#join-lobby");
+  const leaveButton = document.querySelector("#leave-lobby");
+
+  joinButton?.addEventListener("click", async () => {
+    setMessage(status, "Joining lobby...", "");
+    try {
+      const result = await requestJSON("/api/v1/lobby/membership/join", { method: "POST" });
+      if (!result.ok) {
+        setMessage(status, extractErrorMessage(result.payload, "Lobby join failed."), "error");
+        return;
+      }
+      shellState.sectionMessage = "Lobby membership joined.";
+      setMessage(document.querySelector("#shell-status"), "Lobby membership joined.", "success");
+      await loadTournamentsSection();
+      setMessage(document.querySelector("#membership-status"), "Lobby membership joined.", "success");
+    } catch (error) {
+      setMessage(status, error instanceof Error ? error.message : "Lobby join failed.", "error");
+    }
+  });
+
+  leaveButton?.addEventListener("click", async () => {
+    setMessage(status, "Leaving lobby...", "");
+    try {
+      const result = await requestJSON("/api/v1/lobby/membership/leave", { method: "POST" });
+      if (!result.ok) {
+        setMessage(status, extractErrorMessage(result.payload, "Lobby leave failed."), "error");
+        return;
+      }
+      shellState.sectionMessage = "Lobby membership left.";
+      setMessage(document.querySelector("#shell-status"), "Lobby membership left.", "success");
+      await loadTournamentsSection();
+      setMessage(document.querySelector("#membership-status"), "Lobby membership left.", "success");
+    } catch (error) {
+      setMessage(status, error instanceof Error ? error.message : "Lobby leave failed.", "error");
+    }
+  });
 }
 
-function setStatus(element, message, tone = "") {
-  if (!element) {
+function renderCards(cards) {
+  const root = document.querySelector("#section-shell");
+  root.innerHTML = `<div class="section-grid">${cards
+    .map(
+      (card) => `
+        <article class="truth-card">
+          <h3>${escapeHTML(card.title)}</h3>
+          ${card.body}
+        </article>`,
+    )
+    .join("")}</div>`;
+}
+
+function renderShellBootstrapFailure(message) {
+  setMessage(document.querySelector("#shell-status"), message, "error");
+  const root = document.querySelector("#section-shell");
+  root.innerHTML = `
+    <article class="truth-card">
+      <h3>Member shell bootstrap failed</h3>
+      <p>${escapeHTML(message)}</p>
+      <button id="section-retry" class="primary-button" type="button">Retry</button>
+    </article>
+  `;
+  bindRetry();
+}
+
+function renderSectionLoading(message) {
+  const root = document.querySelector("#section-shell");
+  root.innerHTML = `
+    <article class="truth-card">
+      <h3>Loading</h3>
+      <p>${escapeHTML(message)}</p>
+    </article>
+  `;
+}
+
+function renderSectionError(message) {
+  const root = document.querySelector("#section-shell");
+  root.innerHTML = `
+    <article class="truth-card">
+      <h3>Section load failed</h3>
+      <p>${escapeHTML(message)}</p>
+      <button id="section-retry" class="primary-button" type="button">Retry section</button>
+    </article>
+  `;
+  bindRetry();
+}
+
+function bindRetry() {
+  document.querySelector("#section-retry")?.addEventListener("click", async () => {
+    await bootShell();
+  });
+}
+
+function applySectionMeta(section) {
+  const meta = SECTION_META[normalizeShellSection(section)];
+  if (!meta) {
     return;
   }
 
-  element.textContent = message;
-  element.classList.remove("error-message", "success-message");
-  if (tone === "error") {
-    element.classList.add("error-message");
+  const eyebrow = document.querySelector("#section-eyebrow");
+  const title = document.querySelector("#section-title");
+  const copy = document.querySelector("#section-copy");
+  if (eyebrow) {
+    eyebrow.textContent = meta.eyebrow;
   }
-  if (tone === "success") {
-    element.classList.add("success-message");
+  if (title) {
+    title.textContent = meta.title;
+  }
+  if (copy) {
+    copy.textContent = meta.copy;
   }
 }
 
-boot();
+function highlightNav(section) {
+  for (const link of document.querySelectorAll(".member-nav-link")) {
+    const active = link.dataset.navSection === section;
+    link.setAttribute("aria-current", active ? "page" : "false");
+    link.classList.toggle("active", active);
+  }
+}
+
+function renderMatchPreview(preview) {
+  if (!preview || preview.candidate_count === 0) {
+    return `<p>No eligible joined members are available for a deterministic match preview.</p>`;
+  }
+
+  const matches = Array.isArray(preview.matches) ? preview.matches : [];
+  const unmatched = Array.isArray(preview.unmatched_labels) ? preview.unmatched_labels : [];
+  return `
+    <p>${escapeHTML(String(preview.candidate_count))} candidate${preview.candidate_count === 1 ? "" : "s"} in the current deterministic preview.</p>
+    ${matches.length ? renderSimpleList(matches.map((match) => match.member_labels.join(" vs "))) : ""}
+    ${unmatched.length ? `<p class="meta-copy">Unmatched: ${escapeHTML(unmatched.join(", "))}</p>` : ""}
+  `;
+}
+
+function renderWorkoutListItem(workout, selectedWorkoutID) {
+  const selected = workout.id === selectedWorkoutID;
+  return `
+    <li>
+      <button class="list-button${selected ? " active" : ""}" type="button" data-workout-id="${escapeHTML(workout.id)}">
+        <strong>${escapeHTML(workoutListLabel(workout))}</strong>
+        <span>${escapeHTML(workout.status)}</span>
+      </button>
+    </li>
+  `;
+}
+
+function renderExerciseRows(exercises) {
+  const rows = Array.isArray(exercises) && exercises.length ? exercises : [{}];
+  return rows
+    .map(
+      (exercise) => `
+        <div class="exercise-row">
+          <input data-exercise-field="name" type="text" placeholder="Exercise name" value="${escapeHTML(exercise.name || "")}" />
+          <input data-exercise-field="sets" type="number" min="1" placeholder="Sets" value="${escapeHTML(numberValue(exercise.sets))}" />
+          <input data-exercise-field="reps" type="number" min="1" placeholder="Reps" value="${escapeHTML(numberValue(exercise.reps))}" />
+          <input data-exercise-field="weightKg" type="number" min="0" step="0.1" placeholder="Weight kg" value="${escapeHTML(numberValue(exercise.weight_kg))}" />
+          <input data-exercise-field="rpe" type="number" min="0" max="10" step="0.1" placeholder="RPE" value="${escapeHTML(numberValue(exercise.rpe))}" />
+          <input data-exercise-field="notes" type="text" placeholder="Notes" value="${escapeHTML(exercise.notes || "")}" />
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function readExerciseRows() {
+  return Array.from(document.querySelectorAll(".exercise-row")).map((row) => ({
+    name: row.querySelector('[data-exercise-field="name"]')?.value || "",
+    sets: row.querySelector('[data-exercise-field="sets"]')?.value || "",
+    reps: row.querySelector('[data-exercise-field="reps"]')?.value || "",
+    weightKg: row.querySelector('[data-exercise-field="weightKg"]')?.value || "",
+    rpe: row.querySelector('[data-exercise-field="rpe"]')?.value || "",
+    notes: row.querySelector('[data-exercise-field="notes"]')?.value || "",
+  }));
+}
+
+function renderSimpleList(entries) {
+  return `<ul class="plain-list">${entries.map((entry) => `<li>${escapeHTML(entry)}</li>`).join("")}</ul>`;
+}
+
+function renderSelectOptions(options, selectedValue) {
+  return options
+    .map((value) => {
+      const label = value === "" ? "Unset" : value;
+      return `<option value="${escapeHTML(value)}"${value === selectedValue ? " selected" : ""}>${escapeHTML(label)}</option>`;
+    })
+    .join("");
+}
+
+function emptyStateMarkup(message) {
+  return `<p class="meta-copy">${escapeHTML(message)}</p>`;
+}
+
+function metricRow(label, value) {
+  return `
+    <div class="metric-row">
+      <span>${escapeHTML(label)}</span>
+      <strong>${escapeHTML(value)}</strong>
+    </div>
+  `;
+}
+
+function setMessage(node, message, tone) {
+  if (!node) {
+    return;
+  }
+  node.textContent = message;
+  node.classList.remove("error-message", "success-message");
+  if (tone === "error") {
+    node.classList.add("error-message");
+  }
+  if (tone === "success") {
+    node.classList.add("success-message");
+  }
+}
+
+function normalizeOptionalString(value) {
+  const normalized = String(value ?? "").trim();
+  return normalized === "" ? null : normalized;
+}
+
+function parseOptionalDecimal(value) {
+  const normalized = normalizeOptionalString(value);
+  if (normalized == null) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseWholeNumber(value) {
+  const normalized = normalizeOptionalString(value);
+  if (normalized == null) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function parseCSV(value) {
+  return String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function escapeHTML(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function numberValue(value) {
+  return value == null ? "" : String(value);
+}
+
+if (typeof document !== "undefined" && document?.body) {
+  boot().catch((error) => {
+    if (document.body.dataset.apolloView === "shell") {
+      renderShellBootstrapFailure(error instanceof Error ? error.message : "Member shell bootstrap failed.");
+      return;
+    }
+
+    const loginStatus = document.querySelector("#login-status");
+    setMessage(loginStatus, error instanceof Error ? error.message : "Bootstrap failed.", "error");
+  });
+}

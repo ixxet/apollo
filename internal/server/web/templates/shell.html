@@ -6,128 +6,47 @@
     <title>{{.Title}}</title>
     <link rel="stylesheet" href="/app/assets/app.css" />
   </head>
-  <body data-apollo-view="shell">
+  <body data-apollo-view="shell" data-apollo-section="{{.Section}}">
     <main class="shell shell-app">
-      <section class="hero-card app-hero">
-        <div>
+      <header class="shell-header">
+        <div class="shell-header-copy">
           <p class="eyebrow">APOLLO</p>
           <h1>Member shell</h1>
-          <p class="hero-copy">
-            This shell stays narrow on purpose: profile summary, explicit lobby
-            membership intent, workout runtime, and the deterministic
-            recommendation read over already-real APIs.
+          <p class="shell-copy">
+            This embedded shell stays narrow on purpose: member-safe reads,
+            backend-authoritative mutations, and explicit boundaries where
+            member-facing backend truth does not yet exist.
           </p>
         </div>
-        <div class="hero-actions">
+        <div class="shell-actions">
           <button id="refresh-shell" class="secondary-button" type="button">Refresh</button>
           <button id="logout-shell" class="ghost-button" type="button">Logout</button>
         </div>
+      </header>
+
+      <nav class="member-nav" aria-label="Member sections">
+        <a class="member-nav-link" data-nav-section="home" href="/app/home">Home</a>
+        <a class="member-nav-link" data-nav-section="workouts" href="/app/workouts">Workouts</a>
+        <a class="member-nav-link" data-nav-section="meals" href="/app/meals">Meals</a>
+        <a class="member-nav-link" data-nav-section="tournaments" href="/app/tournaments">Tournaments</a>
+        <a class="member-nav-link" data-nav-section="settings" href="/app/settings">Settings</a>
+      </nav>
+
+      <section class="shell-status-bar" aria-live="polite">
+        <p id="shell-status" class="section-copy">Loading member shell...</p>
       </section>
 
-      <section class="panel profile-panel">
-        <header class="section-header">
+      <section class="shell-stage" aria-live="polite">
+        <header class="stage-header">
           <div>
-            <p class="eyebrow">Profile</p>
-            <h2>Member summary</h2>
+            <p id="section-eyebrow" class="eyebrow">Section</p>
+            <h2 id="section-title">Loading section...</h2>
           </div>
-          <p id="profile-status" class="section-copy" aria-live="polite">Loading profile…</p>
+          <p id="section-copy" class="section-copy">
+            This shell only composes already-real member-safe APIs.
+          </p>
         </header>
-        <dl id="profile-summary" class="summary-grid"></dl>
-      </section>
-
-      <section class="panel recommendation-panel">
-        <header class="section-header">
-          <div>
-            <p class="eyebrow">Recommendation</p>
-            <h2>Deterministic coaching read</h2>
-          </div>
-          <p id="recommendation-status" class="section-copy" aria-live="polite">Loading recommendation…</p>
-        </header>
-        <article id="recommendation-card" class="recommendation-card"></article>
-      </section>
-
-      <section class="panel membership-panel">
-        <header class="section-header">
-          <div>
-            <p class="eyebrow">Lobby membership</p>
-            <h2>Explicit member intent</h2>
-          </div>
-          <p id="membership-status" class="section-copy" aria-live="polite">Loading membership…</p>
-        </header>
-        <div class="membership-shell">
-          <article id="membership-card" class="membership-card"></article>
-          <div class="hero-actions membership-actions">
-            <button id="join-lobby" class="primary-button" type="button">Join lobby</button>
-            <button id="leave-lobby" class="secondary-button" type="button" hidden>Leave lobby</button>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel match-preview-panel">
-        <header class="section-header">
-          <div>
-            <p class="eyebrow">Match preview</p>
-            <h2>Deterministic ARES read</h2>
-          </div>
-          <p id="match-preview-status" class="section-copy" aria-live="polite">Loading match preview…</p>
-        </header>
-        <article id="match-preview-card" class="match-preview-card"></article>
-      </section>
-
-      <section class="panel workouts-panel">
-        <header class="section-header">
-          <div>
-            <p class="eyebrow">Workout runtime</p>
-            <h2>Member-owned workouts</h2>
-          </div>
-          <div class="hero-actions">
-            <p id="workouts-status" class="section-copy" aria-live="polite">Loading workouts…</p>
-            <button id="create-workout" class="primary-button" type="button">Start workout</button>
-          </div>
-        </header>
-
-        <div class="workout-shell-grid">
-          <aside class="workout-list-panel">
-            <ol id="workout-list" class="workout-list" aria-live="polite"></ol>
-          </aside>
-
-          <section class="workout-detail-panel">
-            <header class="detail-header">
-              <div>
-                <p class="eyebrow">Detail</p>
-                <h3 id="workout-detail-title">Select a workout</h3>
-              </div>
-              <div class="detail-meta">
-                <span id="workout-detail-state" class="pill">No workout selected</span>
-              </div>
-            </header>
-
-            <form id="workout-editor" class="editor-shell">
-              <label>
-                <span>Notes</span>
-                <textarea id="workout-notes" rows="4" placeholder="Workout notes"></textarea>
-              </label>
-
-              <section class="exercise-section">
-                <div class="exercise-header">
-                  <div>
-                    <p class="eyebrow">Exercises</p>
-                    <h4>Draft rows</h4>
-                  </div>
-                  <button id="add-exercise" class="secondary-button" type="button">Add exercise</button>
-                </div>
-                <div id="exercise-list" class="exercise-list"></div>
-              </section>
-
-              <p id="workout-error" class="status-message error-message" aria-live="polite"></p>
-
-              <div class="editor-actions">
-                <button id="save-workout" class="primary-button" type="submit">Save draft</button>
-                <button id="finish-workout" class="secondary-button" type="button">Finish workout</button>
-              </div>
-            </form>
-          </section>
-        </div>
+        <div id="section-shell" class="section-shell"></div>
       </section>
     </main>
 

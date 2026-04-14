@@ -20,14 +20,25 @@ var (
 	shellPageTemplate = template.Must(template.ParseFS(webUIFiles, "web/templates/shell.html"))
 )
 
+const defaultMemberShellSection = "home"
+
+var memberShellSections = map[string]struct{}{
+	"home":        {},
+	"workouts":    {},
+	"meals":       {},
+	"tournaments": {},
+	"settings":    {},
+}
+
 type webPageData struct {
-	Title string
+	Title   string
+	Section string
 }
 
 func registerWebUIRoutes(router chi.Router, deps Dependencies) {
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		if hasValidSession(r.Context(), deps.Auth, r) {
-			http.Redirect(w, r, "/app", http.StatusSeeOther)
+			http.Redirect(w, r, memberShellPath(defaultMemberShellSection), http.StatusSeeOther)
 			return
 		}
 
@@ -37,7 +48,7 @@ func registerWebUIRoutes(router chi.Router, deps Dependencies) {
 	router.Handle("/app/assets/*", http.StripPrefix("/app/assets/", http.FileServer(http.FS(webAssetsFS))))
 	router.Get("/app/login", func(w http.ResponseWriter, r *http.Request) {
 		if hasValidSession(r.Context(), deps.Auth, r) {
-			http.Redirect(w, r, "/app", http.StatusSeeOther)
+			http.Redirect(w, r, memberShellPath(defaultMemberShellSection), http.StatusSeeOther)
 			return
 		}
 
@@ -46,7 +57,19 @@ func registerWebUIRoutes(router chi.Router, deps Dependencies) {
 	router.Group(func(app chi.Router) {
 		app.Use(pageSessionMiddleware(deps.Auth))
 		app.Get("/app", func(w http.ResponseWriter, r *http.Request) {
-			renderPageTemplate(w, shellPageTemplate, webPageData{Title: "APOLLO Member Shell"})
+			http.Redirect(w, r, memberShellPath(defaultMemberShellSection), http.StatusSeeOther)
+		})
+		app.Get("/app/{section}", func(w http.ResponseWriter, r *http.Request) {
+			section := normalizeMemberShellSection(chi.URLParam(r, "section"))
+			if section == "" {
+				http.Redirect(w, r, memberShellPath(defaultMemberShellSection), http.StatusSeeOther)
+				return
+			}
+
+			renderPageTemplate(w, shellPageTemplate, webPageData{
+				Title:   "APOLLO Member Shell",
+				Section: section,
+			})
 		})
 	})
 }
@@ -86,6 +109,24 @@ func renderPageTemplate(w http.ResponseWriter, page *template.Template, data web
 	if err := page.Execute(w, data); err != nil {
 		http.Error(w, "render page: "+err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func normalizeMemberShellSection(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if _, ok := memberShellSections[value]; !ok {
+		return ""
+	}
+
+	return value
+}
+
+func memberShellPath(section string) string {
+	normalized := normalizeMemberShellSection(section)
+	if normalized == "" {
+		normalized = defaultMemberShellSection
+	}
+
+	return "/app/" + normalized
 }
 
 func mustSubFS(source embed.FS, root string) fs.FS {
