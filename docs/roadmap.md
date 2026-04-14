@@ -53,6 +53,11 @@ the Milestone 2.0 hardening follow-up now closed on `v0.19.1`
   competition mutations require trusted-surface proof, successful staff-
   sensitive competition mutations write durable actor attribution, and member
   self-service surfaces remain separate and unchanged
+- Phase 3 shared substrate B scheduling runtime is now real in repo/runtime on
+  `main`: APOLLO-owned schedule resources, resource edges, typed blocks,
+  RFC3339-windowed calendar reads, block-timezone weekly recurrence, active +
+  bookable inventory-claim gating, date exceptions, staff-gated reads, and
+  staff-gated block writes are in place while deployed truth remains separate
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -77,12 +82,12 @@ hardening follow-up on the `v0.19.1` patch line.
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
-| later than `v0.19.1` | `Phase 3 shared substrate B`: APOLLO-owned scheduling and booking substrate over facility/zone refs, bookable resource refs, and resource-graph truth | keep booking out of ATHENA, keep the first line staff-first, and keep graph authoring on migrations plus owner/admin CLI first | do not widen into business booking requests, quotes/payments, public booking entrypoint, dashboards, prediction, AI summaries, or HERMES write orchestration |
+| later than `v0.19.1` | `Phase 3 shared substrate B` on `main`: APOLLO-owned scheduling and booking substrate over facility/zone refs, bookable resource refs, and resource-graph truth | keep booking out of ATHENA, keep the first line staff-first, keep calendar windows RFC3339-only, keep weekly recurrence block-timezone based, make `active`/`bookable` authoritative for inventory claims, and keep graph authoring on migrations plus owner/admin CLI first | do not widen into business booking requests, quotes/payments, public booking entrypoint, dashboards, prediction, AI summaries, or HERMES write orchestration |
 
 ## Next Planned Line
 
-The next honest APOLLO widening later than `v0.19.1` is `Phase 3 shared
-substrate B`.
+Phase 3 shared substrate B is now real in repo/runtime on `main`, with
+deployed truth still separate and unchanged.
 
 It should lock these decisions:
 

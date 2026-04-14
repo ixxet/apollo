@@ -176,6 +176,7 @@ eligibility, or any social state.
 | `apollo.nutrition_meal_templates` and `apollo.nutrition_meal_logs` | Real in repo/runtime | Stores owner-scoped reusable meal templates plus explicit meal-log history separate from planner, workouts, and persisted recommendation storage |
 | `apollo.sports` | Real | Stores APOLLO-owned sport definitions and static rule profiles for the current competition substrate line |
 | `apollo.facility_catalog_refs`, `apollo.facility_zone_refs`, `apollo.sport_facility_capabilities`, and `apollo.sport_facility_capability_zones` | Real | Stores bounded facility identifier references plus APOLLO-owned facility-sport support mappings without duplicating ATHENA hours or metadata |
+| `apollo.schedule_resources`, `apollo.schedule_resource_edges`, `apollo.schedule_blocks`, and `apollo.schedule_block_exceptions` | Real in repo/runtime | Stores APOLLO-owned scheduling substrate truth over zones, bookable resources, resource graphs, typed blocks, RFC3339-windowed calendar reads, block-timezone weekly recurrence, active+bookable inventory-claim gating, and explicit date exceptions |
 | `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth separate from downstream result, rating, and standing projections |
 | `apollo.competition_staff_action_attributions` | Real in repo/runtime | Stores durable actor/session/role/capability/trusted-surface attribution for successful staff-sensitive competition mutations |
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
@@ -184,8 +185,9 @@ eligibility, or any social state.
 
 ## Next Planned Line
 
-The next honest widening later than `v0.19.1` is `Phase 3 shared substrate B`:
-an APOLLO-owned scheduling and booking substrate above ATHENA facility truth.
+Phase 3 shared substrate B is now real in repo/runtime on `main`, but deployed
+truth stays separate and unchanged. It is the APOLLO-owned scheduling and
+booking substrate above ATHENA facility truth.
 
 | Topic | Locked statement |
 | --- | --- |
@@ -495,7 +497,7 @@ lines begin below.
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
-| later than `v0.19.1` | `Phase 3 shared substrate B`: APOLLO-owned scheduling and booking substrate over facility/zone refs, bookable resource refs, schedule blocks, and resource-graph truth | keep the first line staff-first and keep graph authoring on migrations plus owner/admin CLI first | do not widen into business booking requests, quotes/payments, public booking entrypoint, dashboards, prediction, AI summaries, or HERMES write orchestration |
+| later than `v0.19.1` | `Phase 3 shared substrate B` on `main`: APOLLO-owned scheduling and booking substrate over facility/zone refs, bookable resource refs, schedule blocks, and resource-graph truth | keep the first line staff-first, keep calendar windows RFC3339-only, keep weekly recurrence block-timezone based, make `active`/`bookable` authoritative for inventory claims, and keep graph authoring on migrations plus owner/admin CLI first | do not widen into business booking requests, quotes/payments, public booking entrypoint, dashboards, prediction, AI summaries, or HERMES write orchestration |
 
 ## Versioning Discipline
 
