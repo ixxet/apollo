@@ -290,6 +290,83 @@ type ApolloRecommendation struct {
 	FeedbackAt pgtype.Timestamptz
 }
 
+type ApolloScheduleBlock struct {
+	ID                           uuid.UUID
+	FacilityKey                  string
+	ZoneKey                      *string
+	ResourceKey                  *string
+	Scope                        string
+	ScheduleType                 string
+	Kind                         string
+	Effect                       string
+	Visibility                   string
+	Status                       string
+	Version                      int32
+	Weekday                      *int16
+	StartTime                    pgtype.Time
+	EndTime                      pgtype.Time
+	Timezone                     *string
+	RecurrenceStartDate          pgtype.Date
+	RecurrenceEndDate            pgtype.Date
+	StartAt                      pgtype.Timestamptz
+	EndAt                        pgtype.Timestamptz
+	CreatedByUserID              uuid.UUID
+	CreatedBySessionID           uuid.UUID
+	CreatedByRole                string
+	CreatedByCapability          string
+	CreatedTrustedSurfaceKey     string
+	CreatedTrustedSurfaceLabel   *string
+	UpdatedByUserID              uuid.UUID
+	UpdatedBySessionID           uuid.UUID
+	UpdatedByRole                string
+	UpdatedByCapability          string
+	UpdatedTrustedSurfaceKey     string
+	UpdatedTrustedSurfaceLabel   *string
+	CreatedAt                    pgtype.Timestamptz
+	UpdatedAt                    pgtype.Timestamptz
+	CancelledAt                  pgtype.Timestamptz
+	CancelledByUserID            pgtype.UUID
+	CancelledBySessionID         pgtype.UUID
+	CancelledByRole              *string
+	CancelledByCapability        *string
+	CancelledTrustedSurfaceKey   *string
+	CancelledTrustedSurfaceLabel *string
+}
+
+type ApolloScheduleBlockException struct {
+	ID                         uuid.UUID
+	ScheduleBlockID            uuid.UUID
+	ExceptionDate              pgtype.Date
+	CreatedByUserID            uuid.UUID
+	CreatedBySessionID         uuid.UUID
+	CreatedByRole              string
+	CreatedByCapability        string
+	CreatedTrustedSurfaceKey   string
+	CreatedTrustedSurfaceLabel *string
+	CreatedAt                  pgtype.Timestamptz
+}
+
+type ApolloScheduleResource struct {
+	ResourceKey  string
+	FacilityKey  string
+	ZoneKey      *string
+	ResourceType string
+	DisplayName  string
+	PublicLabel  *string
+	Bookable     bool
+	Active       bool
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type ApolloScheduleResourceEdge struct {
+	ResourceKey        string
+	RelatedResourceKey string
+	EdgeType           string
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
 type ApolloSession struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID

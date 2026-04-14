@@ -205,4 +205,32 @@ WHERE table_schema = 'apollo'
 	if recoveryFeedbackTableCount != 1 {
 		t.Fatalf("workout_recovery_feedback table count = %d, want 1", recoveryFeedbackTableCount)
 	}
+
+	var scheduleResourcesTableCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.tables
+WHERE table_schema = 'apollo'
+  AND table_name = 'schedule_resources'
+`).Scan(&scheduleResourcesTableCount); err != nil {
+		t.Fatalf("count schedule_resources table error = %v", err)
+	}
+
+	if scheduleResourcesTableCount != 1 {
+		t.Fatalf("schedule_resources table count = %d, want 1", scheduleResourcesTableCount)
+	}
+
+	var scheduleBlocksTableCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.tables
+WHERE table_schema = 'apollo'
+  AND table_name = 'schedule_blocks'
+`).Scan(&scheduleBlocksTableCount); err != nil {
+		t.Fatalf("count schedule_blocks table error = %v", err)
+	}
+
+	if scheduleBlocksTableCount != 1 {
+		t.Fatalf("schedule_blocks table count = %d, want 1", scheduleBlocksTableCount)
+	}
 }
