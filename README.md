@@ -148,7 +148,7 @@ flowchart LR
 | visit history as member-facing context | occupancy counting |
 | workout history | broad staff product workflows outside the bounded competition control boundary |
 | deterministic recommendation and coaching context | the shared wire contract definitions |
-| sport registry, facility-sport capability, and static sport rules/config | facility hours, closures, scheduling, and live availability |
+| sport registry, facility-sport capability, and static sport rules/config | ATHENA-owned facility hours, closures, and raw live availability until a later APOLLO scheduling substrate composes over those inputs |
 | competition session / team / roster / match containers, queue/assignment/lifecycle truth, result capture, ratings, standings, self-scoped member stats, and the bounded competition staff authz substrate | public competition reads, role-management product flows, facility-scoped staffing, persistent approval objects, rivalry/badge logic, and broad social competition surfaces |
 | explicit matchmaking intent and deterministic ARES preview | tool routing, invites, notifications, and global approval policy |
 
@@ -181,6 +181,20 @@ eligibility, or any social state.
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
 | `apollo.recommendations` | Schema authored | Tracer 7 recommendation reads are derived at read time; persisted recommendation records remain deferred |
 | `users.preferences` JSONB | Real schema, bounded runtime use | Stores `visibility_mode`, `availability_mode`, typed non-medical `coaching_profile` inputs, and typed non-clinical `nutrition_profile` inputs while durable planner and nutrition runtime truth stays relational |
+
+## Next Planned Line
+
+The next honest widening later than `v0.19.1` is `Phase 3 shared substrate B`:
+an APOLLO-owned scheduling and booking substrate above ATHENA facility truth.
+
+| Topic | Locked statement |
+| --- | --- |
+| booking ownership | booking/scheduling stays out of ATHENA |
+| first booking home | the first real scheduling/booking substrate lands in APOLLO |
+| model shape | zones remain first-class, but bookable truth expands to resource refs plus a resource graph |
+| first auth shape | supervisor read, manager/owner write |
+| first authoring shape | graph seeded and maintained by migrations plus owner/admin CLI, not manager UI |
+| deferred with that first line | business booking requests, quotes/payments, public booking entrypoint, dashboards, prediction, AI summaries, and HERMES write orchestration |
 
 ## Technology Stack
 
@@ -461,13 +475,15 @@ exercise, recommendations, or matchmaking.
 | `v0.17.0` | `v0.17.0` | Shipped | explanation, bounded AI helpers, and thin agent-facing helper reads | helper persistence, model-backed calls, public social widening, and deployment widening |
 | `v0.18.0` | `v0.18.0` | Shipped | facility-scoped member presence, explicit tap-link truth, and facility-scoped streak state/events | fake counters, cross-facility merging, role/authz widening, and deployment widening |
 | `v0.19.0` | - | Closure-clean on `main` | explicit role/authz, trusted-surface-gated competition staff mutations, and durable actor attribution over the existing competition control boundary | role-management product flows, facility-scoped staffing, persistent approvals, ATHENA ingress storage, `ashton-proto` widening, and deployment widening |
+| `v0.19.1` | `v0.19.1` | Shipped | Milestone 2.0 hardening follow-up for shutdown, bounded HTTP/NATS/request handling, shared-parser ingest discipline, workout safety, and docs truth | new product widening |
 
 ## Release Lines
 
 Tracer 24 remains the tagged coaching line on `v0.15.0`, and `v0.15.1`
 remains the narrow hardening patch on that same line. The current
 repo/runtime closeout truth on `main` is Tracer 28 authz/staff-boundary truth
-on the `v0.19.0` line. Later planned lines begin below.
+plus the Milestone 2.0 hardening follow-up closed on `v0.19.1`. Later planned
+lines begin below.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -478,6 +494,8 @@ on the `v0.19.0` line. Later planned lines begin below.
 | `v0.17.0` | explanation, summarization, bounded AI helper flows, and thin agent-facing helper surfaces | keep them subordinate to stable deterministic logic | do not let explanation become the core engine |
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
+| `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
+| later than `v0.19.1` | `Phase 3 shared substrate B`: APOLLO-owned scheduling and booking substrate over facility/zone refs, bookable resource refs, schedule blocks, and resource-graph truth | keep the first line staff-first and keep graph authoring on migrations plus owner/admin CLI first | do not widen into business booking requests, quotes/payments, public booking entrypoint, dashboards, prediction, AI summaries, or HERMES write orchestration |
 
 ## Versioning Discipline
 

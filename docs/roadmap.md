@@ -8,7 +8,7 @@ to jump straight to a broad product.
 ## Current Line
 
 Current repo/runtime working line on `main`: Tracer 28 `v0.19.x` line, with
-the Milestone 2.0 hardening follow-up targeted at `v0.19.1`
+the Milestone 2.0 hardening follow-up now closed on `v0.19.1`
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -53,7 +53,8 @@ the Milestone 2.0 hardening follow-up targeted at `v0.19.1`
   competition mutations require trusted-surface proof, successful staff-
   sensitive competition mutations write durable actor attribution, and member
   self-service surfaces remain separate and unchanged
-- the current Milestone 2.0 hardening follow-up on `main` now adds graceful
+- the current Milestone 2.0 hardening follow-up on `main`, now closed on
+  `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
   identified-lifecycle contract path, batches workout exercise list reads, and
   caps per-workout exercise writes without widening the product surface
@@ -76,6 +77,24 @@ hardening follow-up on the `v0.19.1` patch line.
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
+| later than `v0.19.1` | `Phase 3 shared substrate B`: APOLLO-owned scheduling and booking substrate over facility/zone refs, bookable resource refs, and resource-graph truth | keep booking out of ATHENA, keep the first line staff-first, and keep graph authoring on migrations plus owner/admin CLI first | do not widen into business booking requests, quotes/payments, public booking entrypoint, dashboards, prediction, AI summaries, or HERMES write orchestration |
+
+## Next Planned Line
+
+The next honest APOLLO widening later than `v0.19.1` is `Phase 3 shared
+substrate B`.
+
+It should lock these decisions:
+
+- APOLLO owns the first real scheduling/booking substrate
+- ATHENA remains the facility, presence, history, and analytics input
+- zones stay first-class, but bookable truth widens to resource refs plus a
+  resource graph
+- supervisors read, managers and owners write
+- the first graph-authoring surface is migrations plus owner/admin CLI, not
+  manager UI
+- business requests, quotes/payments, public booking entrypoint, dashboards,
+  prediction, AI summaries, and HERMES write orchestration all stay deferred
 
 ## Verified Audit Carry-Forward
 
