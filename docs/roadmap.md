@@ -77,6 +77,20 @@ hardening follow-up on the `v0.19.1` patch line.
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
 
+## Verified Audit Carry-Forward
+
+The `2026-04-13` backend logic audit reran `go test -count=1 ./...` and
+re-read the presence, workouts, competition, and runtime bootstrap paths before
+narrowing the remaining APOLLO follow-up work.
+
+| Area | Ruling | Next honest line |
+| --- | --- | --- |
+| streak active-status grace logic | verified correct as shipped; the current code keeps the full next UTC day active | leave runtime behavior unchanged and add an explicit grace-day regression test only if a bounded `v0.19.x` hardening patch reopens the presence line |
+| streak reset `currentStartDay` flow | verified correct as shipped; reset already carries `creditDay` through the upsert path | leave runtime behavior unchanged and add a reset regression test if the presence line is reopened |
+| competition standings tiebreak | narrowed: `SideIndex` is still the final deterministic tiebreak, but the deletion-and-recreation failure mode was not proven because team removal is draft-only and blocked once matches reference the team | keep runtime unchanged on the current line |
+| identified-presence NATS handlers | verified low: handlers still derive their timeout from `context.Background()` instead of `serveCtx` | fold into the next bounded `v0.19.x` runtime hardening patch if APOLLO needs another one |
+| query-instantiation cleanup | verified low and broader than workouts alone; multiple repos still construct `store.New(...)` per method, including workouts, membership, and coaching | treat as a narrow mechanical cleanup only when one of those repositories is already open for real behavior work |
+
 ## Versioning Discipline
 
 APOLLO now follows formal pre-`1.0.0` semantic versioning.
