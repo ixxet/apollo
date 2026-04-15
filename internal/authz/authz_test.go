@@ -38,6 +38,25 @@ func TestScheduleCapabilitiesForRoleRemainDeterministic(t *testing.T) {
 	}
 }
 
+func TestOpsCapabilitiesForRoleRemainDeterministicAndMemberDenied(t *testing.T) {
+	for _, role := range []Role{RoleSupervisor, RoleManager, RoleOwner} {
+		capabilities := OpsCapabilitiesForRole(role)
+		expected := []Capability{CapabilityOpsRead}
+		if len(capabilities) != len(expected) {
+			t.Fatalf("%s len(capabilities) = %d, want %d", role, len(capabilities), len(expected))
+		}
+		for index, capability := range expected {
+			if capabilities[index] != capability {
+				t.Fatalf("%s capabilities[%d] = %q, want %q", role, index, capabilities[index], capability)
+			}
+		}
+	}
+
+	if capabilities := OpsCapabilitiesForRole(RoleMember); len(capabilities) != 0 {
+		t.Fatalf("member ops capabilities = %v, want none", capabilities)
+	}
+}
+
 func TestTrustedSurfaceVerifierRejectsMissingAndInvalidTokens(t *testing.T) {
 	verifier := NewTrustedSurfaceVerifier("staff-console=staff-secret")
 

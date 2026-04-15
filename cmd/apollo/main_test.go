@@ -24,10 +24,13 @@ func TestBuildServerDependenciesWiresCompetitionMembershipMatchPreviewAndPresenc
 		t.Fatalf("NewSessionCookieManager() error = %v", err)
 	}
 
-	deps := buildServerDependencies(nil, false, cookies, auth.LogEmailSender{}, config.Config{
+	deps, err := buildServerDependencies(nil, false, cookies, auth.LogEmailSender{}, config.Config{
 		VerificationTokenTTL: 15 * time.Minute,
 		SessionTTL:           7 * 24 * time.Hour,
 	})
+	if err != nil {
+		t.Fatalf("buildServerDependencies() error = %v", err)
+	}
 
 	if deps.Membership == nil {
 		t.Fatal("deps.Membership = nil, want lobby membership runtime wired")
@@ -46,6 +49,23 @@ func TestBuildServerDependenciesWiresCompetitionMembershipMatchPreviewAndPresenc
 	}
 	if deps.Presence == nil {
 		t.Fatal("deps.Presence = nil, want member presence runtime wired")
+	}
+	if deps.Ops != nil {
+		t.Fatal("deps.Ops != nil without ATHENA config")
+	}
+
+	deps, err = buildServerDependencies(nil, false, cookies, auth.LogEmailSender{}, config.Config{
+		VerificationTokenTTL:  15 * time.Minute,
+		SessionTTL:            7 * 24 * time.Hour,
+		AthenaBaseURL:         "http://127.0.0.1:8080",
+		AthenaTimeout:         2 * time.Second,
+		OpsAnalyticsMaxWindow: 7 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("buildServerDependencies(with ATHENA) error = %v", err)
+	}
+	if deps.Ops == nil {
+		t.Fatal("deps.Ops = nil, want ops overview runtime wired when ATHENA config is present")
 	}
 }
 
