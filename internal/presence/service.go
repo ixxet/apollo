@@ -40,6 +40,10 @@ var (
 	ErrClaimInactive               = errors.New("presence claim is inactive and cannot be reused")
 	ErrClaimOwnedByAnotherMember   = errors.New("presence claim already belongs to another member")
 	ErrMemberFacilitiesUnavailable = errors.New("member facility composition is unavailable")
+	ErrMemberFacilityKeyRequired   = errors.New("facility_key is required")
+	ErrMemberFacilityNotFound      = errors.New("member facility is unavailable")
+	ErrMemberCalendarWindowInvalid = errors.New("member facility calendar window is invalid")
+	ErrMemberCalendarWindowTooWide = errors.New("member facility calendar window exceeds the maximum range")
 )
 
 type VisitRecorder interface {
@@ -109,6 +113,14 @@ type MemberFacility struct {
 	SupportedSports []FacilitySport  `json:"supported_sports"`
 	Hours           []FacilityWindow `json:"hours"`
 	Closures        []FacilityWindow `json:"closures,omitempty"`
+}
+
+type MemberFacilityCalendar struct {
+	FacilityKey string           `json:"facility_key"`
+	From        time.Time        `json:"from"`
+	Until       time.Time        `json:"until"`
+	Hours       []FacilityWindow `json:"hours"`
+	Closures    []FacilityWindow `json:"closures,omitempty"`
 }
 
 type FacilitySport struct {
@@ -317,25 +329,13 @@ func (s *Service) ListMemberFacilities(ctx context.Context, userID uuid.UUID) ([
 		return nil, ErrMemberFacilitiesUnavailable
 	}
 
-	catalogKeys, err := s.repository.ListFacilityCatalogRefs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	linkedVisits, err := s.repository.ListLinkedVisitsByUserID(ctx, userID)
+	orderedFacilities, err := s.listMemberFacilityKeys(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 	facilitySports, err := s.repository.ListFacilitySports(ctx)
 	if err != nil {
 		return nil, err
-	}
-
-	facilityKeys := make(map[string]struct{}, len(catalogKeys)+len(linkedVisits))
-	for _, facilityKey := range catalogKeys {
-		facilityKeys[facilityKey] = struct{}{}
-	}
-	for _, visit := range linkedVisits {
-		facilityKeys[visit.Visit.FacilityKey] = struct{}{}
 	}
 
 	sportsByFacility := make(map[string][]FacilitySport)
@@ -353,12 +353,6 @@ func (s *Service) ListMemberFacilities(ctx context.Context, userID uuid.UUID) ([
 		})
 	}
 
-	orderedFacilities := make([]string, 0, len(facilityKeys))
-	for facilityKey := range facilityKeys {
-		orderedFacilities = append(orderedFacilities, facilityKey)
-	}
-	sort.Strings(orderedFacilities)
-
 	now := s.now().UTC()
 	window := schedule.CalendarWindow{
 		From:  now,
@@ -375,39 +369,54 @@ func (s *Service) ListMemberFacilities(ctx context.Context, userID uuid.UUID) ([
 		memberFacility := MemberFacility{
 			FacilityKey:     facilityKey,
 			SupportedSports: cloneFacilitySports(sportsByFacility[facilityKey]),
-			Hours:           make([]FacilityWindow, 0, len(occurrences)),
-			Closures:        make([]FacilityWindow, 0, len(occurrences)),
+			Hours:           []FacilityWindow{},
+			Closures:        []FacilityWindow{},
 		}
 
-		for _, occurrence := range occurrences {
-			if occurrence.Scope != schedule.ScopeFacility {
-				continue
-			}
-			if occurrence.Status != schedule.StatusScheduled {
-				continue
-			}
-			if occurrence.Visibility == schedule.VisibilityInternal {
-				continue
-			}
-
-			window := FacilityWindow{
-				StartsAt:       occurrence.StartsAt.UTC(),
-				EndsAt:         occurrence.EndsAt.UTC(),
-				OccurrenceDate: occurrence.OccurrenceDate,
-			}
-
-			switch occurrence.Kind {
-			case schedule.KindOperatingHours:
-				memberFacility.Hours = append(memberFacility.Hours, window)
-			case schedule.KindClosure:
-				memberFacility.Closures = append(memberFacility.Closures, window)
-			}
-		}
+		memberFacility.Hours, memberFacility.Closures = projectMemberFacilityWindows(occurrences)
 
 		facilities = append(facilities, memberFacility)
 	}
 
 	return facilities, nil
+}
+
+func (s *Service) GetMemberFacilityCalendar(ctx context.Context, userID uuid.UUID, facilityKey string, window schedule.CalendarWindow) (MemberFacilityCalendar, error) {
+	if s.calendar == nil {
+		return MemberFacilityCalendar{}, ErrMemberFacilitiesUnavailable
+	}
+
+	facilityKey = strings.TrimSpace(facilityKey)
+	if facilityKey == "" {
+		return MemberFacilityCalendar{}, ErrMemberFacilityKeyRequired
+	}
+
+	window, err := normalizeMemberCalendarWindow(window)
+	if err != nil {
+		return MemberFacilityCalendar{}, err
+	}
+
+	availableFacilityKeys, err := s.listMemberFacilityKeys(ctx, userID)
+	if err != nil {
+		return MemberFacilityCalendar{}, err
+	}
+	if !containsFacilityKey(availableFacilityKeys, facilityKey) {
+		return MemberFacilityCalendar{}, ErrMemberFacilityNotFound
+	}
+
+	occurrences, err := s.calendar.GetCalendar(ctx, facilityKey, window)
+	if err != nil {
+		return MemberFacilityCalendar{}, err
+	}
+
+	hours, closures := projectMemberFacilityWindows(occurrences)
+	return MemberFacilityCalendar{
+		FacilityKey: facilityKey,
+		From:        window.From,
+		Until:       window.Until,
+		Hours:       hours,
+		Closures:    closures,
+	}, nil
 }
 
 func currentFacilityVisit(visitsInFacility []LinkedVisit) (*Visit, string, error) {
@@ -550,6 +559,88 @@ func cloneFacilitySports(input []FacilitySport) []FacilitySport {
 	output := make([]FacilitySport, len(input))
 	copy(output, input)
 	return output
+}
+
+func (s *Service) listMemberFacilityKeys(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	catalogKeys, err := s.repository.ListFacilityCatalogRefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	linkedVisits, err := s.repository.ListLinkedVisitsByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	facilityKeys := make(map[string]struct{}, len(catalogKeys)+len(linkedVisits))
+	for _, facilityKey := range catalogKeys {
+		facilityKeys[facilityKey] = struct{}{}
+	}
+	for _, visit := range linkedVisits {
+		facilityKeys[visit.Visit.FacilityKey] = struct{}{}
+	}
+
+	orderedFacilities := make([]string, 0, len(facilityKeys))
+	for facilityKey := range facilityKeys {
+		orderedFacilities = append(orderedFacilities, facilityKey)
+	}
+	sort.Strings(orderedFacilities)
+
+	return orderedFacilities, nil
+}
+
+func projectMemberFacilityWindows(occurrences []schedule.Occurrence) ([]FacilityWindow, []FacilityWindow) {
+	hours := make([]FacilityWindow, 0, len(occurrences))
+	closures := make([]FacilityWindow, 0, len(occurrences))
+
+	for _, occurrence := range occurrences {
+		if occurrence.Scope != schedule.ScopeFacility {
+			continue
+		}
+		if occurrence.Status != schedule.StatusScheduled {
+			continue
+		}
+		if occurrence.Visibility == schedule.VisibilityInternal {
+			continue
+		}
+
+		window := FacilityWindow{
+			StartsAt:       occurrence.StartsAt.UTC(),
+			EndsAt:         occurrence.EndsAt.UTC(),
+			OccurrenceDate: occurrence.OccurrenceDate,
+		}
+
+		switch occurrence.Kind {
+		case schedule.KindOperatingHours:
+			hours = append(hours, window)
+		case schedule.KindClosure:
+			closures = append(closures, window)
+		}
+	}
+
+	return hours, closures
+}
+
+func normalizeMemberCalendarWindow(window schedule.CalendarWindow) (schedule.CalendarWindow, error) {
+	normalized := schedule.CalendarWindow{
+		From:  window.From.UTC(),
+		Until: window.Until.UTC(),
+	}
+	if normalized.From.IsZero() || normalized.Until.IsZero() || !normalized.From.Before(normalized.Until) {
+		return schedule.CalendarWindow{}, ErrMemberCalendarWindowInvalid
+	}
+	if normalized.Until.Sub(normalized.From) > time.Duration(memberFacilityWindowDays)*24*time.Hour {
+		return schedule.CalendarWindow{}, ErrMemberCalendarWindowTooWide
+	}
+	return normalized, nil
+}
+
+func containsFacilityKey(facilityKeys []string, facilityKey string) bool {
+	for _, candidate := range facilityKeys {
+		if candidate == facilityKey {
+			return true
+		}
+	}
+	return false
 }
 
 func isUniqueViolation(err error) bool {

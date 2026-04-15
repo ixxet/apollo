@@ -57,6 +57,7 @@ type PresenceClaimManager interface {
 
 type MemberFacilityReader interface {
 	ListMemberFacilities(ctx context.Context, userID uuid.UUID) ([]presence.MemberFacility, error)
+	GetMemberFacilityCalendar(ctx context.Context, userID uuid.UUID, facilityKey string, window schedule.CalendarWindow) (presence.MemberFacilityCalendar, error)
 }
 
 type ExerciseCatalogReader interface {
@@ -429,6 +430,45 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, facilities)
+		})
+		authenticated.Get("/api/v1/presence/facilities/{facilityKey}/calendar", func(w http.ResponseWriter, r *http.Request) {
+			if deps.MemberFacilities == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("member facility dependency is unavailable"))
+				return
+			}
+
+			facilityKey := strings.TrimSpace(chi.URLParam(r, "facilityKey"))
+			from, err := parseScheduleWindowBoundary(r.URL.Query().Get("from"), false)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			until, err := parseScheduleWindowBoundary(r.URL.Query().Get("until"), true)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			calendar, err := deps.MemberFacilities.GetMemberFacilityCalendar(r.Context(), principal.UserID, facilityKey, schedule.CalendarWindow{
+				From:  from,
+				Until: until,
+			})
+			if err != nil {
+				switch {
+				case errors.Is(err, presence.ErrMemberFacilityKeyRequired),
+					errors.Is(err, presence.ErrMemberCalendarWindowInvalid),
+					errors.Is(err, presence.ErrMemberCalendarWindowTooWide):
+					writeError(w, http.StatusBadRequest, err)
+				case errors.Is(err, presence.ErrMemberFacilityNotFound):
+					writeError(w, http.StatusNotFound, err)
+				default:
+					writeError(w, http.StatusInternalServerError, err)
+				}
+				return
+			}
+
+			writeJSON(w, http.StatusOK, calendar)
 		})
 		authenticated.Get("/api/v1/planner/exercises", func(w http.ResponseWriter, r *http.Request) {
 			items, err := deps.Exercises.ListExercises(r.Context())
