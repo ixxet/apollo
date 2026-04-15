@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	dbmigrations "github.com/ixxet/apollo/db/migrations"
 	"github.com/ixxet/apollo/internal/ares"
+	"github.com/ixxet/apollo/internal/athena"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/coaching"
@@ -31,6 +32,7 @@ import (
 	"github.com/ixxet/apollo/internal/exercises"
 	"github.com/ixxet/apollo/internal/membership"
 	"github.com/ixxet/apollo/internal/nutrition"
+	"github.com/ixxet/apollo/internal/ops"
 	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/profile"
@@ -192,9 +194,14 @@ func newServeCmd() *cobra.Command {
 				sender = auth.LogEmailSender{}
 			}
 
+			deps, err := buildServerDependencies(pool, consumerEnabled, cookies, sender, cfg)
+			if err != nil {
+				return err
+			}
+
 			httpServer := &http.Server{
 				Addr:              cfg.HTTPAddr,
-				Handler:           server.NewHandler(buildServerDependencies(pool, consumerEnabled, cookies, sender, cfg)),
+				Handler:           server.NewHandler(deps),
 				ReadHeaderTimeout: httpReadHeaderTimeout,
 				ReadTimeout:       httpReadTimeout,
 				WriteTimeout:      httpWriteTimeout,
@@ -234,7 +241,7 @@ func newServeCmd() *cobra.Command {
 	}
 }
 
-func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *auth.SessionCookieManager, sender auth.EmailSender, cfg config.Config) server.Dependencies {
+func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *auth.SessionCookieManager, sender auth.EmailSender, cfg config.Config) (server.Dependencies, error) {
 	authRepository := auth.NewRepository(pool)
 	authService := auth.NewService(authRepository, cookies, sender, cfg.VerificationTokenTTL, cfg.SessionTTL)
 	visitRepository := visits.NewRepository(pool)
@@ -256,6 +263,15 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 	scheduleService := schedule.NewService(schedule.NewRepository(pool))
 	presenceService := presence.NewService(presence.NewRepository(pool), visitService, presence.WithFacilityCalendar(scheduleService))
 
+	var opsReader server.OpsOverviewReader
+	if strings.TrimSpace(cfg.AthenaBaseURL) != "" {
+		athenaClient, err := athena.NewClient(cfg.AthenaBaseURL, cfg.AthenaTimeout)
+		if err != nil {
+			return server.Dependencies{}, err
+		}
+		opsReader = ops.NewService(scheduleService, athenaClient, cfg.OpsAnalyticsMaxWindow)
+	}
+
 	return server.Dependencies{
 		ConsumerEnabled:    consumerEnabled,
 		Auth:               authService,
@@ -272,10 +288,11 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 		MatchPreview:       matchPreviewService,
 		Recommendations:    recommendationService,
 		Schedule:           scheduleService,
+		Ops:                opsReader,
 		Coaching:           coachingService,
 		Nutrition:          nutritionService,
 		Workouts:           workoutService,
-	}
+	}, nil
 }
 
 func drainNATS(conn *nats.Conn, timeout time.Duration) error {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ixxet/apollo/internal/ares"
+	"github.com/ixxet/apollo/internal/athena"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/coaching"
@@ -23,6 +25,7 @@ import (
 	"github.com/ixxet/apollo/internal/helper"
 	"github.com/ixxet/apollo/internal/membership"
 	"github.com/ixxet/apollo/internal/nutrition"
+	"github.com/ixxet/apollo/internal/ops"
 	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/profile"
@@ -124,6 +127,10 @@ type ScheduleManager interface {
 	CancelBlock(ctx context.Context, actor schedule.StaffActor, blockID uuid.UUID, expectedVersion int) (schedule.Block, error)
 }
 
+type OpsOverviewReader interface {
+	GetFacilityOverview(ctx context.Context, input ops.FacilityOverviewInput) (ops.FacilityOverview, error)
+}
+
 type CoachingManager interface {
 	GetCoachingRecommendation(ctx context.Context, userID uuid.UUID, weekStart string) (coaching.CoachingRecommendation, error)
 	GetHelperRead(ctx context.Context, userID uuid.UUID, weekStart string) (coaching.CoachingHelperRead, error)
@@ -170,6 +177,7 @@ type Dependencies struct {
 	MatchPreview       MatchPreviewReader
 	Recommendations    RecommendationReader
 	Schedule           ScheduleManager
+	Ops                OpsOverviewReader
 	Coaching           CoachingManager
 	Nutrition          NutritionManager
 	Workouts           WorkoutManager
@@ -1013,6 +1021,42 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			writeJSON(w, http.StatusOK, occurrences)
 		}))
+		authenticated.Get("/api/v1/ops/facilities/{facilityKey}/overview", withOpsAccess(authz.CapabilityOpsRead, func(w http.ResponseWriter, r *http.Request) {
+			if deps.Ops == nil {
+				writeError(w, http.StatusServiceUnavailable, errors.New("ops overview dependency is unavailable"))
+				return
+			}
+
+			facilityKey := strings.TrimSpace(chi.URLParam(r, "facilityKey"))
+			from, err := parseScheduleWindowBoundary(r.URL.Query().Get("from"), false)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			until, err := parseScheduleWindowBoundary(r.URL.Query().Get("until"), true)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			bucketMinutes, err := parseOptionalPositiveQueryInt(r.URL.Query().Get("bucket_minutes"), "bucket_minutes")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			overview, err := deps.Ops.GetFacilityOverview(r.Context(), ops.FacilityOverviewInput{
+				FacilityKey:   facilityKey,
+				From:          from,
+				Until:         until,
+				BucketMinutes: bucketMinutes,
+			})
+			if err != nil {
+				writeOpsError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, overview)
+		}))
 		authenticated.Post("/api/v1/schedule/blocks", withScheduleAccess(authz.CapabilityScheduleManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor schedule.StaffActor) {
 			var request schedule.BlockInput
 			if err := decodeJSONBody(w, r, &request); err != nil {
@@ -1744,6 +1788,18 @@ func withScheduleAccess(required authz.Capability, requireTrustedSurface bool, v
 	}
 }
 
+func withOpsAccess(required authz.Capability, next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		principal := principalFromContext(r.Context())
+		if !authz.HasCapability(principal.Capabilities, required) {
+			writeError(w, http.StatusForbidden, authz.ErrCapabilityDenied)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
 func competitionActorFromPrincipal(principal auth.Principal, capability authz.Capability) competition.StaffActor {
 	actor := competition.StaffActor{
 		UserID:     principal.UserID,
@@ -1981,6 +2037,39 @@ func writeScheduleError(w http.ResponseWriter, err error) {
 	}
 }
 
+func writeOpsError(w http.ResponseWriter, err error) {
+	var upstreamStatus *athena.UpstreamStatusError
+	switch {
+	case errors.Is(err, ops.ErrFacilityRequired),
+		errors.Is(err, ops.ErrWindowRequired),
+		errors.Is(err, ops.ErrWindowInvalid),
+		errors.Is(err, ops.ErrWindowTooLarge),
+		errors.Is(err, ops.ErrBucketInvalid),
+		errors.Is(err, athena.ErrAnalyticsFacilityMissing),
+		errors.Is(err, athena.ErrAnalyticsWindowInvalid),
+		errors.Is(err, athena.ErrAnalyticsBucketInvalid),
+		errors.Is(err, athena.ErrAnalyticsLimitInvalid),
+		errors.Is(err, schedule.ErrResourceFacilityRequired),
+		errors.Is(err, schedule.ErrResourceFacilityInvalid),
+		errors.Is(err, schedule.ErrBlockDateWindowInvalid),
+		errors.Is(err, schedule.ErrBlockDateWindowTooLarge):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, schedule.ErrResourceNotFound), errors.Is(err, schedule.ErrBlockNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, authz.ErrCapabilityDenied):
+		writeError(w, http.StatusForbidden, err)
+	case errors.Is(err, athena.ErrRequestTimeout):
+		writeError(w, http.StatusGatewayTimeout, err)
+	case errors.Is(err, athena.ErrRequestFailed),
+		errors.Is(err, athena.ErrMalformedResponse),
+		errors.Is(err, athena.ErrAnalyticsMalformed),
+		errors.As(err, &upstreamStatus):
+		writeError(w, http.StatusBadGateway, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
+}
+
 func parseScheduleWindowBoundary(raw string, _ bool) (time.Time, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -1992,6 +2081,23 @@ func parseScheduleWindowBoundary(raw string, _ bool) (time.Time, error) {
 	}
 
 	return time.Time{}, errors.New("from and until must be RFC3339")
+}
+
+func parseOptionalPositiveQueryInt(raw string, field string) (int, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, nil
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, errors.New(field + " must be an integer")
+	}
+	if parsed <= 0 {
+		return 0, errors.New(field + " must be greater than zero")
+	}
+
+	return parsed, nil
 }
 
 func writePlannerError(w http.ResponseWriter, err error) {
