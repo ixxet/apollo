@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -17,6 +19,9 @@ type Config struct {
 	VerificationTokenTTL  time.Duration
 	SessionTTL            time.Duration
 	LogVerificationTokens bool
+	AthenaBaseURL         string
+	AthenaTimeout         time.Duration
+	OpsAnalyticsMaxWindow time.Duration
 }
 
 func Load() (Config, error) {
@@ -36,6 +41,24 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	athenaTimeout, err := getDurationEnv("APOLLO_ATHENA_TIMEOUT", 2*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if athenaTimeout <= 0 {
+		return Config{}, fmt.Errorf("APOLLO_ATHENA_TIMEOUT must be greater than zero")
+	}
+	opsAnalyticsMaxWindow, err := getDurationEnv("APOLLO_OPS_ANALYTICS_MAX_WINDOW", 7*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	if opsAnalyticsMaxWindow <= 0 {
+		return Config{}, fmt.Errorf("APOLLO_OPS_ANALYTICS_MAX_WINDOW must be greater than zero")
+	}
+	athenaBaseURL := getEnv("APOLLO_ATHENA_BASE_URL", "")
+	if err := validateOptionalHTTPURL("APOLLO_ATHENA_BASE_URL", athenaBaseURL); err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		HTTPAddr:              getEnv("APOLLO_HTTP_ADDR", ":8081"),
@@ -47,6 +70,9 @@ func Load() (Config, error) {
 		VerificationTokenTTL:  verificationTokenTTL,
 		SessionTTL:            sessionTTL,
 		LogVerificationTokens: logVerificationTokens,
+		AthenaBaseURL:         athenaBaseURL,
+		AthenaTimeout:         athenaTimeout,
+		OpsAnalyticsMaxWindow: opsAnalyticsMaxWindow,
 	}, nil
 }
 
@@ -85,4 +111,24 @@ func getDurationEnv(key string, fallback time.Duration) (time.Duration, error) {
 	}
 
 	return parsed, nil
+}
+
+func validateOptionalHTTPURL(key string, value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("%s must use http or https", key)
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return fmt.Errorf("%s must include a host", key)
+	}
+
+	return nil
 }
