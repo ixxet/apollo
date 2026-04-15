@@ -50,6 +50,7 @@ type stubStore struct {
 	recordMatchResult        func(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error
 	listMemberRatingsByUser  func(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error)
 	listMemberStatRowsByUser func(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error)
+	listMemberHistoryByUser  func(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error)
 }
 
 func (s stubStore) GetUserByID(ctx context.Context, userID uuid.UUID) (*store.ApolloUser, error) {
@@ -209,6 +210,13 @@ func (s stubStore) ListMemberStatRowsByUserID(ctx context.Context, userID uuid.U
 		return nil, nil
 	}
 	return s.listMemberStatRowsByUser(ctx, userID)
+}
+
+func (s stubStore) ListMemberHistoryByUserID(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error) {
+	if s.listMemberHistoryByUser == nil {
+		return nil, nil
+	}
+	return s.listMemberHistoryByUser(ctx, userID)
 }
 
 func TestAddRosterMemberMapsSchemaUniqueConflictToErrRosterConflict(t *testing.T) {

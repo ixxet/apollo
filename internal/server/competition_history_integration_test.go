@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -95,6 +96,39 @@ func TestCompetitionHistoryRuntimeRecordsResultsCompletesSessionsAndExposesDeriv
 	}
 	if memberTwoStats[0].Losses != 1 {
 		t.Fatalf("memberTwoStats[0] = %+v, want one loss", memberTwoStats[0])
+	}
+
+	ownerHistoryResponse := env.doRequest(t, http.MethodGet, "/api/v1/competition/history", nil, ownerCookie)
+	if ownerHistoryResponse.Code != http.StatusOK {
+		t.Fatalf("ownerHistoryResponse.Code = %d, want %d", ownerHistoryResponse.Code, http.StatusOK)
+	}
+	if strings.Contains(ownerHistoryResponse.Body.String(), "recorded_by_user_id") || strings.Contains(ownerHistoryResponse.Body.String(), "side_slots") {
+		t.Fatalf("owner history response leaked staff or session detail: %s", ownerHistoryResponse.Body.String())
+	}
+	ownerHistory := decodeCompetitionMemberHistory(t, ownerHistoryResponse)
+	if got, want := len(ownerHistory), 1; got != want {
+		t.Fatalf("len(ownerHistory) = %d, want %d", got, want)
+	}
+	if ownerHistory[0].Outcome != "win" {
+		t.Fatalf("ownerHistory[0].Outcome = %q, want win", ownerHistory[0].Outcome)
+	}
+	if ownerHistory[0].ModeKey != "head_to_head:s2-p1" {
+		t.Fatalf("ownerHistory[0].ModeKey = %q, want %q", ownerHistory[0].ModeKey, "head_to_head:s2-p1")
+	}
+	if ownerHistory[0].DisplayName != "Tracer 22 Singles Result" {
+		t.Fatalf("ownerHistory[0].DisplayName = %q, want %q", ownerHistory[0].DisplayName, "Tracer 22 Singles Result")
+	}
+
+	memberTwoHistoryResponse := env.doRequest(t, http.MethodGet, "/api/v1/competition/history", nil, memberTwoCookie)
+	if memberTwoHistoryResponse.Code != http.StatusOK {
+		t.Fatalf("memberTwoHistoryResponse.Code = %d, want %d", memberTwoHistoryResponse.Code, http.StatusOK)
+	}
+	memberTwoHistory := decodeCompetitionMemberHistory(t, memberTwoHistoryResponse)
+	if got, want := len(memberTwoHistory), 1; got != want {
+		t.Fatalf("len(memberTwoHistory) = %d, want %d", got, want)
+	}
+	if memberTwoHistory[0].Outcome != "loss" {
+		t.Fatalf("memberTwoHistory[0].Outcome = %q, want loss", memberTwoHistory[0].Outcome)
 	}
 }
 
@@ -227,6 +261,16 @@ func TestCompetitionHistoryRuntimeSeparatesRatingsBySportAndMode(t *testing.T) {
 	}
 }
 
+func TestCompetitionHistoryRouteRequiresAuthenticatedSession(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	response := env.doRequest(t, http.MethodGet, "/api/v1/competition/history", nil)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("response.Code = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
+
 func createAssignedCompetitionSession(t *testing.T, env *authProfileServerEnv, ownerCookie *http.Cookie, displayName string, sportKey string, zoneKey string, participantsPerSide int, userIDs []uuid.UUID) competition.Session {
 	t.Helper()
 
@@ -300,6 +344,17 @@ func decodeCompetitionMemberStats(t *testing.T, response *httptest.ResponseRecor
 	var payload []competition.MemberStat
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal(competition member stats) error = %v", err)
+	}
+
+	return payload
+}
+
+func decodeCompetitionMemberHistory(t *testing.T, response *httptest.ResponseRecorder) []competition.MemberHistoryEntry {
+	t.Helper()
+
+	var payload []competition.MemberHistoryEntry
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal(competition member history) error = %v", err)
 	}
 
 	return payload

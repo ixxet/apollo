@@ -12,14 +12,23 @@ import (
 )
 
 type stubStore struct {
-	linkedVisits   []LinkedVisit
-	streaks        []store.ApolloMemberPresenceStreak
-	latestEvents   []store.ApolloMemberPresenceStreakEvent
-	ensureCalls    []ensureLinkedVisitCall
-	ensureErr      error
-	linkedVisitErr error
-	streakErr      error
-	eventErr       error
+	linkedVisits      []LinkedVisit
+	streaks           []store.ApolloMemberPresenceStreak
+	latestEvents      []store.ApolloMemberPresenceStreakEvent
+	claimedTags       []store.ApolloClaimedTag
+	claimedTag        *store.ApolloClaimedTag
+	facilityRefs      []string
+	facilitySports    []FacilitySport
+	ensureCalls       []ensureLinkedVisitCall
+	ensureErr         error
+	linkedVisitErr    error
+	streakErr         error
+	eventErr          error
+	claimListErr      error
+	claimLookupErr    error
+	claimCreateErr    error
+	facilityRefsErr   error
+	facilitySportsErr error
 }
 
 type ensureLinkedVisitCall struct {
@@ -38,6 +47,35 @@ func (s *stubStore) ListFacilityStreaksByUserID(context.Context, uuid.UUID) ([]s
 
 func (s *stubStore) ListLatestFacilityStreakEventsByUserID(context.Context, uuid.UUID) ([]store.ApolloMemberPresenceStreakEvent, error) {
 	return s.latestEvents, s.eventErr
+}
+
+func (s *stubStore) ListClaimedTagsByUserID(context.Context, uuid.UUID) ([]store.ApolloClaimedTag, error) {
+	return s.claimedTags, s.claimListErr
+}
+
+func (s *stubStore) GetClaimedTagByHash(context.Context, string) (*store.ApolloClaimedTag, error) {
+	return s.claimedTag, s.claimLookupErr
+}
+
+func (s *stubStore) CreateClaimedTag(_ context.Context, userID uuid.UUID, tagHash string, label *string) (store.ApolloClaimedTag, error) {
+	if s.claimCreateErr != nil {
+		return store.ApolloClaimedTag{}, s.claimCreateErr
+	}
+	return store.ApolloClaimedTag{
+		UserID:    userID,
+		TagHash:   tagHash,
+		Label:     label,
+		IsActive:  true,
+		ClaimedAt: pgTimestamp(time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)),
+	}, nil
+}
+
+func (s *stubStore) ListFacilityCatalogRefs(context.Context) ([]string, error) {
+	return s.facilityRefs, s.facilityRefsErr
+}
+
+func (s *stubStore) ListFacilitySports(context.Context) ([]FacilitySport, error) {
+	return s.facilitySports, s.facilitySportsErr
 }
 
 func (s *stubStore) EnsureLinkedVisitAndCredit(_ context.Context, visit store.ApolloVisit, tagHash string, now time.Time) error {
