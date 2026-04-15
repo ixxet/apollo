@@ -7,8 +7,10 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Tracer 28 `v0.19.x` line, with
-the Milestone 2.0 hardening follow-up now closed on `v0.19.1`
+Current repo/runtime working line on `main`: Phase 3A.3 member truth
+completion over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0
+hardening `v0.19.1`, Phase 3 shared substrate B, and Phase 3A.1 member shell
+foundation lines
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -46,6 +48,12 @@ the Milestone 2.0 hardening follow-up now closed on `v0.19.1`
   visit truth, one durable tap-link row per visit, and one durable
   facility-scoped streak state plus streak-event line per member/facility over
   linked visit days only
+- Phase 3A.3 member truth completion is now real in repo/runtime on `main`:
+  authenticated self-scoped claimed-tag reads/writes now give members one
+  honest tap-claim path, member-safe facility hours/meta now compose over the
+  existing facility/sport/schedule substrate without leaking staff internals,
+  self-scoped competition history now extends beyond aggregate stats, and the
+  current presence summary remains the existing visit/tap history surface
 - Tracer 28 role/authz runtime is now closure-clean in repo/runtime on `main`:
   authenticated session principals carry one explicit APOLLO-global role plus
   one deterministic competition capability set derived from that role,
@@ -91,20 +99,16 @@ hardening follow-up on the `v0.19.1` patch line.
 
 ## Next Planned Line
 
-Phase 3 shared substrate B is now real in repo/runtime on `main`, with
+Phase 3A.3 member truth completion is now real in repo/runtime on `main`, with
 deployed truth still separate and unchanged.
 
-It should lock these decisions:
+Any later widening should stay separate:
 
-- APOLLO owns the first real scheduling/booking substrate
-- ATHENA remains the facility, presence, history, and analytics input
-- zones stay first-class, but bookable truth widens to resource refs plus a
-  resource graph
-- supervisors read, managers and owners write
-- the first graph-authoring surface is migrations plus owner/admin CLI, not
-  manager UI
-- business requests, quotes/payments, public booking entrypoint, dashboards,
-  prediction, AI summaries, and HERMES write orchestration all stay deferred
+- member-safe schedule calendar only if APOLLO intentionally exposes one
+- broader APOLLO authz/admin widening only if a real product boundary needs it
+- booking and public booking
+- public competition, rivalry, or social presentation
+- staff shell, gateway coupling, and deploy work
 
 ## Verified Audit Carry-Forward
 
