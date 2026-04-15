@@ -7,8 +7,8 @@ to jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3A.3 member truth
-completion over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0
+Current repo/runtime working line on `main`: Phase 3A.4 member-safe schedule
+calendar over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0
 hardening `v0.19.1`, Phase 3 shared substrate B, and Phase 3A.1 member shell
 foundation lines
 
@@ -70,7 +70,14 @@ foundation lines
   `/app/home`, `/app/workouts`, `/app/meals`, `/app/tournaments`, and
   `/app/settings` now share one embedded member shell frame over already-real
   member-safe APIs, section failures stay explicit and recoverable, and
-  schedule/booking stay out until a real member-safe schedule read exists
+  booking plus staff schedule surfaces stay out
+- Phase 3A.4 member-safe schedule calendar is now real in repo/runtime on
+  `main`: authenticated members can read
+  `/api/v1/presence/facilities/{facilityKey}/calendar?from=<RFC3339>&until=<RFC3339>`
+  with explicit RFC3339 boundaries, a 14-day max window, and the same
+  facility-scope public operating-hours and closure filtering posture already
+  used by member facility composition without widening into booking, labels,
+  or staff schedule leakage
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -99,12 +106,11 @@ hardening follow-up on the `v0.19.1` patch line.
 
 ## Next Planned Line
 
-Phase 3A.3 member truth completion is now real in repo/runtime on `main`, with
-deployed truth still separate and unchanged.
+Phase 3A.4 member-safe schedule calendar is now real in repo/runtime on
+`main`, with deployed truth still separate and unchanged.
 
 Any later widening should stay separate:
 
-- member-safe schedule calendar only if APOLLO intentionally exposes one
 - broader APOLLO authz/admin widening only if a real product boundary needs it
 - booking and public booking
 - public competition, rivalry, or social presentation
