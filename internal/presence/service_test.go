@@ -2,11 +2,13 @@ package presence
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/store"
 	"github.com/ixxet/apollo/internal/visits"
 )
@@ -98,6 +100,28 @@ func (s *stubVisitRecorder) RecordArrival(context.Context, visits.ArrivalInput) 
 
 func (s *stubVisitRecorder) RecordDeparture(context.Context, visits.DepartureInput) (visits.Result, error) {
 	return s.result, s.err
+}
+
+type stubFacilityCalendar struct {
+	occurrencesByFacility map[string][]schedule.Occurrence
+	err                   error
+	calls                 []calendarCall
+}
+
+type calendarCall struct {
+	facilityKey string
+	window      schedule.CalendarWindow
+}
+
+func (s *stubFacilityCalendar) GetCalendar(_ context.Context, facilityKey string, window schedule.CalendarWindow) ([]schedule.Occurrence, error) {
+	s.calls = append(s.calls, calendarCall{
+		facilityKey: facilityKey,
+		window:      window,
+	})
+	if s.err != nil {
+		return nil, s.err
+	}
+	return append([]schedule.Occurrence(nil), s.occurrencesByFacility[facilityKey]...), nil
 }
 
 func TestGetSummaryBuildsFacilityScopedPresenceTapLinksAndStreakEvents(t *testing.T) {
@@ -332,6 +356,204 @@ func TestRecordArrivalEnsuresLinkAndCreditForVisitBackedOutcomes(t *testing.T) {
 				t.Fatalf("len(ensureCalls) = %d, want 1", got)
 			} else if !testCase.wantEnsured && got != 0 {
 				t.Fatalf("len(ensureCalls) = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestGetMemberFacilityCalendarProjectsOnlyMemberSafeFacilityWindows(t *testing.T) {
+	userID := uuid.MustParse("12121212-3434-5656-7878-909090909090")
+	window := schedule.CalendarWindow{
+		From:  time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC),
+		Until: time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC),
+	}
+
+	calendar := &stubFacilityCalendar{
+		occurrencesByFacility: map[string][]schedule.Occurrence{
+			"ashtonbee": {
+				{
+					FacilityKey:    "ashtonbee",
+					Scope:          schedule.ScopeFacility,
+					Kind:           schedule.KindOperatingHours,
+					Visibility:     schedule.VisibilityPublicLabeled,
+					Status:         schedule.StatusScheduled,
+					StartsAt:       time.Date(2026, 4, 16, 13, 0, 0, 0, time.UTC),
+					EndsAt:         time.Date(2026, 4, 16, 21, 0, 0, 0, time.UTC),
+					OccurrenceDate: "2026-04-16",
+				},
+				{
+					FacilityKey:    "ashtonbee",
+					Scope:          schedule.ScopeFacility,
+					Kind:           schedule.KindClosure,
+					Visibility:     schedule.VisibilityPublicBusy,
+					Status:         schedule.StatusScheduled,
+					StartsAt:       time.Date(2026, 4, 18, 14, 0, 0, 0, time.UTC),
+					EndsAt:         time.Date(2026, 4, 18, 16, 0, 0, 0, time.UTC),
+					OccurrenceDate: "2026-04-18",
+				},
+				{
+					FacilityKey:    "ashtonbee",
+					Scope:          schedule.ScopeFacility,
+					Kind:           schedule.KindEvent,
+					Visibility:     schedule.VisibilityPublicBusy,
+					Status:         schedule.StatusScheduled,
+					StartsAt:       time.Date(2026, 4, 19, 12, 0, 0, 0, time.UTC),
+					EndsAt:         time.Date(2026, 4, 19, 13, 0, 0, 0, time.UTC),
+					OccurrenceDate: "2026-04-19",
+				},
+				{
+					FacilityKey:    "ashtonbee",
+					Scope:          schedule.ScopeFacility,
+					Kind:           schedule.KindOperatingHours,
+					Visibility:     schedule.VisibilityInternal,
+					Status:         schedule.StatusScheduled,
+					StartsAt:       time.Date(2026, 4, 20, 13, 0, 0, 0, time.UTC),
+					EndsAt:         time.Date(2026, 4, 20, 21, 0, 0, 0, time.UTC),
+					OccurrenceDate: "2026-04-20",
+				},
+				{
+					FacilityKey:    "ashtonbee",
+					Scope:          schedule.ScopeZone,
+					Kind:           schedule.KindOperatingHours,
+					Visibility:     schedule.VisibilityPublicLabeled,
+					Status:         schedule.StatusScheduled,
+					StartsAt:       time.Date(2026, 4, 21, 13, 0, 0, 0, time.UTC),
+					EndsAt:         time.Date(2026, 4, 21, 15, 0, 0, 0, time.UTC),
+					OccurrenceDate: "2026-04-21",
+				},
+				{
+					FacilityKey:    "ashtonbee",
+					Scope:          schedule.ScopeResource,
+					Kind:           schedule.KindClosure,
+					Visibility:     schedule.VisibilityPublicBusy,
+					Status:         schedule.StatusScheduled,
+					StartsAt:       time.Date(2026, 4, 22, 9, 0, 0, 0, time.UTC),
+					EndsAt:         time.Date(2026, 4, 22, 10, 0, 0, 0, time.UTC),
+					OccurrenceDate: "2026-04-22",
+				},
+				{
+					FacilityKey:    "ashtonbee",
+					Scope:          schedule.ScopeFacility,
+					Kind:           schedule.KindOperatingHours,
+					Visibility:     schedule.VisibilityPublicLabeled,
+					Status:         schedule.StatusCancelled,
+					StartsAt:       time.Date(2026, 4, 23, 13, 0, 0, 0, time.UTC),
+					EndsAt:         time.Date(2026, 4, 23, 21, 0, 0, 0, time.UTC),
+					OccurrenceDate: "2026-04-23",
+				},
+			},
+		},
+	}
+
+	service := NewService(&stubStore{
+		facilityRefs: []string{"annex", "ashtonbee"},
+	}, &stubVisitRecorder{}, WithFacilityCalendar(calendar))
+
+	result, err := service.GetMemberFacilityCalendar(context.Background(), userID, "ashtonbee", window)
+	if err != nil {
+		t.Fatalf("GetMemberFacilityCalendar() error = %v", err)
+	}
+	if result.FacilityKey != "ashtonbee" {
+		t.Fatalf("result.FacilityKey = %q, want ashtonbee", result.FacilityKey)
+	}
+	if !result.From.Equal(window.From) {
+		t.Fatalf("result.From = %s, want %s", result.From.Format(time.RFC3339), window.From.Format(time.RFC3339))
+	}
+	if !result.Until.Equal(window.Until) {
+		t.Fatalf("result.Until = %s, want %s", result.Until.Format(time.RFC3339), window.Until.Format(time.RFC3339))
+	}
+	if got, want := len(result.Hours), 1; got != want {
+		t.Fatalf("len(result.Hours) = %d, want %d", got, want)
+	}
+	if got, want := len(result.Closures), 1; got != want {
+		t.Fatalf("len(result.Closures) = %d, want %d", got, want)
+	}
+	if result.Hours[0].OccurrenceDate != "2026-04-16" {
+		t.Fatalf("result.Hours[0].OccurrenceDate = %q, want 2026-04-16", result.Hours[0].OccurrenceDate)
+	}
+	if result.Closures[0].OccurrenceDate != "2026-04-18" {
+		t.Fatalf("result.Closures[0].OccurrenceDate = %q, want 2026-04-18", result.Closures[0].OccurrenceDate)
+	}
+	if got, want := len(calendar.calls), 1; got != want {
+		t.Fatalf("len(calendar.calls) = %d, want %d", got, want)
+	}
+	if calendar.calls[0].facilityKey != "ashtonbee" {
+		t.Fatalf("calendar.calls[0].facilityKey = %q, want ashtonbee", calendar.calls[0].facilityKey)
+	}
+}
+
+func TestGetMemberFacilityCalendarRejectsMissingFacilityInvalidWindowsAndUnknownFacilities(t *testing.T) {
+	userID := uuid.MustParse("98989898-7878-5656-3434-121212121212")
+	service := NewService(&stubStore{
+		facilityRefs: []string{"ashtonbee"},
+	}, &stubVisitRecorder{}, WithFacilityCalendar(&stubFacilityCalendar{}))
+
+	tests := []struct {
+		name        string
+		facilityKey string
+		window      schedule.CalendarWindow
+		wantErr     error
+	}{
+		{
+			name:        "missing facility key",
+			facilityKey: " ",
+			window: schedule.CalendarWindow{
+				From:  time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC),
+				Until: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC),
+			},
+			wantErr: ErrMemberFacilityKeyRequired,
+		},
+		{
+			name:        "missing from boundary",
+			facilityKey: "ashtonbee",
+			window: schedule.CalendarWindow{
+				Until: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC),
+			},
+			wantErr: ErrMemberCalendarWindowInvalid,
+		},
+		{
+			name:        "equal boundaries",
+			facilityKey: "ashtonbee",
+			window: schedule.CalendarWindow{
+				From:  time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC),
+				Until: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC),
+			},
+			wantErr: ErrMemberCalendarWindowInvalid,
+		},
+		{
+			name:        "reversed boundaries",
+			facilityKey: "ashtonbee",
+			window: schedule.CalendarWindow{
+				From:  time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC),
+				Until: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC),
+			},
+			wantErr: ErrMemberCalendarWindowInvalid,
+		},
+		{
+			name:        "too wide",
+			facilityKey: "ashtonbee",
+			window: schedule.CalendarWindow{
+				From:  time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC),
+				Until: time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC),
+			},
+			wantErr: ErrMemberCalendarWindowTooWide,
+		},
+		{
+			name:        "unknown facility",
+			facilityKey: "annex",
+			window: schedule.CalendarWindow{
+				From:  time.Date(2026, 4, 15, 12, 0, 0, 0, time.UTC),
+				Until: time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC),
+			},
+			wantErr: ErrMemberFacilityNotFound,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := service.GetMemberFacilityCalendar(context.Background(), userID, testCase.facilityKey, testCase.window)
+			if !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("GetMemberFacilityCalendar() error = %v, want %v", err, testCase.wantErr)
 			}
 		})
 	}
