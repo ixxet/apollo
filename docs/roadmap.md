@@ -2,15 +2,15 @@
 
 ## Objective
 
-Keep APOLLO moving through narrow member-facing release lines instead of trying
-to jump straight to a broad product.
+Keep APOLLO moving through narrow bounded release lines instead of trying to
+jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3A.4 member-safe schedule
-calendar over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0
-hardening `v0.19.1`, Phase 3 shared substrate B, and Phase 3A.1 member shell
-foundation lines
+Current repo/runtime working line on `main`: Phase 3B.1 ops read foundation
+over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0 hardening
+`v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
+and Phase 3A.4 member-safe schedule calendar lines
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -56,11 +56,11 @@ foundation lines
   current presence summary remains the existing visit/tap history surface
 - Tracer 28 role/authz runtime is now closure-clean in repo/runtime on `main`:
   authenticated session principals carry one explicit APOLLO-global role plus
-  one deterministic competition capability set derived from that role,
-  competition staff reads require explicit capability truth, privileged
-  competition mutations require trusted-surface proof, successful staff-
-  sensitive competition mutations write durable actor attribution, and member
-  self-service surfaces remain separate and unchanged
+  deterministic competition, schedule, and ops-read capability sets derived
+  from that role, competition staff reads require explicit capability truth,
+  privileged competition mutations require trusted-surface proof, successful
+  staff-sensitive competition mutations write durable actor attribution, and
+  member self-service surfaces remain separate and unchanged
 - Phase 3 shared substrate B scheduling runtime is now real in repo/runtime on
   `main`: APOLLO-owned schedule resources, resource edges, typed blocks,
   RFC3339-windowed calendar reads, block-timezone weekly recurrence, active +
@@ -78,6 +78,12 @@ foundation lines
   facility-scope public operating-hours and closure filtering posture already
   used by member facility composition without widening into booking, labels,
   or staff schedule leakage
+- Phase 3B.1 ops read foundation is now real in repo/runtime on `main`:
+  authenticated supervisor, manager, and owner users can read
+  `/api/v1/ops/facilities/{facilityKey}/overview?from=<RFC3339>&until=<RFC3339>`
+  with bounded RFC3339 windows, APOLLO schedule-summary truth, ATHENA current
+  occupancy, and sanitized aggregate ATHENA analytics without adding writes,
+  booking, public entrypoints, HERMES widening, gateway work, or deploy claims
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -89,8 +95,9 @@ foundation lines
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime working line on
-`main` is Tracer 28 authz/staff-boundary truth plus the Milestone 2.0
-hardening follow-up on the `v0.19.1` patch line.
+`main` is Phase 3B.1 ops read foundation over the closed Tracer 28
+authz/staff-boundary truth, Milestone 2.0 hardening follow-up, scheduling
+substrate, and member-safe calendar lines.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -102,19 +109,19 @@ hardening follow-up on the `v0.19.1` patch line.
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
-| later than `v0.19.1` | `Phase 3 shared substrate B` on `main`: APOLLO-owned scheduling and booking substrate over facility/zone refs, bookable resource refs, and resource-graph truth | keep booking out of ATHENA, keep the first line staff-first, keep calendar windows RFC3339-only, keep weekly recurrence block-timezone based, make `active`/`bookable` authoritative for inventory claims, and keep graph authoring on migrations plus owner/admin CLI first | do not widen into business booking requests, quotes/payments, public booking entrypoint, dashboards, prediction, AI summaries, or HERMES write orchestration |
+| later than `Phase 3A.4` | `Phase 3B.1 ops read foundation` on `main`: APOLLO-owned read-only facility ops overview over APOLLO schedule truth and ATHENA occupancy/analytics truth | keep members denied, supervisor/manager/owner read-only, windows RFC3339 and bounded, ATHENA as physical truth, and responses aggregate and staff-safe | do not widen into booking/public booking, quotes/payments, manager/staff shell UI, owner policy writes, HERMES widening, gateway widening, or deploy claims |
 
-## Next Planned Line
+## Current Phase 3B Line
 
-Phase 3A.4 member-safe schedule calendar is now real in repo/runtime on
-`main`, with deployed truth still separate and unchanged.
+Phase 3B.1 ops read foundation is now real in repo/runtime on `main`, with
+deployed truth still separate and unchanged.
 
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
 - booking and public booking
 - public competition, rivalry, or social presentation
-- staff shell, gateway coupling, and deploy work
+- staff shell, HERMES widening, gateway coupling, and deploy work
 
 ## Verified Audit Carry-Forward
 
