@@ -5,6 +5,28 @@ WHERE ct.tag_hash = $1
   AND ct.is_active = TRUE
 LIMIT 1;
 
+-- name: GetClaimedTagByHash :one
+SELECT ct.*
+FROM apollo.claimed_tags AS ct
+WHERE ct.tag_hash = $1
+LIMIT 1;
+
+-- name: ListClaimedTagsByUserID :many
+SELECT ct.*
+FROM apollo.claimed_tags AS ct
+WHERE ct.user_id = $1
+ORDER BY ct.is_active DESC, ct.claimed_at DESC, ct.id DESC;
+
+-- name: CreateClaimedTag :one
+INSERT INTO apollo.claimed_tags (
+  user_id,
+  tag_hash,
+  label,
+  is_active
+)
+VALUES ($1, $2, $3, TRUE)
+RETURNING id, user_id, tag_hash, label, is_active, claimed_at;
+
 -- name: InsertVisitTapLink :execrows
 INSERT INTO apollo.visit_tap_links (
   visit_id,

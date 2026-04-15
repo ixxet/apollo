@@ -58,6 +58,32 @@ func (q *Queries) GetSportByKey(ctx context.Context, sportKey string) (ApolloSpo
 	return i, err
 }
 
+const listFacilityCatalogRefs = `-- name: ListFacilityCatalogRefs :many
+SELECT facility_key
+FROM apollo.facility_catalog_refs
+ORDER BY facility_key
+`
+
+func (q *Queries) ListFacilityCatalogRefs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listFacilityCatalogRefs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var facility_key string
+		if err := rows.Scan(&facility_key); err != nil {
+			return nil, err
+		}
+		items = append(items, facility_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSportFacilityCapabilities = `-- name: ListSportFacilityCapabilities :many
 SELECT c.sport_key,
        c.facility_key,

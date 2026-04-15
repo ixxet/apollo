@@ -126,6 +126,7 @@ type Store interface {
 	RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error
 	ListMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error)
 	ListMemberStatRowsByUserID(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error)
+	ListMemberHistoryByUserID(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error)
 }
 
 type Service struct {
@@ -247,6 +248,16 @@ type MemberStat struct {
 	LastPlayedAt       *time.Time `json:"last_played_at,omitempty"`
 	CurrentRatingMu    float64    `json:"current_rating_mu"`
 	CurrentRatingSigma float64    `json:"current_rating_sigma"`
+}
+
+type MemberHistoryEntry struct {
+	CompetitionMatchID uuid.UUID `json:"competition_match_id"`
+	DisplayName        string    `json:"display_name"`
+	SportKey           string    `json:"sport_key"`
+	ModeKey            string    `json:"mode_key"`
+	FacilityKey        string    `json:"facility_key"`
+	RecordedAt         time.Time `json:"recorded_at"`
+	Outcome            string    `json:"outcome"`
 }
 
 type CreateSessionInput struct {
@@ -371,6 +382,18 @@ type memberRatingRecord struct {
 
 type memberStatRowRecord struct {
 	SportKey            string
+	CompetitionMode     string
+	SidesPerMatch       int
+	ParticipantsPerSide int
+	RecordedAt          time.Time
+	Outcome             string
+}
+
+type memberHistoryRowRecord struct {
+	CompetitionMatchID  uuid.UUID
+	DisplayName         string
+	SportKey            string
+	FacilityKey         string
 	CompetitionMode     string
 	SidesPerMatch       int
 	ParticipantsPerSide int

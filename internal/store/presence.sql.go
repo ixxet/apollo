@@ -12,6 +12,37 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createClaimedTag = `-- name: CreateClaimedTag :one
+INSERT INTO apollo.claimed_tags (
+  user_id,
+  tag_hash,
+  label,
+  is_active
+)
+VALUES ($1, $2, $3, TRUE)
+RETURNING id, user_id, tag_hash, label, is_active, claimed_at
+`
+
+type CreateClaimedTagParams struct {
+	UserID  uuid.UUID
+	TagHash string
+	Label   *string
+}
+
+func (q *Queries) CreateClaimedTag(ctx context.Context, arg CreateClaimedTagParams) (ApolloClaimedTag, error) {
+	row := q.db.QueryRow(ctx, createClaimedTag, arg.UserID, arg.TagHash, arg.Label)
+	var i ApolloClaimedTag
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TagHash,
+		&i.Label,
+		&i.IsActive,
+		&i.ClaimedAt,
+	)
+	return i, err
+}
+
 const getActiveClaimedTagByHash = `-- name: GetActiveClaimedTagByHash :one
 SELECT ct.id, ct.user_id, ct.tag_hash, ct.label, ct.is_active, ct.claimed_at
 FROM apollo.claimed_tags AS ct
@@ -22,6 +53,27 @@ LIMIT 1
 
 func (q *Queries) GetActiveClaimedTagByHash(ctx context.Context, tagHash string) (ApolloClaimedTag, error) {
 	row := q.db.QueryRow(ctx, getActiveClaimedTagByHash, tagHash)
+	var i ApolloClaimedTag
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TagHash,
+		&i.Label,
+		&i.IsActive,
+		&i.ClaimedAt,
+	)
+	return i, err
+}
+
+const getClaimedTagByHash = `-- name: GetClaimedTagByHash :one
+SELECT ct.id, ct.user_id, ct.tag_hash, ct.label, ct.is_active, ct.claimed_at
+FROM apollo.claimed_tags AS ct
+WHERE ct.tag_hash = $1
+LIMIT 1
+`
+
+func (q *Queries) GetClaimedTagByHash(ctx context.Context, tagHash string) (ApolloClaimedTag, error) {
+	row := q.db.QueryRow(ctx, getClaimedTagByHash, tagHash)
 	var i ApolloClaimedTag
 	err := row.Scan(
 		&i.ID,
@@ -170,6 +222,40 @@ func (q *Queries) InsertVisitTapLink(ctx context.Context, arg InsertVisitTapLink
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const listClaimedTagsByUserID = `-- name: ListClaimedTagsByUserID :many
+SELECT ct.id, ct.user_id, ct.tag_hash, ct.label, ct.is_active, ct.claimed_at
+FROM apollo.claimed_tags AS ct
+WHERE ct.user_id = $1
+ORDER BY ct.is_active DESC, ct.claimed_at DESC, ct.id DESC
+`
+
+func (q *Queries) ListClaimedTagsByUserID(ctx context.Context, userID uuid.UUID) ([]ApolloClaimedTag, error) {
+	rows, err := q.db.Query(ctx, listClaimedTagsByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ApolloClaimedTag
+	for rows.Next() {
+		var i ApolloClaimedTag
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.TagHash,
+			&i.Label,
+			&i.IsActive,
+			&i.ClaimedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listFacilityPresenceStreaksByUserID = `-- name: ListFacilityPresenceStreaksByUserID :many

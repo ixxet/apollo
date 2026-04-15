@@ -70,6 +70,67 @@ func (r *Repository) ListLatestFacilityStreakEventsByUserID(ctx context.Context,
 	return r.queries.ListLatestMemberPresenceStreakEventsByUserID(ctx, userID)
 }
 
+func (r *Repository) ListClaimedTagsByUserID(ctx context.Context, userID uuid.UUID) ([]store.ApolloClaimedTag, error) {
+	return r.queries.ListClaimedTagsByUserID(ctx, userID)
+}
+
+func (r *Repository) GetClaimedTagByHash(ctx context.Context, tagHash string) (*store.ApolloClaimedTag, error) {
+	row, err := r.queries.GetClaimedTagByHash(ctx, tagHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &row, nil
+}
+
+func (r *Repository) CreateClaimedTag(ctx context.Context, userID uuid.UUID, tagHash string, label *string) (store.ApolloClaimedTag, error) {
+	return r.queries.CreateClaimedTag(ctx, store.CreateClaimedTagParams{
+		UserID:  userID,
+		TagHash: tagHash,
+		Label:   label,
+	})
+}
+
+func (r *Repository) ListFacilityCatalogRefs(ctx context.Context) ([]string, error) {
+	return r.queries.ListFacilityCatalogRefs(ctx)
+}
+
+func (r *Repository) ListFacilitySports(ctx context.Context) ([]FacilitySport, error) {
+	sports, err := r.queries.ListSports(ctx)
+	if err != nil {
+		return nil, err
+	}
+	displayNames := make(map[string]string, len(sports))
+	for _, sport := range sports {
+		displayNames[sport.SportKey] = sport.DisplayName
+	}
+
+	capabilities, err := r.queries.ListSportFacilityCapabilities(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]FacilitySport, 0, len(capabilities))
+	seen := make(map[string]struct{}, len(capabilities))
+	for _, capability := range capabilities {
+		key := capability.FacilityKey + "\x00" + capability.SportKey
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, FacilitySport{
+			FacilityKey: capability.FacilityKey,
+			SportKey:    capability.SportKey,
+			DisplayName: displayNames[capability.SportKey],
+		})
+	}
+
+	return result, nil
+}
+
 func (r *Repository) EnsureLinkedVisitAndCredit(ctx context.Context, visit store.ApolloVisit, tagHash string, now time.Time) error {
 	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

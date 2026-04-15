@@ -34,6 +34,11 @@ SELECT EXISTS (
     WHERE facility_key = $1
 );
 
+-- name: ListFacilityCatalogRefs :many
+SELECT facility_key
+FROM apollo.facility_catalog_refs
+ORDER BY facility_key;
+
 -- name: ListSportFacilityCapabilities :many
 SELECT c.sport_key,
        c.facility_key,

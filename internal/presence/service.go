@@ -2,17 +2,22 @@ package presence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/store"
 	"github.com/ixxet/apollo/internal/visits"
 )
 
 const recentVisitLimit = 10
+const memberFacilityWindowDays = 14
 
 const (
 	StatusPresent    = "present"
@@ -23,11 +28,27 @@ const (
 	StreakStatusNotStarted = "not_started"
 
 	TapLinkStatusLinked = "linked"
+
+	ClaimStatusActive   = "active"
+	ClaimStatusInactive = "inactive"
+)
+
+var (
+	ErrClaimTagHashRequired        = errors.New("presence claim tag_hash is required")
+	ErrClaimTagHashInvalid         = errors.New("presence claim tag_hash is invalid")
+	ErrClaimAlreadyActive          = errors.New("presence claim already exists")
+	ErrClaimInactive               = errors.New("presence claim is inactive and cannot be reused")
+	ErrClaimOwnedByAnotherMember   = errors.New("presence claim already belongs to another member")
+	ErrMemberFacilitiesUnavailable = errors.New("member facility composition is unavailable")
 )
 
 type VisitRecorder interface {
 	RecordArrival(ctx context.Context, input visits.ArrivalInput) (visits.Result, error)
 	RecordDeparture(ctx context.Context, input visits.DepartureInput) (visits.Result, error)
+}
+
+type FacilityCalendarReader interface {
+	GetCalendar(ctx context.Context, facilityKey string, window schedule.CalendarWindow) ([]schedule.Occurrence, error)
 }
 
 type Summary struct {
@@ -71,26 +92,75 @@ type StreakEvent struct {
 	VisitID    uuid.UUID `json:"visit_id"`
 }
 
+type Claim struct {
+	TagHash   string    `json:"tag_hash"`
+	Label     *string   `json:"label,omitempty"`
+	Status    string    `json:"status"`
+	ClaimedAt time.Time `json:"claimed_at"`
+}
+
+type ClaimInput struct {
+	TagHash string  `json:"tag_hash"`
+	Label   *string `json:"label,omitempty"`
+}
+
+type MemberFacility struct {
+	FacilityKey     string           `json:"facility_key"`
+	SupportedSports []FacilitySport  `json:"supported_sports"`
+	Hours           []FacilityWindow `json:"hours"`
+	Closures        []FacilityWindow `json:"closures,omitempty"`
+}
+
+type FacilitySport struct {
+	FacilityKey string `json:"-"`
+	SportKey    string `json:"sport_key"`
+	DisplayName string `json:"display_name"`
+}
+
+type FacilityWindow struct {
+	StartsAt       time.Time `json:"starts_at"`
+	EndsAt         time.Time `json:"ends_at"`
+	OccurrenceDate string    `json:"occurrence_date"`
+}
+
 type Clock func() time.Time
 
 type Store interface {
 	ListLinkedVisitsByUserID(ctx context.Context, userID uuid.UUID) ([]LinkedVisit, error)
 	ListFacilityStreaksByUserID(ctx context.Context, userID uuid.UUID) ([]store.ApolloMemberPresenceStreak, error)
 	ListLatestFacilityStreakEventsByUserID(ctx context.Context, userID uuid.UUID) ([]store.ApolloMemberPresenceStreakEvent, error)
+	ListClaimedTagsByUserID(ctx context.Context, userID uuid.UUID) ([]store.ApolloClaimedTag, error)
+	GetClaimedTagByHash(ctx context.Context, tagHash string) (*store.ApolloClaimedTag, error)
+	CreateClaimedTag(ctx context.Context, userID uuid.UUID, tagHash string, label *string) (store.ApolloClaimedTag, error)
+	ListFacilityCatalogRefs(ctx context.Context) ([]string, error)
+	ListFacilitySports(ctx context.Context) ([]FacilitySport, error)
 	EnsureLinkedVisitAndCredit(ctx context.Context, visit store.ApolloVisit, tagHash string, now time.Time) error
 }
+
+type Option func(*Service)
 
 type Service struct {
 	repository Store
 	visits     VisitRecorder
+	calendar   FacilityCalendarReader
 	now        Clock
 }
 
-func NewService(repository Store, visitRecorder VisitRecorder) *Service {
-	return &Service{
+func NewService(repository Store, visitRecorder VisitRecorder, options ...Option) *Service {
+	service := &Service{
 		repository: repository,
 		visits:     visitRecorder,
 		now:        time.Now,
+	}
+	for _, option := range options {
+		option(service)
+	}
+	return service
+}
+
+func WithFacilityCalendar(calendar FacilityCalendarReader) Option {
+	return func(service *Service) {
+		service.calendar = calendar
 	}
 }
 
@@ -186,6 +256,160 @@ func (s *Service) GetSummary(ctx context.Context, userID uuid.UUID) (Summary, er
 	return summary, nil
 }
 
+func (s *Service) ListClaims(ctx context.Context, userID uuid.UUID) ([]Claim, error) {
+	rows, err := s.repository.ListClaimedTagsByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	claims := make([]Claim, 0, len(rows))
+	for _, row := range rows {
+		claims = append(claims, Claim{
+			TagHash:   row.TagHash,
+			Label:     row.Label,
+			Status:    claimStatus(row.IsActive),
+			ClaimedAt: row.ClaimedAt.Time.UTC(),
+		})
+	}
+
+	return claims, nil
+}
+
+func (s *Service) Claim(ctx context.Context, userID uuid.UUID, input ClaimInput) (Claim, error) {
+	tagHash, err := normalizeClaimTagHash(input.TagHash)
+	if err != nil {
+		return Claim{}, err
+	}
+	label := normalizeClaimLabel(input.Label)
+
+	existing, err := s.repository.GetClaimedTagByHash(ctx, tagHash)
+	if err != nil {
+		return Claim{}, err
+	}
+	if existing != nil {
+		return Claim{}, classifyExistingClaim(*existing, userID)
+	}
+
+	created, err := s.repository.CreateClaimedTag(ctx, userID, tagHash, label)
+	if err != nil {
+		if isUniqueViolation(err) {
+			existing, lookupErr := s.repository.GetClaimedTagByHash(ctx, tagHash)
+			if lookupErr != nil {
+				return Claim{}, lookupErr
+			}
+			if existing != nil {
+				return Claim{}, classifyExistingClaim(*existing, userID)
+			}
+		}
+		return Claim{}, err
+	}
+
+	return Claim{
+		TagHash:   created.TagHash,
+		Label:     created.Label,
+		Status:    claimStatus(created.IsActive),
+		ClaimedAt: created.ClaimedAt.Time.UTC(),
+	}, nil
+}
+
+func (s *Service) ListMemberFacilities(ctx context.Context, userID uuid.UUID) ([]MemberFacility, error) {
+	if s.calendar == nil {
+		return nil, ErrMemberFacilitiesUnavailable
+	}
+
+	catalogKeys, err := s.repository.ListFacilityCatalogRefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	linkedVisits, err := s.repository.ListLinkedVisitsByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	facilitySports, err := s.repository.ListFacilitySports(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	facilityKeys := make(map[string]struct{}, len(catalogKeys)+len(linkedVisits))
+	for _, facilityKey := range catalogKeys {
+		facilityKeys[facilityKey] = struct{}{}
+	}
+	for _, visit := range linkedVisits {
+		facilityKeys[visit.Visit.FacilityKey] = struct{}{}
+	}
+
+	sportsByFacility := make(map[string][]FacilitySport)
+	for _, facilitySport := range facilitySports {
+		sportsByFacility[facilitySport.FacilityKey] = append(sportsByFacility[facilitySport.FacilityKey], facilitySport)
+	}
+	for facilityKey := range sportsByFacility {
+		sort.Slice(sportsByFacility[facilityKey], func(i, j int) bool {
+			left := sportsByFacility[facilityKey][i]
+			right := sportsByFacility[facilityKey][j]
+			if left.DisplayName != right.DisplayName {
+				return left.DisplayName < right.DisplayName
+			}
+			return left.SportKey < right.SportKey
+		})
+	}
+
+	orderedFacilities := make([]string, 0, len(facilityKeys))
+	for facilityKey := range facilityKeys {
+		orderedFacilities = append(orderedFacilities, facilityKey)
+	}
+	sort.Strings(orderedFacilities)
+
+	now := s.now().UTC()
+	window := schedule.CalendarWindow{
+		From:  now,
+		Until: now.AddDate(0, 0, memberFacilityWindowDays),
+	}
+
+	facilities := make([]MemberFacility, 0, len(orderedFacilities))
+	for _, facilityKey := range orderedFacilities {
+		occurrences, err := s.calendar.GetCalendar(ctx, facilityKey, window)
+		if err != nil {
+			return nil, err
+		}
+
+		memberFacility := MemberFacility{
+			FacilityKey:     facilityKey,
+			SupportedSports: cloneFacilitySports(sportsByFacility[facilityKey]),
+			Hours:           make([]FacilityWindow, 0, len(occurrences)),
+			Closures:        make([]FacilityWindow, 0, len(occurrences)),
+		}
+
+		for _, occurrence := range occurrences {
+			if occurrence.Scope != schedule.ScopeFacility {
+				continue
+			}
+			if occurrence.Status != schedule.StatusScheduled {
+				continue
+			}
+			if occurrence.Visibility == schedule.VisibilityInternal {
+				continue
+			}
+
+			window := FacilityWindow{
+				StartsAt:       occurrence.StartsAt.UTC(),
+				EndsAt:         occurrence.EndsAt.UTC(),
+				OccurrenceDate: occurrence.OccurrenceDate,
+			}
+
+			switch occurrence.Kind {
+			case schedule.KindOperatingHours:
+				memberFacility.Hours = append(memberFacility.Hours, window)
+			case schedule.KindClosure:
+				memberFacility.Closures = append(memberFacility.Closures, window)
+			}
+		}
+
+		facilities = append(facilities, memberFacility)
+	}
+
+	return facilities, nil
+}
+
 func currentFacilityVisit(visitsInFacility []LinkedVisit) (*Visit, string, error) {
 	openVisits := make([]LinkedVisit, 0, 1)
 	for _, visit := range visitsInFacility {
@@ -268,6 +492,72 @@ func formatDatePointer(value time.Time, valid bool) *string {
 	}
 	formatted := value.UTC().Format("2006-01-02")
 	return &formatted
+}
+
+func claimStatus(active bool) string {
+	if active {
+		return ClaimStatusActive
+	}
+	return ClaimStatusInactive
+}
+
+func normalizeClaimTagHash(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", ErrClaimTagHashRequired
+	}
+	if len(trimmed) > 128 {
+		return "", ErrClaimTagHashInvalid
+	}
+	for _, character := range trimmed {
+		switch {
+		case character >= 'a' && character <= 'z':
+		case character >= 'A' && character <= 'Z':
+		case character >= '0' && character <= '9':
+		case character == '-', character == '_', character == ':':
+		default:
+			return "", ErrClaimTagHashInvalid
+		}
+	}
+	return trimmed, nil
+}
+
+func normalizeClaimLabel(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func classifyExistingClaim(existing store.ApolloClaimedTag, userID uuid.UUID) error {
+	if existing.UserID != userID {
+		return ErrClaimOwnedByAnotherMember
+	}
+	if !existing.IsActive {
+		return ErrClaimInactive
+	}
+	return ErrClaimAlreadyActive
+}
+
+func cloneFacilitySports(input []FacilitySport) []FacilitySport {
+	if len(input) == 0 {
+		return []FacilitySport{}
+	}
+	output := make([]FacilitySport, len(input))
+	copy(output, input)
+	return output
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == "23505"
 }
 
 func minInt(left int, right int) int {

@@ -50,6 +50,15 @@ type PresenceReader interface {
 	GetSummary(ctx context.Context, userID uuid.UUID) (presence.Summary, error)
 }
 
+type PresenceClaimManager interface {
+	ListClaims(ctx context.Context, userID uuid.UUID) ([]presence.Claim, error)
+	Claim(ctx context.Context, userID uuid.UUID, input presence.ClaimInput) (presence.Claim, error)
+}
+
+type MemberFacilityReader interface {
+	ListMemberFacilities(ctx context.Context, userID uuid.UUID) ([]presence.MemberFacility, error)
+}
+
 type ExerciseCatalogReader interface {
 	ListExercises(ctx context.Context) ([]exercises.ExerciseDefinition, error)
 	ListEquipment(ctx context.Context) ([]exercises.EquipmentDefinition, error)
@@ -82,6 +91,10 @@ type CompetitionManager interface {
 	CreateMatch(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, input competition.CreateMatchInput) (competition.Match, error)
 	ArchiveMatch(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID) (competition.Match, error)
 	RecordMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, input competition.RecordMatchResultInput) (competition.Session, error)
+}
+
+type CompetitionHistoryReader interface {
+	ListMemberHistory(ctx context.Context, userID uuid.UUID) ([]competition.MemberHistoryEntry, error)
 }
 
 type EligibilityReader interface {
@@ -141,21 +154,24 @@ type WorkoutManager interface {
 }
 
 type Dependencies struct {
-	ConsumerEnabled bool
-	Auth            Authenticator
-	Competition     CompetitionManager
-	Profile         Profiler
-	Presence        PresenceReader
-	Exercises       ExerciseCatalogReader
-	Planner         PlannerManager
-	Eligibility     EligibilityReader
-	Membership      MembershipManager
-	MatchPreview    MatchPreviewReader
-	Recommendations RecommendationReader
-	Schedule        ScheduleManager
-	Coaching        CoachingManager
-	Nutrition       NutritionManager
-	Workouts        WorkoutManager
+	ConsumerEnabled    bool
+	Auth               Authenticator
+	Competition        CompetitionManager
+	CompetitionHistory CompetitionHistoryReader
+	Profile            Profiler
+	Presence           PresenceReader
+	PresenceClaims     PresenceClaimManager
+	MemberFacilities   MemberFacilityReader
+	Exercises          ExerciseCatalogReader
+	Planner            PlannerManager
+	Eligibility        EligibilityReader
+	Membership         MembershipManager
+	MatchPreview       MatchPreviewReader
+	Recommendations    RecommendationReader
+	Schedule           ScheduleManager
+	Coaching           CoachingManager
+	Nutrition          NutritionManager
+	Workouts           WorkoutManager
 }
 
 type healthResponse struct {
@@ -179,6 +195,11 @@ type startVerificationRequest struct {
 
 type verifyRequest struct {
 	Token string `json:"token"`
+}
+
+type presenceClaimRequest struct {
+	TagHash string  `json:"tag_hash"`
+	Label   *string `json:"label"`
 }
 
 type createCompetitionSessionRequest struct {
@@ -347,6 +368,67 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, summary)
+		})
+		authenticated.Get("/api/v1/presence/claims", func(w http.ResponseWriter, r *http.Request) {
+			if deps.PresenceClaims == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("presence claim dependency is unavailable"))
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			claims, err := deps.PresenceClaims.ListClaims(r.Context(), principal.UserID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, claims)
+		})
+		authenticated.Post("/api/v1/presence/claims", func(w http.ResponseWriter, r *http.Request) {
+			if deps.PresenceClaims == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("presence claim dependency is unavailable"))
+				return
+			}
+
+			var request presenceClaimRequest
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			claim, err := deps.PresenceClaims.Claim(r.Context(), principal.UserID, presence.ClaimInput{
+				TagHash: request.TagHash,
+				Label:   request.Label,
+			})
+			if err != nil {
+				switch {
+				case errors.Is(err, presence.ErrClaimTagHashRequired), errors.Is(err, presence.ErrClaimTagHashInvalid):
+					writeError(w, http.StatusBadRequest, err)
+				case errors.Is(err, presence.ErrClaimAlreadyActive), errors.Is(err, presence.ErrClaimInactive), errors.Is(err, presence.ErrClaimOwnedByAnotherMember):
+					writeError(w, http.StatusConflict, err)
+				default:
+					writeError(w, http.StatusInternalServerError, err)
+				}
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, claim)
+		})
+		authenticated.Get("/api/v1/presence/facilities", func(w http.ResponseWriter, r *http.Request) {
+			if deps.MemberFacilities == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("member facility dependency is unavailable"))
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			facilities, err := deps.MemberFacilities.ListMemberFacilities(r.Context(), principal.UserID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, facilities)
 		})
 		authenticated.Get("/api/v1/planner/exercises", func(w http.ResponseWriter, r *http.Request) {
 			items, err := deps.Exercises.ListExercises(r.Context())
@@ -520,6 +602,21 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, memberStats)
+		})
+		authenticated.Get("/api/v1/competition/history", func(w http.ResponseWriter, r *http.Request) {
+			if deps.CompetitionHistory == nil {
+				writeError(w, http.StatusInternalServerError, errors.New("competition history dependency is unavailable"))
+				return
+			}
+
+			principal := principalFromContext(r.Context())
+			history, err := deps.CompetitionHistory.ListMemberHistory(r.Context(), principal.UserID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, history)
 		})
 		authenticated.Post("/api/v1/competition/sessions", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
 			var request createCompetitionSessionRequest
