@@ -239,7 +239,6 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 	authService := auth.NewService(authRepository, cookies, sender, cfg.VerificationTokenTTL, cfg.SessionTTL)
 	visitRepository := visits.NewRepository(pool)
 	visitService := visits.NewService(visitRepository)
-	presenceService := presence.NewService(presence.NewRepository(pool), visitService)
 	exerciseRepository := exercises.NewRepository(pool)
 	exerciseService := exercises.NewService(exerciseRepository)
 	plannerRepository := planner.NewRepository(pool)
@@ -255,23 +254,27 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 	workoutService := workouts.NewService(workouts.NewRepository(pool))
 	competitionService := competition.NewService(competition.NewRepository(pool))
 	scheduleService := schedule.NewService(schedule.NewRepository(pool))
+	presenceService := presence.NewService(presence.NewRepository(pool), visitService, presence.WithFacilityCalendar(scheduleService))
 
 	return server.Dependencies{
-		ConsumerEnabled: consumerEnabled,
-		Auth:            authService,
-		Competition:     competitionService,
-		Profile:         profileService,
-		Presence:        presenceService,
-		Exercises:       exerciseService,
-		Planner:         plannerService,
-		Eligibility:     eligibilityService,
-		Membership:      membershipService,
-		MatchPreview:    matchPreviewService,
-		Recommendations: recommendationService,
-		Schedule:        scheduleService,
-		Coaching:        coachingService,
-		Nutrition:       nutritionService,
-		Workouts:        workoutService,
+		ConsumerEnabled:    consumerEnabled,
+		Auth:               authService,
+		Competition:        competitionService,
+		CompetitionHistory: competitionService,
+		Profile:            profileService,
+		Presence:           presenceService,
+		PresenceClaims:     presenceService,
+		MemberFacilities:   presenceService,
+		Exercises:          exerciseService,
+		Planner:            plannerService,
+		Eligibility:        eligibilityService,
+		Membership:         membershipService,
+		MatchPreview:       matchPreviewService,
+		Recommendations:    recommendationService,
+		Schedule:           scheduleService,
+		Coaching:           coachingService,
+		Nutrition:          nutritionService,
+		Workouts:           workoutService,
 	}
 }
 

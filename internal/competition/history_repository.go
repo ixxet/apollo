@@ -121,6 +121,30 @@ func (r *Repository) ListMemberStatRowsByUserID(ctx context.Context, userID uuid
 	return stats, nil
 }
 
+func (r *Repository) ListMemberHistoryByUserID(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error) {
+	rows, err := store.New(r.db).ListCompetitionMemberHistoryByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	history := make([]memberHistoryRowRecord, 0, len(rows))
+	for _, row := range rows {
+		history = append(history, memberHistoryRowRecord{
+			CompetitionMatchID:  row.CompetitionMatchID,
+			DisplayName:         row.DisplayName,
+			SportKey:            row.SportKey,
+			FacilityKey:         row.FacilityKey,
+			CompetitionMode:     row.CompetitionMode,
+			SidesPerMatch:       int(row.SidesPerMatch),
+			ParticipantsPerSide: int(row.ParticipantsPerSide),
+			RecordedAt:          row.RecordedAt.Time.UTC(),
+			Outcome:             row.Outcome,
+		})
+	}
+
+	return history, nil
+}
+
 func (r *Repository) RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {

@@ -184,6 +184,28 @@ func (s *Service) ListMemberStats(ctx context.Context, userID uuid.UUID) ([]Memb
 	return stats, nil
 }
 
+func (s *Service) ListMemberHistory(ctx context.Context, userID uuid.UUID) ([]MemberHistoryEntry, error) {
+	rows, err := s.repository.ListMemberHistoryByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	history := make([]MemberHistoryEntry, 0, len(rows))
+	for _, row := range rows {
+		history = append(history, MemberHistoryEntry{
+			CompetitionMatchID: row.CompetitionMatchID,
+			DisplayName:        row.DisplayName,
+			SportKey:           row.SportKey,
+			ModeKey:            buildModeKey(row.CompetitionMode, row.SidesPerMatch, row.ParticipantsPerSide),
+			FacilityKey:        row.FacilityKey,
+			RecordedAt:         row.RecordedAt.UTC(),
+			Outcome:            row.Outcome,
+		})
+	}
+
+	return history, nil
+}
+
 func validateMatchResultInput(input []MatchResultSideInput, expectedSlots []matchSideSlotRecord) error {
 	if len(input) != len(expectedSlots) {
 		return ErrMatchResultSideCount
