@@ -708,6 +708,15 @@ func (q *Queries) ListBookingRequestsByFacilityKey(ctx context.Context, facility
 	return items, nil
 }
 
+const lockBookingRequestIdempotencyKey = `-- name: LockBookingRequestIdempotencyKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0))
+`
+
+func (q *Queries) LockBookingRequestIdempotencyKey(ctx context.Context, hashtextextended string) error {
+	_, err := q.db.Exec(ctx, lockBookingRequestIdempotencyKey, hashtextextended)
+	return err
+}
+
 const updateBookingRequestStatus = `-- name: UpdateBookingRequestStatus :one
 UPDATE apollo.booking_requests
 SET status = $2,

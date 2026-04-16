@@ -336,6 +336,9 @@ WHERE key_hash = $1
 LIMIT 1
 FOR UPDATE;
 
+-- name: LockBookingRequestIdempotencyKey :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
+
 -- name: CreateBookingRequestIdempotencyKey :one
 INSERT INTO apollo.booking_request_idempotency_keys (
     key_hash,

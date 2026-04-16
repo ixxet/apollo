@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -233,6 +234,70 @@ WHERE contact_email = 'public-booking@example.com'
 	}
 	if len(staffRequests) == 0 || staffRequests[0].RequestSource != booking.RequestSourcePublic || staffRequests[0].IntakeChannel != booking.IntakeChannelPublicWeb {
 		t.Fatalf("staff source/channel = %#v, want public/public_web visible", staffRequests)
+	}
+}
+
+func TestPublicBookingSubmitConcurrentSameKeySerializesDuplicate(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	optionID := insertPublicBookingHTTPResource(t, env, "booking-public-concurrent-court", "Concurrent Court", true, true)
+	beforeBlocks := countBookingHTTPScheduleBlocks(t, env)
+	start, end := publicBookingWindow(72*time.Hour, time.Hour)
+	body := publicBookingRequestJSON(optionID, start, end, `"contact_email":"public-concurrent@example.com"`)
+	headers := map[string]string{
+		"Idempotency-Key":                "public-concurrent-key-001",
+		"X-Apollo-Public-Intake-Channel": booking.IntakeChannelPublicWeb,
+	}
+
+	responses := doConcurrentPublicBookingSubmits(env, headers, body, body, body, body, body)
+	for index, response := range responses {
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("concurrent duplicate submit %d code = %d, want %d body=%s", index, response.Code, http.StatusAccepted, response.Body.String())
+		}
+		assertPublicBookingResponseSafe(t, response)
+	}
+	if count := countBookingHTTPRequestsByEmail(t, env, "public-concurrent@example.com"); count != 1 {
+		t.Fatalf("concurrent public booking request count = %d, want 1", count)
+	}
+	if afterBlocks := countBookingHTTPScheduleBlocks(t, env); afterBlocks != beforeBlocks {
+		t.Fatalf("schedule block count = %d, want unchanged %d", afterBlocks, beforeBlocks)
+	}
+}
+
+func TestPublicBookingSubmitConcurrentSameKeyDifferentPayloadConflicts(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	optionID := insertPublicBookingHTTPResource(t, env, "booking-public-concurrent-conflict-court", "Concurrent Conflict Court", true, true)
+	start, end := publicBookingWindow(72*time.Hour, time.Hour)
+	changedStart, changedEnd := publicBookingWindow(74*time.Hour, time.Hour)
+	body := publicBookingRequestJSON(optionID, start, end, `"contact_email":"public-concurrent-conflict@example.com"`)
+	changedBody := publicBookingRequestJSON(optionID, changedStart, changedEnd, `"contact_email":"public-concurrent-conflict@example.com"`)
+	headers := map[string]string{
+		"Idempotency-Key":                "public-concurrent-conflict-key-001",
+		"X-Apollo-Public-Intake-Channel": booking.IntakeChannelPublicWeb,
+	}
+
+	responses := doConcurrentPublicBookingSubmits(env, headers, body, changedBody)
+	accepted := 0
+	conflicted := 0
+	for index, response := range responses {
+		switch response.Code {
+		case http.StatusAccepted:
+			accepted++
+		case http.StatusConflict:
+			conflicted++
+		default:
+			t.Fatalf("concurrent changed submit %d code = %d, want accepted or conflict body=%s", index, response.Code, response.Body.String())
+		}
+		assertPublicBookingResponseSafe(t, response)
+	}
+	if accepted != 1 || conflicted != 1 {
+		t.Fatalf("concurrent changed submit accepted/conflicted = %d/%d, want 1/1", accepted, conflicted)
+	}
+	if count := countBookingHTTPRequestsByEmail(t, env, "public-concurrent-conflict@example.com"); count != 1 {
+		t.Fatalf("concurrent changed public booking request count = %d, want 1", count)
 	}
 }
 
@@ -526,6 +591,32 @@ func publicBookingRequestJSON(optionID uuid.UUID, startsAt string, endsAt string
 		"purpose":"Community court request",
 		"attendee_count":8
 	}`
+}
+
+func doConcurrentPublicBookingSubmits(env *authProfileServerEnv, headers map[string]string, bodies ...string) []*httptest.ResponseRecorder {
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	responses := make([]*httptest.ResponseRecorder, len(bodies))
+
+	for index, body := range bodies {
+		wg.Add(1)
+		go func(index int, body string) {
+			defer wg.Done()
+			<-start
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(body))
+			request.Header.Set("Content-Type", "application/json")
+			for key, value := range headers {
+				request.Header.Set(key, value)
+			}
+			recorder := httptest.NewRecorder()
+			env.handler.ServeHTTP(recorder, request)
+			responses[index] = recorder
+		}(index, body)
+	}
+
+	close(start)
+	wg.Wait()
+	return responses
 }
 
 func bookingRequestJSON(resourceKey string, startsAt string, endsAt string) string {

@@ -137,6 +137,10 @@ func (s *Service) CreatePublicRequest(ctx context.Context, channel string, idemp
 	receipt := PublicReceipt{Status: "received"}
 
 	return withBookingQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (PublicReceipt, error) {
+		if err := queries.LockBookingRequestIdempotencyKey(ctx, keyHash); err != nil {
+			return PublicReceipt{}, err
+		}
+
 		existing, err := queries.GetBookingRequestIdempotencyByKeyHashForUpdate(ctx, keyHash)
 		if err == nil {
 			if existing.PayloadHash == payloadHash {
