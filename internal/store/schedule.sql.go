@@ -460,6 +460,27 @@ func (q *Queries) CreateScheduleBlock(ctx context.Context, arg CreateScheduleBlo
 	return i, err
 }
 
+const facilityZoneRefExists = `-- name: FacilityZoneRefExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM apollo.facility_zone_refs
+    WHERE facility_key = $1
+      AND zone_key = $2
+)
+`
+
+type FacilityZoneRefExistsParams struct {
+	FacilityKey string
+	ZoneKey     string
+}
+
+func (q *Queries) FacilityZoneRefExists(ctx context.Context, arg FacilityZoneRefExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, facilityZoneRefExists, arg.FacilityKey, arg.ZoneKey)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const getScheduleBlockByID = `-- name: GetScheduleBlockByID :one
 SELECT id,
        facility_key,

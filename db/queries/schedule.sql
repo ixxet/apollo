@@ -93,6 +93,14 @@ RETURNING resource_key,
           created_at,
           updated_at;
 
+-- name: FacilityZoneRefExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM apollo.facility_zone_refs
+    WHERE facility_key = $1
+      AND zone_key = $2
+);
+
 -- name: ListScheduleBlocksByFacilityKey :many
 SELECT id,
        facility_key,

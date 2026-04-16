@@ -38,6 +38,40 @@ type ApolloAresRating struct {
 	LastPlayed  pgtype.Timestamptz
 }
 
+type ApolloBookingRequest struct {
+	ID                         uuid.UUID
+	FacilityKey                string
+	ZoneKey                    *string
+	ResourceKey                *string
+	Scope                      string
+	RequestedStartAt           pgtype.Timestamptz
+	RequestedEndAt             pgtype.Timestamptz
+	ContactName                string
+	ContactEmail               *string
+	ContactPhone               *string
+	Organization               *string
+	Purpose                    *string
+	AttendeeCount              *int32
+	InternalNotes              *string
+	Status                     string
+	Version                    int32
+	ScheduleBlockID            pgtype.UUID
+	CreatedByUserID            uuid.UUID
+	CreatedBySessionID         uuid.UUID
+	CreatedByRole              string
+	CreatedByCapability        string
+	CreatedTrustedSurfaceKey   string
+	CreatedTrustedSurfaceLabel *string
+	UpdatedByUserID            uuid.UUID
+	UpdatedBySessionID         uuid.UUID
+	UpdatedByRole              string
+	UpdatedByCapability        string
+	UpdatedTrustedSurfaceKey   string
+	UpdatedTrustedSurfaceLabel *string
+	CreatedAt                  pgtype.Timestamptz
+	UpdatedAt                  pgtype.Timestamptz
+}
+
 type ApolloClaimedTag struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
