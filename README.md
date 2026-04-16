@@ -36,11 +36,13 @@ recommendations, and the ARES matchmaking subsystem.
 > planner, nutrition, recommendations, member self-service surfaces, and
 > deployment truth separate. Phase 3B.1 adds one read-only ops overview
 > surface that composes APOLLO schedule truth with ATHENA occupancy and bounded
-> analytics truth for supervisor, manager, and owner roles only. Phase 3B.4 now
-> adds internal staff-entered booking request truth with request-state
+> analytics truth for supervisor, manager, and owner roles only. Phase 3B.4
+> added internal staff-entered booking request truth with request-state
 > persistence, booking_read / booking_manage capabilities, trusted-surface
 > gated mutations, conflict-aware availability, and approval that creates a
-> linked APOLLO schedule reservation block without widening into public booking
+> linked APOLLO schedule reservation block. Phase 3B.5 now adds approved
+> booking cancellation that atomically cancels the linked internal reservation
+> and retains booking-to-schedule linkage without widening into public booking
 > or payments.
 
 This repo is now executable, but still intentionally narrow. The right way to
@@ -148,7 +150,7 @@ flowchart LR
 | Competition assignment / lifecycle / result | `POST /api/v1/competition/sessions/{id}/assignment`, `.../start`, `.../archive`, and `.../matches/{matchID}/result` | Real in repo/runtime | Deterministic live-manage mutations require `competition_live_manage` plus trusted-surface proof; stale queue/state replay still fails safely |
 | Ops facility overview | `GET /api/v1/ops/facilities/{facilityKey}/overview?from=<RFC3339>&until=<RFC3339>[&bucket_minutes=N]` | Real in repo/runtime | Requires `ops_read`, is supervisor/manager/owner only, composes APOLLO schedule calendar truth with ATHENA current occupancy and bounded analytics, and returns sanitized aggregate ops truth without booking writes, raw tap hashes, or identity-level presence detail |
 | Booking request list/detail | `GET /api/v1/booking/requests`, `GET /api/v1/booking/requests/{id}` | Real in repo/runtime | Requires `booking_read`; supervisor, manager, and owner can read internal request state plus APOLLO-computed availability without public booking or payment fields |
-| Booking request create/transition | `POST /api/v1/booking/requests`, `.../{id}/review`, `.../needs-changes`, `.../reject`, `.../cancel`, and `.../approve` | Real in repo/runtime | Requires `booking_manage` plus trusted-surface proof; manager and owner can create or transition requests, every transition requires `expected_version`, and approval creates a linked internal `reservation` / `hard_reserve` schedule block through APOLLO schedule truth |
+| Booking request create/transition | `POST /api/v1/booking/requests`, `.../{id}/review`, `.../needs-changes`, `.../reject`, `.../cancel`, and `.../approve` | Real in repo/runtime | Requires `booking_manage` plus trusted-surface proof; manager and owner can create or transition requests, every transition requires `expected_version`, approval creates a linked internal `reservation` / `hard_reserve` schedule block through APOLLO schedule truth, and approved cancellation cancels that linked block atomically |
 | Event consumer | `apollo serve` with `APOLLO_NATS_URL` | Real | Consumes `athena.identified_presence.arrived` and `athena.identified_presence.departed` from NATS |
 | Recommendation storage | `apollo.recommendations` | Schema authored | Tracer 7 does not persist recommendation reads yet |
 | Match preview runtime | `GET /api/v1/lobby/match-preview` | Real | ARES preview logic is active as a read-only runtime over explicit lobby membership only |
@@ -192,7 +194,7 @@ eligibility, or any social state.
 | `apollo.sports` | Real | Stores APOLLO-owned sport definitions and static rule profiles for the current competition substrate line |
 | `apollo.facility_catalog_refs`, `apollo.facility_zone_refs`, `apollo.sport_facility_capabilities`, and `apollo.sport_facility_capability_zones` | Real | Stores bounded facility identifier references plus APOLLO-owned facility-sport support mappings without duplicating ATHENA hours or metadata |
 | `apollo.schedule_resources`, `apollo.schedule_resource_edges`, `apollo.schedule_blocks`, and `apollo.schedule_block_exceptions` | Real in repo/runtime | Stores APOLLO-owned scheduling substrate truth over zones, bookable resources, resource graphs, typed blocks, RFC3339-windowed calendar reads, block-timezone weekly recurrence, active+bookable inventory-claim gating, and explicit date exceptions |
-| `apollo.booking_requests` | Real in repo/runtime | Stores internal staff-entered booking request truth with contact/purpose/scope/window fields, state/version truth, actor/trusted-surface attribution, conflict-aware availability at read time, and a nullable linked schedule block only after approval |
+| `apollo.booking_requests` | Real in repo/runtime | Stores internal staff-entered booking request truth with contact/purpose/scope/window fields, state/version truth, actor/trusted-surface attribution, conflict-aware availability at read time, and a nullable linked schedule block retained after approval and approved cancellation |
 | `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth separate from downstream result, rating, and standing projections |
 | `apollo.competition_staff_action_attributions` | Real in repo/runtime | Stores durable actor/session/role/capability/trusted-surface attribution for successful staff-sensitive competition mutations |
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
@@ -201,19 +203,20 @@ eligibility, or any social state.
 
 ## Current Phase 3B Line
 
-Phase 3B.4 request-first booking runtime is now real in repo/runtime on `main`,
+Phase 3B.5 approved booking lifecycle is now real in repo/runtime on `main`,
 but deployed truth stays separate and unchanged. It builds on the closed
-Phase 3B.1 ops overview and APOLLO schedule substrate: APOLLO owns request
-state, availability truth, approval conflict checks, and the linked schedule
-reservation block.
+Phase 3B.4 request-first booking runtime and APOLLO schedule substrate: APOLLO
+owns request state, availability truth, approval conflict checks, the linked
+schedule reservation block, and approved cancellation of that linked block.
 
 | Topic | Locked statement |
 | --- | --- |
-| booking ownership | APOLLO owns booking request persistence, state/version truth, staff HTTP APIs, availability decisions, and approval-to-schedule-block writes |
+| booking ownership | APOLLO owns booking request persistence, state/version truth, staff HTTP APIs, availability decisions, approval-to-schedule-block writes, and approved cancellation of linked reservation blocks |
 | auth shape | members have no booking capability; supervisors get `booking_read`; managers and owners get `booking_read` plus `booking_manage` |
 | mutation proof | create and transition routes require trusted-surface headers and every transition after create requires `expected_version` |
 | approval shape | approval creates a one-off internal `reservation` / `hard_reserve` schedule block on the requested facility/zone/resource scope using APOLLO schedule/resource graph conflict truth |
-| deferred with this line | public booking, customer self-service, payments, quotes, invoices, deposits, Hestia/member booking UI, owner policy writes, admin role widening, gateway, HERMES, and deploy work |
+| cancellation shape | cancelling an approved request reuses `POST /api/v1/booking/requests/{id}/cancel`, locks and validates the linked reservation, cancels it, and retains `schedule_block_id` for audit |
+| deferred with this line | in-place approved editing, public booking, customer self-service, payments, quotes, invoices, deposits, Hestia/member booking UI, owner policy writes, admin role widening, gateway, HERMES, and deploy work |
 
 ## Technology Stack
 
@@ -244,7 +247,7 @@ reservation block.
 | Facility-scoped member presence | facility-scoped presence read, explicit tap-link rows, and facility streak state/events over visit truth | Closure-clean on `main` | `v0.18.0` | Keep presence explicit, facility-scoped, and separate from matchmaking, coaching, nutrition, and role/authz widening |
 | Role/authz and staff boundary substrate | explicit principal roles, deterministic competition capabilities, trusted-surface-gated privileged staff mutations, and durable actor attribution | Closure-clean on `main` | `v0.19.0` | Keep authority explicit and reviewable without widening into role-management product flows, persistent approvals, or deployment claims |
 | Ops read foundation | read-only facility overview over APOLLO schedule truth and ATHENA occupancy/analytics truth | Closure-clean on `main` | `Phase 3B.1` | Keep it internal, aggregate, supervisor/manager/owner-only, and separate from booking, staff shell UI, gateway work, and deployment claims |
-| Request-first booking runtime | internal staff-entered booking requests with conflict-aware approval into APOLLO schedule reservations | Closure-clean on `main` | `Phase 3B.4` | Keep it internal, request-first, trusted-surface gated, and separate from public booking, payments, quotes, Hestia booking UI, owner policy writes, gateway work, HERMES, and deployment claims |
+| Request-first booking runtime | internal staff-entered booking requests with conflict-aware approval into APOLLO schedule reservations and approved cancellation of linked reservations | Closure-clean on `main` | `Phase 3B.5` | Keep it internal, request-first, trusted-surface gated, and separate from public booking, payments, quotes, in-place approved editing, Hestia booking UI, owner policy writes, gateway work, HERMES, and deployment claims |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
@@ -521,6 +524,7 @@ exercise, recommendations, or matchmaking.
 | `v0.19.1` | `v0.19.1` | Shipped | Milestone 2.0 hardening follow-up for shutdown, bounded HTTP/NATS/request handling, shared-parser ingest discipline, workout safety, and docs truth | new product widening |
 | `Phase 3B.1` | - | Closure-clean on `main` | read-only ops facility overview over APOLLO schedule truth plus ATHENA occupancy and bounded analytics truth with `ops_read` authz | booking writes, public booking, quotes/payments, staff shell UI, HERMES widening, gateway work, and deployment claims |
 | `Phase 3B.4` | - | Closure-clean on `main` | internal staff-entered booking request persistence, `booking_read` / `booking_manage`, request state/version truth, trusted-surface mutations, conflict-aware availability, and approval-created linked schedule reservations | public booking, customer self-service, payments, quotes, invoices/deposits, Hestia booking UI, owner policy writes, admin role widening, HERMES/gateway/deploy work |
+| `Phase 3B.5` | - | Closure-clean on `main` | approved internal booking cancellation with atomic linked reservation cancellation and retained schedule linkage | public booking, customer self-service, payments, quotes, invoices/deposits, Hestia booking UI, in-place approved editing, owner policy writes, admin role widening, HERMES/gateway/deploy work |
 
 ## Release Lines
 
@@ -540,7 +544,7 @@ lines begin below.
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
-| later than `Phase 3B.1` | `Phase 3B.4 request-first booking runtime` on `main`: internal staff-entered booking requests over APOLLO schedule truth with conflict-aware approval into linked reservations | keep the surface internal, request-first, supervisor read-only, manager/owner managed, trusted-surface gated, versioned, and APOLLO-authoritative for availability and approval conflicts | do not widen into public booking, customer self-service, quotes/payments, Hestia/member booking UI, owner policy writes, admin role widening, HERMES, gateway, or deploy claims |
+| later than `Phase 3B.1` | `Phase 3B.5 approved booking lifecycle` on `main`: internal staff-entered booking requests over APOLLO schedule truth with conflict-aware approval and approved cancellation of linked reservations | keep the surface internal, request-first, supervisor read-only, manager/owner managed, trusted-surface gated, versioned, and APOLLO-authoritative for availability, approval conflicts, and linked reservation cancellation | do not widen into public booking, customer self-service, quotes/payments, in-place approved editing, Hestia/member booking UI, owner policy writes, admin role widening, HERMES, gateway, or deploy claims |
 
 ## Versioning Discipline
 
