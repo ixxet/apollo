@@ -2163,7 +2163,8 @@ func writeScheduleError(w http.ResponseWriter, err error) {
 		errors.Is(err, schedule.ErrBlockResourceNotClaimable),
 		errors.Is(err, schedule.ErrBlockClaimableScopeEmpty),
 		errors.Is(err, schedule.ErrBlockOperatingHoursOverlap),
-		errors.Is(err, schedule.ErrBlockCancelled):
+		errors.Is(err, schedule.ErrBlockCancelled),
+		errors.Is(err, schedule.ErrBlockReservationMismatch):
 		writeError(w, http.StatusConflict, err)
 	case errors.Is(err, schedule.ErrResourceKeyRequired),
 		errors.Is(err, schedule.ErrResourceTypeRequired),
@@ -2205,6 +2206,7 @@ func writeBookingError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, booking.ErrRequestVersionStale),
 		errors.Is(err, booking.ErrRequestTransitionInvalid),
+		errors.Is(err, booking.ErrLinkedScheduleBlockDrift),
 		errors.Is(err, schedule.ErrBlockConflictRejected),
 		errors.Is(err, schedule.ErrBlockResourceNotClaimable),
 		errors.Is(err, schedule.ErrBlockClaimableScopeEmpty):
