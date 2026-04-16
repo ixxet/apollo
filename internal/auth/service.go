@@ -182,6 +182,7 @@ func (s *Service) AuthenticateSession(ctx context.Context, cookieValue string) (
 
 	capabilities := append(authz.CapabilitiesForRole(session.Role), authz.ScheduleCapabilitiesForRole(session.Role)...)
 	capabilities = append(capabilities, authz.OpsCapabilitiesForRole(session.Role)...)
+	capabilities = append(capabilities, authz.BookingCapabilitiesForRole(session.Role)...)
 	slices.Sort(capabilities)
 
 	return Principal{

@@ -23,6 +23,8 @@ const (
 	CapabilityOpsRead                    Capability = "ops_read"
 	CapabilityScheduleRead               Capability = "schedule_read"
 	CapabilityScheduleManage             Capability = "schedule_manage"
+	CapabilityBookingRead                Capability = "booking_read"
+	CapabilityBookingManage              Capability = "booking_manage"
 )
 
 var (
@@ -52,6 +54,13 @@ var opsCapabilitiesByRole = map[Role][]Capability{
 	RoleSupervisor: {CapabilityOpsRead},
 	RoleManager:    {CapabilityOpsRead},
 	RoleOwner:      {CapabilityOpsRead},
+}
+
+var bookingCapabilitiesByRole = map[Role][]Capability{
+	RoleMember:     {},
+	RoleSupervisor: {CapabilityBookingRead},
+	RoleManager:    {CapabilityBookingManage, CapabilityBookingRead},
+	RoleOwner:      {CapabilityBookingManage, CapabilityBookingRead},
 }
 
 func NormalizeRole(value string) (Role, error) {
@@ -87,6 +96,17 @@ func ScheduleCapabilitiesForRole(role Role) []Capability {
 
 func OpsCapabilitiesForRole(role Role) []Capability {
 	capabilities, ok := opsCapabilitiesByRole[role]
+	if !ok {
+		return nil
+	}
+
+	cloned := append([]Capability(nil), capabilities...)
+	slices.Sort(cloned)
+	return cloned
+}
+
+func BookingCapabilitiesForRole(role Role) []Capability {
+	capabilities, ok := bookingCapabilitiesByRole[role]
 	if !ok {
 		return nil
 	}

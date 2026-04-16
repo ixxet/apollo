@@ -19,6 +19,7 @@ import (
 	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/authz"
+	"github.com/ixxet/apollo/internal/booking"
 	"github.com/ixxet/apollo/internal/coaching"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
@@ -323,6 +324,7 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 	nutritionService := nutrition.NewService(nutrition.NewRepository(db.DB), profileService)
 	workoutService := workouts.NewService(workouts.NewRepository(db.DB))
 	scheduleService := schedule.NewService(schedule.NewRepository(db.DB))
+	bookingService := booking.NewService(booking.NewRepository(db.DB), scheduleService)
 	presenceService := presence.NewService(presence.NewRepository(db.DB), visitService, presence.WithFacilityCalendar(scheduleService))
 
 	return &authProfileServerEnv{
@@ -342,6 +344,7 @@ func newAuthProfileServerEnv(t *testing.T) *authProfileServerEnv {
 			MatchPreview:       matchPreviewService,
 			Recommendations:    recommendationService,
 			Schedule:           scheduleService,
+			Booking:            bookingService,
 			Coaching:           coachingService,
 			Nutrition:          nutritionService,
 			Workouts:           workoutService,
@@ -400,7 +403,7 @@ func (e *authProfileServerEnv) doRequestInternal(t *testing.T, method string, pa
 	if method == http.MethodPost || method == http.MethodPatch || method == http.MethodPut {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	if autoTrustedSurface && method == http.MethodPost && (strings.HasPrefix(path, "/api/v1/competition/") || strings.HasPrefix(path, "/api/v1/schedule/")) {
+	if autoTrustedSurface && method == http.MethodPost && (strings.HasPrefix(path, "/api/v1/competition/") || strings.HasPrefix(path, "/api/v1/schedule/") || strings.HasPrefix(path, "/api/v1/booking/")) {
 		request.Header.Set(authz.TrustedSurfaceHeader, e.trustedSurfaceKey)
 		request.Header.Set(authz.TrustedSurfaceTokenHeader, e.trustedSurfaceToken)
 	}

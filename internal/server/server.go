@@ -18,6 +18,7 @@ import (
 	"github.com/ixxet/apollo/internal/athena"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/authz"
+	"github.com/ixxet/apollo/internal/booking"
 	"github.com/ixxet/apollo/internal/coaching"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/eligibility"
@@ -127,6 +128,17 @@ type ScheduleManager interface {
 	CancelBlock(ctx context.Context, actor schedule.StaffActor, blockID uuid.UUID, expectedVersion int) (schedule.Block, error)
 }
 
+type BookingManager interface {
+	ListRequests(ctx context.Context, facilityKey string) ([]booking.Request, error)
+	GetRequest(ctx context.Context, requestID uuid.UUID) (booking.Request, error)
+	CreateRequest(ctx context.Context, actor booking.StaffActor, input booking.RequestInput) (booking.Request, error)
+	StartReview(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
+	NeedsChanges(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
+	Reject(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
+	Cancel(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
+	Approve(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
+}
+
 type OpsOverviewReader interface {
 	GetFacilityOverview(ctx context.Context, input ops.FacilityOverviewInput) (ops.FacilityOverview, error)
 }
@@ -177,6 +189,7 @@ type Dependencies struct {
 	MatchPreview       MatchPreviewReader
 	Recommendations    RecommendationReader
 	Schedule           ScheduleManager
+	Booking            BookingManager
 	Ops                OpsOverviewReader
 	Coaching           CoachingManager
 	Nutrition          NutritionManager
@@ -1021,6 +1034,85 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			writeJSON(w, http.StatusOK, occurrences)
 		}))
+		authenticated.Get("/api/v1/booking/requests", withBookingAccess(authz.CapabilityBookingRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ booking.StaffActor) {
+			if deps.Booking == nil {
+				writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+				return
+			}
+
+			requests, err := deps.Booking.ListRequests(r.Context(), strings.TrimSpace(r.URL.Query().Get("facility_key")))
+			if err != nil {
+				writeBookingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, requests)
+		}))
+		authenticated.Post("/api/v1/booking/requests", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
+			if deps.Booking == nil {
+				writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+				return
+			}
+
+			var request booking.RequestInput
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			created, err := deps.Booking.CreateRequest(r.Context(), actor, request)
+			if err != nil {
+				writeBookingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, created)
+		}))
+		authenticated.Get("/api/v1/booking/requests/{requestID}", withBookingAccess(authz.CapabilityBookingRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ booking.StaffActor) {
+			if deps.Booking == nil {
+				writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+				return
+			}
+
+			requestID, err := parseUUIDParam(r, "requestID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			request, err := deps.Booking.GetRequest(r.Context(), requestID)
+			if err != nil {
+				writeBookingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, request)
+		}))
+		authenticated.Post("/api/v1/booking/requests/{requestID}/review", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
+			handleBookingTransition(w, r, deps.Booking, actor, func(ctx context.Context, manager BookingManager, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error) {
+				return manager.StartReview(ctx, actor, requestID, input)
+			})
+		}))
+		authenticated.Post("/api/v1/booking/requests/{requestID}/needs-changes", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
+			handleBookingTransition(w, r, deps.Booking, actor, func(ctx context.Context, manager BookingManager, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error) {
+				return manager.NeedsChanges(ctx, actor, requestID, input)
+			})
+		}))
+		authenticated.Post("/api/v1/booking/requests/{requestID}/reject", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
+			handleBookingTransition(w, r, deps.Booking, actor, func(ctx context.Context, manager BookingManager, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error) {
+				return manager.Reject(ctx, actor, requestID, input)
+			})
+		}))
+		authenticated.Post("/api/v1/booking/requests/{requestID}/cancel", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
+			handleBookingTransition(w, r, deps.Booking, actor, func(ctx context.Context, manager BookingManager, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error) {
+				return manager.Cancel(ctx, actor, requestID, input)
+			})
+		}))
+		authenticated.Post("/api/v1/booking/requests/{requestID}/approve", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
+			handleBookingTransition(w, r, deps.Booking, actor, func(ctx context.Context, manager BookingManager, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error) {
+				return manager.Approve(ctx, actor, requestID, input)
+			})
+		}))
 		authenticated.Get("/api/v1/ops/facilities/{facilityKey}/overview", withOpsAccess(authz.CapabilityOpsRead, func(w http.ResponseWriter, r *http.Request) {
 			if deps.Ops == nil {
 				writeError(w, http.StatusServiceUnavailable, errors.New("ops overview dependency is unavailable"))
@@ -1788,6 +1880,27 @@ func withScheduleAccess(required authz.Capability, requireTrustedSurface bool, v
 	}
 }
 
+func withBookingAccess(required authz.Capability, requireTrustedSurface bool, verifier *authz.TrustedSurfaceVerifier, next func(http.ResponseWriter, *http.Request, booking.StaffActor)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		principal := principalFromContext(r.Context())
+		if !authz.HasCapability(principal.Capabilities, required) {
+			writeError(w, http.StatusForbidden, authz.ErrCapabilityDenied)
+			return
+		}
+
+		if requireTrustedSurface {
+			surface, err := verifier.VerifyRequest(r)
+			if err != nil {
+				writeError(w, http.StatusForbidden, err)
+				return
+			}
+			principal = principal.WithTrustedSurface(surface)
+		}
+
+		next(w, r, bookingActorFromPrincipal(principal, required))
+	}
+}
+
 func withOpsAccess(required authz.Capability, next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		principal := principalFromContext(r.Context())
@@ -1817,6 +1930,21 @@ func competitionActorFromPrincipal(principal auth.Principal, capability authz.Ca
 
 func scheduleActorFromPrincipal(principal auth.Principal, capability authz.Capability) schedule.StaffActor {
 	actor := schedule.StaffActor{
+		UserID:     principal.UserID,
+		Role:       principal.Role,
+		SessionID:  principal.SessionID,
+		Capability: capability,
+	}
+	if principal.TrustedSurface != nil {
+		actor.TrustedSurfaceKey = principal.TrustedSurface.Key
+		actor.TrustedSurfaceLabel = principal.TrustedSurface.Label
+	}
+
+	return actor
+}
+
+func bookingActorFromPrincipal(principal auth.Principal, capability authz.Capability) booking.StaffActor {
+	actor := booking.StaffActor{
 		UserID:     principal.UserID,
 		Role:       principal.Role,
 		SessionID:  principal.SessionID,
@@ -1917,6 +2045,39 @@ func parseUUIDParam(r *http.Request, name string) (uuid.UUID, error) {
 	}
 
 	return id, nil
+}
+
+type bookingTransitionFunc func(context.Context, BookingManager, uuid.UUID, booking.TransitionInput) (booking.Request, error)
+
+func handleBookingTransition(w http.ResponseWriter, r *http.Request, manager BookingManager, _ booking.StaffActor, transition bookingTransitionFunc) {
+	if manager == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+		return
+	}
+
+	requestID, err := parseUUIDParam(r, "requestID")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	var input booking.TransitionInput
+	if err := decodeJSONBody(w, r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if input.ExpectedVersion <= 0 {
+		writeError(w, http.StatusBadRequest, booking.ErrExpectedVersionRequired)
+		return
+	}
+
+	request, err := transition(r.Context(), manager, requestID, input)
+	if err != nil {
+		writeBookingError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, request)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -2032,6 +2193,48 @@ func writeScheduleError(w http.ResponseWriter, err error) {
 		errors.Is(err, authz.ErrTrustedSurfaceKey),
 		errors.Is(err, authz.ErrTrustedSurfaceInvalid):
 		writeError(w, http.StatusForbidden, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
+}
+
+func writeBookingError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, booking.ErrRequestNotFound), errors.Is(err, schedule.ErrResourceNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, booking.ErrRequestVersionStale),
+		errors.Is(err, booking.ErrRequestTransitionInvalid),
+		errors.Is(err, schedule.ErrBlockConflictRejected),
+		errors.Is(err, schedule.ErrBlockResourceNotClaimable),
+		errors.Is(err, schedule.ErrBlockClaimableScopeEmpty):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, authz.ErrCapabilityDenied),
+		errors.Is(err, authz.ErrTrustedSurfaceMissing),
+		errors.Is(err, authz.ErrTrustedSurfaceKey),
+		errors.Is(err, authz.ErrTrustedSurfaceInvalid):
+		writeError(w, http.StatusForbidden, err)
+	case errors.Is(err, booking.ErrFacilityRequired),
+		errors.Is(err, booking.ErrWindowInvalid),
+		errors.Is(err, booking.ErrContactNameRequired),
+		errors.Is(err, booking.ErrContactChannelRequired),
+		errors.Is(err, booking.ErrContactEmailInvalid),
+		errors.Is(err, booking.ErrAttendeeCountInvalid),
+		errors.Is(err, booking.ErrExpectedVersionRequired),
+		errors.Is(err, booking.ErrRequestActorRequired),
+		errors.Is(err, booking.ErrRequestTrustedSurface),
+		errors.Is(err, schedule.ErrResourceFacilityRequired),
+		errors.Is(err, schedule.ErrResourceFacilityInvalid),
+		errors.Is(err, schedule.ErrResourceZoneInvalid),
+		errors.Is(err, schedule.ErrBlockScopeInvalid),
+		errors.Is(err, schedule.ErrBlockShapeInvalid),
+		errors.Is(err, schedule.ErrBlockKindInvalid),
+		errors.Is(err, schedule.ErrBlockEffectInvalid),
+		errors.Is(err, schedule.ErrBlockVisibilityInvalid),
+		errors.Is(err, schedule.ErrBlockDateWindowInvalid),
+		errors.Is(err, schedule.ErrBlockDateWindowTooLarge):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, booking.ErrScheduleServiceUnavailable):
+		writeError(w, http.StatusServiceUnavailable, err)
 	default:
 		writeError(w, http.StatusInternalServerError, err)
 	}

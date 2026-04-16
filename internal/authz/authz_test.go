@@ -57,6 +57,29 @@ func TestOpsCapabilitiesForRoleRemainDeterministicAndMemberDenied(t *testing.T) 
 	}
 }
 
+func TestBookingCapabilitiesForRoleRemainDeterministicAndMemberDenied(t *testing.T) {
+	expectedByRole := map[Role][]Capability{
+		RoleSupervisor: {CapabilityBookingRead},
+		RoleManager:    {CapabilityBookingManage, CapabilityBookingRead},
+		RoleOwner:      {CapabilityBookingManage, CapabilityBookingRead},
+	}
+	for role, expected := range expectedByRole {
+		capabilities := BookingCapabilitiesForRole(role)
+		if len(capabilities) != len(expected) {
+			t.Fatalf("%s len(capabilities) = %d, want %d", role, len(capabilities), len(expected))
+		}
+		for index, capability := range expected {
+			if capabilities[index] != capability {
+				t.Fatalf("%s capabilities[%d] = %q, want %q", role, index, capabilities[index], capability)
+			}
+		}
+	}
+
+	if capabilities := BookingCapabilitiesForRole(RoleMember); len(capabilities) != 0 {
+		t.Fatalf("member booking capabilities = %v, want none", capabilities)
+	}
+}
+
 func TestTrustedSurfaceVerifierRejectsMissingAndInvalidTokens(t *testing.T) {
 	verifier := NewTrustedSurfaceVerifier("staff-console=staff-secret")
 

@@ -228,6 +228,8 @@ func TestAuthenticateSessionReturnsDeterministicRoleAndCapabilities(t *testing.T
 		t.Fatalf("principal.Role = %q, want %q", principal.Role, authz.RoleManager)
 	}
 	expected := []authz.Capability{
+		authz.CapabilityBookingManage,
+		authz.CapabilityBookingRead,
 		authz.CapabilityCompetitionLiveManage,
 		authz.CapabilityCompetitionRead,
 		authz.CapabilityCompetitionStructureManage,

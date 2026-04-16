@@ -24,6 +24,7 @@ import (
 	"github.com/ixxet/apollo/internal/athena"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/authz"
+	"github.com/ixxet/apollo/internal/booking"
 	"github.com/ixxet/apollo/internal/coaching"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/config"
@@ -261,6 +262,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 	workoutService := workouts.NewService(workouts.NewRepository(pool))
 	competitionService := competition.NewService(competition.NewRepository(pool))
 	scheduleService := schedule.NewService(schedule.NewRepository(pool))
+	bookingService := booking.NewService(booking.NewRepository(pool), scheduleService)
 	presenceService := presence.NewService(presence.NewRepository(pool), visitService, presence.WithFacilityCalendar(scheduleService))
 
 	var opsReader server.OpsOverviewReader
@@ -288,6 +290,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 		MatchPreview:       matchPreviewService,
 		Recommendations:    recommendationService,
 		Schedule:           scheduleService,
+		Booking:            bookingService,
 		Ops:                opsReader,
 		Coaching:           coachingService,
 		Nutrition:          nutritionService,
