@@ -39,6 +39,8 @@ func TestBookingRequestAuthzEnforcesStaffMatrixAndTrustedSurface(t *testing.T) {
 	}
 	if response := env.doRequest(t, http.MethodGet, "/api/v1/booking/requests", nil, supervisorCookie); response.Code != http.StatusOK {
 		t.Fatalf("supervisor read code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
+	} else if response.Header().Get("X-Apollo-Booking-Can-Manage") != "false" {
+		t.Fatalf("supervisor manage hint = %q, want false", response.Header().Get("X-Apollo-Booking-Can-Manage"))
 	}
 	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests", body, supervisorCookie); response.Code != http.StatusForbidden {
 		t.Fatalf("supervisor create code = %d, want %d", response.Code, http.StatusForbidden)
@@ -55,6 +57,8 @@ func TestBookingRequestAuthzEnforcesStaffMatrixAndTrustedSurface(t *testing.T) {
 	}
 	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests", body, managerCookie); response.Code != http.StatusCreated {
 		t.Fatalf("manager create code = %d, want %d body=%s", response.Code, http.StatusCreated, response.Body.String())
+	} else if response.Header().Get("X-Apollo-Booking-Can-Manage") != "true" {
+		t.Fatalf("manager manage hint = %q, want true", response.Header().Get("X-Apollo-Booking-Can-Manage"))
 	}
 	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests", bookingRequestJSON(resourceKey, "2026-04-18T16:00:00Z", "2026-04-18T17:00:00Z"), ownerCookie); response.Code != http.StatusCreated {
 		t.Fatalf("owner create code = %d, want %d body=%s", response.Code, http.StatusCreated, response.Body.String())

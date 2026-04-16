@@ -1887,6 +1887,7 @@ func withBookingAccess(required authz.Capability, requireTrustedSurface bool, ve
 			writeError(w, http.StatusForbidden, authz.ErrCapabilityDenied)
 			return
 		}
+		w.Header().Set("X-Apollo-Booking-Can-Manage", strconv.FormatBool(authz.HasCapability(principal.Capabilities, authz.CapabilityBookingManage)))
 
 		if requireTrustedSurface {
 			surface, err := verifier.VerifyRequest(r)
