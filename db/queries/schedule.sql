@@ -191,6 +191,52 @@ FROM apollo.schedule_blocks
 WHERE id = $1
 LIMIT 1;
 
+-- name: GetScheduleBlockByIDForUpdate :one
+SELECT id,
+       facility_key,
+       zone_key,
+       resource_key,
+       scope,
+       schedule_type,
+       kind,
+       effect,
+       visibility,
+       status,
+       version,
+       weekday,
+       start_time,
+       end_time,
+       timezone,
+       recurrence_start_date,
+       recurrence_end_date,
+       start_at,
+       end_at,
+       created_by_user_id,
+       created_by_session_id,
+       created_by_role,
+       created_by_capability,
+       created_trusted_surface_key,
+       created_trusted_surface_label,
+       updated_by_user_id,
+       updated_by_session_id,
+       updated_by_role,
+       updated_by_capability,
+       updated_trusted_surface_key,
+       updated_trusted_surface_label,
+       created_at,
+       updated_at,
+       cancelled_at,
+       cancelled_by_user_id,
+       cancelled_by_session_id,
+       cancelled_by_role,
+       cancelled_by_capability,
+       cancelled_trusted_surface_key,
+       cancelled_trusted_surface_label
+FROM apollo.schedule_blocks
+WHERE id = $1
+LIMIT 1
+FOR UPDATE;
+
 -- name: CreateScheduleBlock :one
 INSERT INTO apollo.schedule_blocks (
     facility_key,

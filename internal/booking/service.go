@@ -29,6 +29,7 @@ var (
 	ErrRequestActorRequired       = errors.New("booking actor attribution is required")
 	ErrRequestTrustedSurface      = errors.New("booking actor trusted surface is required")
 	ErrScheduleServiceUnavailable = errors.New("schedule service is unavailable for booking requests")
+	ErrLinkedScheduleBlockDrift   = errors.New("linked schedule block drifted from booking request")
 )
 
 type Service struct {
@@ -147,10 +148,57 @@ func (s *Service) Reject(ctx context.Context, actor StaffActor, requestID uuid.U
 }
 
 func (s *Service) Cancel(ctx context.Context, actor StaffActor, requestID uuid.UUID, input TransitionInput) (Request, error) {
-	return s.transition(ctx, actor, requestID, input, StatusCancelled, map[string]struct{}{
-		StatusRequested:    {},
-		StatusUnderReview:  {},
-		StatusNeedsChanges: {},
+	if err := validateStaffActor(actor); err != nil {
+		return Request{}, err
+	}
+	if input.ExpectedVersion <= 0 {
+		return Request{}, ErrExpectedVersionRequired
+	}
+
+	return withBookingQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (Request, error) {
+		current, err := s.requireCurrentForTransition(ctx, queries, requestID, input.ExpectedVersion)
+		if err != nil {
+			return Request{}, err
+		}
+
+		switch current.Status {
+		case StatusRequested, StatusUnderReview, StatusNeedsChanges:
+			row, err := s.updateStatus(ctx, queries, actor, current, StatusCancelled, nil, input.InternalNotes)
+			if err != nil {
+				return Request{}, err
+			}
+			return s.requestFromStore(ctx, queries, row)
+		case StatusApproved:
+			if s.schedule == nil {
+				return Request{}, ErrScheduleServiceUnavailable
+			}
+			blockID := uuidPtrFromPgUUID(current.ScheduleBlockID)
+			if blockID == nil {
+				return Request{}, ErrLinkedScheduleBlockDrift
+			}
+
+			cancelledBlock, err := s.schedule.CancelLinkedReservationWithQueries(
+				ctx,
+				queries,
+				scheduleActorFromBookingActor(actor),
+				*blockID,
+				reservationExpectationForStore(current),
+			)
+			if isLinkedScheduleDrift(err) {
+				return Request{}, ErrLinkedScheduleBlockDrift
+			}
+			if err != nil {
+				return Request{}, err
+			}
+
+			row, err := s.updateStatus(ctx, queries, actor, current, StatusCancelled, &cancelledBlock.ID, input.InternalNotes)
+			if err != nil {
+				return Request{}, err
+			}
+			return s.requestFromStore(ctx, queries, row)
+		default:
+			return Request{}, ErrRequestTransitionInvalid
+		}
 	})
 }
 
@@ -372,6 +420,35 @@ func scheduleBlockInputForStore(row store.ApolloBookingRequest) schedule.BlockIn
 			EndsAt:   row.RequestedEndAt.Time.UTC(),
 		},
 	}
+}
+
+func reservationExpectationForStore(row store.ApolloBookingRequest) schedule.ReservationCancellationExpectation {
+	return schedule.ReservationCancellationExpectation{
+		FacilityKey: row.FacilityKey,
+		ZoneKey:     row.ZoneKey,
+		ResourceKey: row.ResourceKey,
+		Scope:       row.Scope,
+		StartsAt:    row.RequestedStartAt.Time.UTC(),
+		EndsAt:      row.RequestedEndAt.Time.UTC(),
+	}
+}
+
+func scheduleActorFromBookingActor(actor StaffActor) schedule.StaffActor {
+	return schedule.StaffActor{
+		UserID:              actor.UserID,
+		Role:                actor.Role,
+		SessionID:           actor.SessionID,
+		Capability:          actor.Capability,
+		TrustedSurfaceKey:   actor.TrustedSurfaceKey,
+		TrustedSurfaceLabel: actor.TrustedSurfaceLabel,
+	}
+}
+
+func isLinkedScheduleDrift(err error) bool {
+	return errors.Is(err, schedule.ErrBlockNotFound) ||
+		errors.Is(err, schedule.ErrBlockCancelled) ||
+		errors.Is(err, schedule.ErrBlockReservationMismatch) ||
+		errors.Is(err, schedule.ErrBlockVersionStale)
 }
 
 func requestFromStore(row store.ApolloBookingRequest, availability AvailabilityDecision) Request {

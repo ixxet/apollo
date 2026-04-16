@@ -40,6 +40,7 @@ var (
 	ErrBlockClaimableScopeEmpty    = errors.New("schedule block requires at least one active and bookable resource in scope")
 	ErrBlockOperatingHoursOverlap  = errors.New("operating hours overlap on the same scope")
 	ErrBlockCancelled              = errors.New("schedule block is cancelled")
+	ErrBlockReservationMismatch    = errors.New("schedule reservation does not match expected booking request")
 	ErrExceptionDateRequired       = errors.New("exception_date is required")
 	ErrExceptionNotAllowed         = errors.New("date exception is only supported for weekly recurring blocks")
 	ErrExceptionWindowInvalid      = errors.New("exception_date must fall within the block recurrence window")
@@ -460,42 +461,73 @@ func (s *Service) CancelBlock(ctx context.Context, actor StaffActor, blockID uui
 	}
 
 	return withScheduleQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (Block, error) {
-		current, err := s.requireBlock(ctx, queries, blockID)
-		if err != nil {
-			return Block{}, err
-		}
-		if current.Version != int32(expectedVersion) {
+		return s.CancelBlockWithQueries(ctx, queries, actor, blockID, expectedVersion)
+	})
+}
+
+func (s *Service) CancelBlockWithQueries(ctx context.Context, queries *store.Queries, actor StaffActor, blockID uuid.UUID, expectedVersion int) (Block, error) {
+	if err := validateStaffActor(actor); err != nil {
+		return Block{}, err
+	}
+
+	current, err := s.requireBlockForUpdate(ctx, queries, blockID)
+	if err != nil {
+		return Block{}, err
+	}
+	if current.Version != int32(expectedVersion) {
+		return Block{}, ErrBlockVersionStale
+	}
+	if current.Status == StatusCancelled {
+		return Block{}, ErrBlockCancelled
+	}
+
+	return s.cancelLockedBlock(ctx, queries, actor, current)
+}
+
+func (s *Service) CancelLinkedReservationWithQueries(ctx context.Context, queries *store.Queries, actor StaffActor, blockID uuid.UUID, expected ReservationCancellationExpectation) (Block, error) {
+	if err := validateStaffActor(actor); err != nil {
+		return Block{}, err
+	}
+
+	current, err := s.requireBlockForUpdate(ctx, queries, blockID)
+	if err != nil {
+		return Block{}, err
+	}
+	if current.Status == StatusCancelled {
+		return Block{}, ErrBlockCancelled
+	}
+	if !scheduleBlockMatchesReservationExpectation(current, expected) {
+		return Block{}, ErrBlockReservationMismatch
+	}
+
+	return s.cancelLockedBlock(ctx, queries, actor, current)
+}
+
+func (s *Service) cancelLockedBlock(ctx context.Context, queries *store.Queries, actor StaffActor, current store.ApolloScheduleBlock) (Block, error) {
+	row, err := queries.CancelScheduleBlock(ctx, store.CancelScheduleBlockParams{
+		ID:                         current.ID,
+		Version:                    current.Version,
+		UpdatedByUserID:            actor.UserID,
+		UpdatedBySessionID:         actor.SessionID,
+		UpdatedByRole:              string(actor.Role),
+		UpdatedByCapability:        string(actor.Capability),
+		UpdatedTrustedSurfaceKey:   actor.TrustedSurfaceKey,
+		UpdatedTrustedSurfaceLabel: nullableStringPtr(actor.TrustedSurfaceLabel),
+		CancelledAt:                pgTimestamptzFromTime(s.now().UTC()),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return Block{}, ErrBlockVersionStale
 		}
-		if current.Status == StatusCancelled {
-			return Block{}, ErrBlockCancelled
-		}
+		return Block{}, err
+	}
 
-		row, err := queries.CancelScheduleBlock(ctx, store.CancelScheduleBlockParams{
-			ID:                         blockID,
-			Version:                    current.Version,
-			UpdatedByUserID:            actor.UserID,
-			UpdatedBySessionID:         actor.SessionID,
-			UpdatedByRole:              string(actor.Role),
-			UpdatedByCapability:        string(actor.Capability),
-			UpdatedTrustedSurfaceKey:   actor.TrustedSurfaceKey,
-			UpdatedTrustedSurfaceLabel: nullableStringPtr(actor.TrustedSurfaceLabel),
-			CancelledAt:                pgTimestamptzFromTime(s.now().UTC()),
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return Block{}, ErrBlockVersionStale
-			}
-			return Block{}, err
-		}
-
-		snapshot, err := s.loadFacilitySnapshot(ctx, queries, row.FacilityKey)
-		if err != nil {
-			return Block{}, err
-		}
-		block := blockFromStore(row)
-		return s.decorateBlock(block, snapshot.blocks, snapshot, s.windowForBlock(block))
-	})
+	snapshot, err := s.loadFacilitySnapshot(ctx, queries, row.FacilityKey)
+	if err != nil {
+		return Block{}, err
+	}
+	block := blockFromStore(row)
+	return s.decorateBlock(block, snapshot.blocks, snapshot, s.windowForBlock(block))
 }
 
 func (s *Service) validateFacilityAndZone(ctx context.Context, queries *store.Queries, facilityKey string, zoneKey *string) error {
@@ -547,6 +579,17 @@ func (s *Service) requireResource(ctx context.Context, queries *store.Queries, r
 
 func (s *Service) requireBlock(ctx context.Context, queries *store.Queries, blockID uuid.UUID) (store.ApolloScheduleBlock, error) {
 	row, err := queries.GetScheduleBlockByID(ctx, blockID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ApolloScheduleBlock{}, ErrBlockNotFound
+	}
+	if err != nil {
+		return store.ApolloScheduleBlock{}, err
+	}
+	return row, nil
+}
+
+func (s *Service) requireBlockForUpdate(ctx context.Context, queries *store.Queries, blockID uuid.UUID) (store.ApolloScheduleBlock, error) {
+	row, err := queries.GetScheduleBlockByIDForUpdate(ctx, blockID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.ApolloScheduleBlock{}, ErrBlockNotFound
 	}
@@ -846,6 +889,28 @@ func validateStaffActor(actor StaffActor) error {
 	return nil
 }
 
+func scheduleBlockMatchesReservationExpectation(row store.ApolloScheduleBlock, expected ReservationCancellationExpectation) bool {
+	return row.FacilityKey == strings.TrimSpace(expected.FacilityKey) &&
+		row.Scope == strings.TrimSpace(expected.Scope) &&
+		row.ScheduleType == ScheduleTypeOneOff &&
+		row.Kind == KindReservation &&
+		row.Effect == EffectHardReserve &&
+		row.Visibility == VisibilityInternal &&
+		optionalStringsEqual(row.ZoneKey, expected.ZoneKey) &&
+		optionalStringsEqual(row.ResourceKey, expected.ResourceKey) &&
+		row.StartAt.Valid &&
+		row.EndAt.Valid &&
+		row.StartAt.Time.UTC().Equal(expected.StartsAt.UTC()) &&
+		row.EndAt.Time.UTC().Equal(expected.EndsAt.UTC())
+}
+
+func optionalStringsEqual(left *string, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
 func nullableStringPtr(value string) *string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -985,7 +1050,14 @@ func (snapshot *facilitySnapshot) exclusiveConflict(left, right string) bool {
 }
 
 func (s *Service) decorateBlocks(targetBlocks []Block, allBlocks []Block, snapshot *facilitySnapshot, window CalendarWindow) ([]Block, error) {
-	occurrenceIndex, allOccurrences, err := s.expandOccurrences(allBlocks, snapshot, window)
+	activeBlocks := make([]Block, 0, len(allBlocks))
+	for _, block := range allBlocks {
+		if block.Status != StatusCancelled {
+			activeBlocks = append(activeBlocks, block)
+		}
+	}
+
+	occurrenceIndex, allOccurrences, err := s.expandOccurrences(activeBlocks, snapshot, window)
 	if err != nil {
 		return nil, err
 	}

@@ -126,6 +126,15 @@ type BlockCancellationInput struct {
 	ExpectedVersion int `json:"expected_version"`
 }
 
+type ReservationCancellationExpectation struct {
+	FacilityKey string
+	ZoneKey     *string
+	ResourceKey *string
+	Scope       string
+	StartsAt    time.Time
+	EndsAt      time.Time
+}
+
 type CalendarWindow struct {
 	From  time.Time
 	Until time.Time

@@ -575,6 +575,101 @@ func (q *Queries) GetScheduleBlockByID(ctx context.Context, id uuid.UUID) (Apoll
 	return i, err
 }
 
+const getScheduleBlockByIDForUpdate = `-- name: GetScheduleBlockByIDForUpdate :one
+SELECT id,
+       facility_key,
+       zone_key,
+       resource_key,
+       scope,
+       schedule_type,
+       kind,
+       effect,
+       visibility,
+       status,
+       version,
+       weekday,
+       start_time,
+       end_time,
+       timezone,
+       recurrence_start_date,
+       recurrence_end_date,
+       start_at,
+       end_at,
+       created_by_user_id,
+       created_by_session_id,
+       created_by_role,
+       created_by_capability,
+       created_trusted_surface_key,
+       created_trusted_surface_label,
+       updated_by_user_id,
+       updated_by_session_id,
+       updated_by_role,
+       updated_by_capability,
+       updated_trusted_surface_key,
+       updated_trusted_surface_label,
+       created_at,
+       updated_at,
+       cancelled_at,
+       cancelled_by_user_id,
+       cancelled_by_session_id,
+       cancelled_by_role,
+       cancelled_by_capability,
+       cancelled_trusted_surface_key,
+       cancelled_trusted_surface_label
+FROM apollo.schedule_blocks
+WHERE id = $1
+LIMIT 1
+FOR UPDATE
+`
+
+func (q *Queries) GetScheduleBlockByIDForUpdate(ctx context.Context, id uuid.UUID) (ApolloScheduleBlock, error) {
+	row := q.db.QueryRow(ctx, getScheduleBlockByIDForUpdate, id)
+	var i ApolloScheduleBlock
+	err := row.Scan(
+		&i.ID,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.ResourceKey,
+		&i.Scope,
+		&i.ScheduleType,
+		&i.Kind,
+		&i.Effect,
+		&i.Visibility,
+		&i.Status,
+		&i.Version,
+		&i.Weekday,
+		&i.StartTime,
+		&i.EndTime,
+		&i.Timezone,
+		&i.RecurrenceStartDate,
+		&i.RecurrenceEndDate,
+		&i.StartAt,
+		&i.EndAt,
+		&i.CreatedByUserID,
+		&i.CreatedBySessionID,
+		&i.CreatedByRole,
+		&i.CreatedByCapability,
+		&i.CreatedTrustedSurfaceKey,
+		&i.CreatedTrustedSurfaceLabel,
+		&i.UpdatedByUserID,
+		&i.UpdatedBySessionID,
+		&i.UpdatedByRole,
+		&i.UpdatedByCapability,
+		&i.UpdatedTrustedSurfaceKey,
+		&i.UpdatedTrustedSurfaceLabel,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CancelledAt,
+		&i.CancelledByUserID,
+		&i.CancelledBySessionID,
+		&i.CancelledByRole,
+		&i.CancelledByCapability,
+		&i.CancelledTrustedSurfaceKey,
+		&i.CancelledTrustedSurfaceLabel,
+	)
+	return i, err
+}
+
 const getScheduleResourceByKey = `-- name: GetScheduleResourceByKey :one
 SELECT resource_key,
        facility_key,
