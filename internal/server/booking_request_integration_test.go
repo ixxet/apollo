@@ -114,6 +114,78 @@ func TestBookingRequestApprovalCreatesLinkedReservationAndRejectsConflicts(t *te
 	}
 }
 
+func TestBookingRequestApprovedCancellationCancelsLinkedReservationHTTP(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	managerCookie, manager := createVerifiedSessionViaHTTP(t, env, "student-booking-cancel-001", "booking-cancel-001@example.com")
+	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-booking-cancel-002", "booking-cancel-002@example.com")
+	supervisorCookie, supervisor := createVerifiedSessionViaHTTP(t, env, "student-booking-cancel-003", "booking-cancel-003@example.com")
+	setUserRole(t, env, manager.ID, authz.RoleManager)
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
+	setUserRole(t, env, supervisor.ID, authz.RoleSupervisor)
+
+	managerResource := insertBookingHTTPResource(t, env, "booking-http-manager-cancel-court")
+	managerCreate := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests", bookingRequestJSON(managerResource, "2026-04-21T14:00:00Z", "2026-04-21T15:00:00Z"), managerCookie)
+	if managerCreate.Code != http.StatusCreated {
+		t.Fatalf("managerCreate.Code = %d, want %d body=%s", managerCreate.Code, http.StatusCreated, managerCreate.Body.String())
+	}
+	managerRequest := decodeBookingRequest(t, managerCreate)
+	managerApprove := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+managerRequest.ID.String()+"/approve", `{"expected_version":1}`, managerCookie)
+	if managerApprove.Code != http.StatusOK {
+		t.Fatalf("managerApprove.Code = %d, want %d body=%s", managerApprove.Code, http.StatusOK, managerApprove.Body.String())
+	}
+	managerApproved := decodeBookingRequest(t, managerApprove)
+	if managerApproved.ScheduleBlockID == nil {
+		t.Fatal("managerApproved.ScheduleBlockID = nil, want linked schedule block")
+	}
+
+	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+managerApproved.ID.String()+"/cancel", `{"expected_version":1}`, managerCookie); response.Code != http.StatusConflict {
+		t.Fatalf("stale approved cancel code = %d, want %d body=%s", response.Code, http.StatusConflict, response.Body.String())
+	}
+	assertBookingHTTPReservationScheduled(t, env, *managerApproved.ScheduleBlockID)
+
+	if response := env.doRequestWithoutTrustedSurface(t, http.MethodPost, "/api/v1/booking/requests/"+managerApproved.ID.String()+"/cancel", bytes.NewBufferString(`{"expected_version":2}`), managerCookie); response.Code != http.StatusForbidden {
+		t.Fatalf("missing trusted approved cancel code = %d, want %d body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+	assertBookingHTTPReservationScheduled(t, env, *managerApproved.ScheduleBlockID)
+
+	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+managerApproved.ID.String()+"/cancel", `{"expected_version":2}`, supervisorCookie); response.Code != http.StatusForbidden {
+		t.Fatalf("supervisor approved cancel code = %d, want %d body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+	assertBookingHTTPReservationScheduled(t, env, *managerApproved.ScheduleBlockID)
+
+	managerCancel := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+managerApproved.ID.String()+"/cancel", `{"expected_version":2}`, managerCookie)
+	if managerCancel.Code != http.StatusOK {
+		t.Fatalf("managerCancel.Code = %d, want %d body=%s", managerCancel.Code, http.StatusOK, managerCancel.Body.String())
+	}
+	managerCancelled := decodeBookingRequest(t, managerCancel)
+	if managerCancelled.Status != booking.StatusCancelled || managerCancelled.ScheduleBlockID == nil || *managerCancelled.ScheduleBlockID != *managerApproved.ScheduleBlockID {
+		t.Fatalf("managerCancelled status/block = %s/%v, want cancelled with retained block %v", managerCancelled.Status, managerCancelled.ScheduleBlockID, managerApproved.ScheduleBlockID)
+	}
+	assertBookingHTTPReservationCancelled(t, env, *managerApproved.ScheduleBlockID)
+
+	ownerResource := insertBookingHTTPResource(t, env, "booking-http-owner-cancel-court")
+	ownerCreate := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests", bookingRequestJSON(ownerResource, "2026-04-21T16:00:00Z", "2026-04-21T17:00:00Z"), ownerCookie)
+	if ownerCreate.Code != http.StatusCreated {
+		t.Fatalf("ownerCreate.Code = %d, want %d body=%s", ownerCreate.Code, http.StatusCreated, ownerCreate.Body.String())
+	}
+	ownerRequest := decodeBookingRequest(t, ownerCreate)
+	ownerApprove := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+ownerRequest.ID.String()+"/approve", `{"expected_version":1}`, ownerCookie)
+	if ownerApprove.Code != http.StatusOK {
+		t.Fatalf("ownerApprove.Code = %d, want %d body=%s", ownerApprove.Code, http.StatusOK, ownerApprove.Body.String())
+	}
+	ownerApproved := decodeBookingRequest(t, ownerApprove)
+	ownerCancel := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+ownerApproved.ID.String()+"/cancel", `{"expected_version":2}`, ownerCookie)
+	if ownerCancel.Code != http.StatusOK {
+		t.Fatalf("ownerCancel.Code = %d, want %d body=%s", ownerCancel.Code, http.StatusOK, ownerCancel.Body.String())
+	}
+	ownerCancelled := decodeBookingRequest(t, ownerCancel)
+	if ownerCancelled.Status != booking.StatusCancelled || ownerCancelled.ScheduleBlockID == nil {
+		t.Fatalf("ownerCancelled status/block = %s/%v, want cancelled with retained block", ownerCancelled.Status, ownerCancelled.ScheduleBlockID)
+	}
+}
+
 func TestBookingRequestTransitionBoundariesAndValidation(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
@@ -240,6 +312,42 @@ WHERE id = $1
 	}
 	if storedResourceKey != resourceKey {
 		t.Fatalf("resource_key = %q, want %q", storedResourceKey, resourceKey)
+	}
+}
+
+func assertBookingHTTPReservationScheduled(t *testing.T, env *authProfileServerEnv, blockID uuid.UUID) {
+	t.Helper()
+
+	var status string
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT status
+FROM apollo.schedule_blocks
+WHERE id = $1
+`, blockID).Scan(&status); err != nil {
+		t.Fatalf("QueryRow(schedule block status) error = %v", err)
+	}
+	if status != schedule.StatusScheduled {
+		t.Fatalf("schedule block status = %q, want %q", status, schedule.StatusScheduled)
+	}
+}
+
+func assertBookingHTTPReservationCancelled(t *testing.T, env *authProfileServerEnv, blockID uuid.UUID) {
+	t.Helper()
+
+	var status, capability string
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT status,
+       cancelled_by_capability
+FROM apollo.schedule_blocks
+WHERE id = $1
+`, blockID).Scan(&status, &capability); err != nil {
+		t.Fatalf("QueryRow(cancelled schedule block) error = %v", err)
+	}
+	if status != schedule.StatusCancelled {
+		t.Fatalf("schedule block status = %q, want %q", status, schedule.StatusCancelled)
+	}
+	if capability != string(authz.CapabilityBookingManage) {
+		t.Fatalf("cancelled_by_capability = %q, want %q", capability, authz.CapabilityBookingManage)
 	}
 }
 

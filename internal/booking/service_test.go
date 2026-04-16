@@ -68,6 +68,131 @@ func TestBookingRequestStateMachineApprovalAndScheduleConflictTruth(t *testing.T
 	}
 }
 
+func TestBookingRequestApprovedCancellationCancelsLinkedReservation(t *testing.T) {
+	service, actor, env, cleanup := newBookingServiceFixture(t)
+	defer cleanup()
+
+	resourceKey := insertBookingResource(t, env, "booking-approved-cancel-court")
+	request, err := service.CreateRequest(context.Background(), actor, bookingRequestInput(resourceKey, "2026-04-21T14:00:00Z", "2026-04-21T15:00:00Z"))
+	if err != nil {
+		t.Fatalf("CreateRequest() error = %v", err)
+	}
+	approved, err := service.Approve(context.Background(), actor, request.ID, TransitionInput{ExpectedVersion: request.Version})
+	if err != nil {
+		t.Fatalf("Approve() error = %v", err)
+	}
+	if approved.ScheduleBlockID == nil {
+		t.Fatal("approved.ScheduleBlockID = nil, want linked schedule block")
+	}
+
+	cancelled, err := service.Cancel(context.Background(), actor, approved.ID, TransitionInput{ExpectedVersion: approved.Version})
+	if err != nil {
+		t.Fatalf("Cancel(approved) error = %v", err)
+	}
+	if cancelled.Status != StatusCancelled {
+		t.Fatalf("cancelled.Status = %q, want %q", cancelled.Status, StatusCancelled)
+	}
+	if cancelled.Version != approved.Version+1 {
+		t.Fatalf("cancelled.Version = %d, want %d", cancelled.Version, approved.Version+1)
+	}
+	if cancelled.ScheduleBlockID == nil || *cancelled.ScheduleBlockID != *approved.ScheduleBlockID {
+		t.Fatalf("cancelled.ScheduleBlockID = %v, want retained linked block %v", cancelled.ScheduleBlockID, approved.ScheduleBlockID)
+	}
+	assertLinkedReservationCancelled(t, env, *approved.ScheduleBlockID)
+
+	replacement, err := service.CreateRequest(context.Background(), actor, bookingRequestInput(resourceKey, "2026-04-21T14:00:00Z", "2026-04-21T15:00:00Z"))
+	if err != nil {
+		t.Fatalf("CreateRequest(replacement) error = %v", err)
+	}
+	if replacement.Availability.Status != AvailabilityAvailable || !replacement.Availability.Available {
+		t.Fatalf("replacement.Availability = %#v, want available after schedule cancellation", replacement.Availability)
+	}
+	if _, err := service.Approve(context.Background(), actor, cancelled.ID, TransitionInput{ExpectedVersion: cancelled.Version}); !errors.Is(err, ErrRequestTransitionInvalid) {
+		t.Fatalf("Approve(cancelled approved request) error = %v, want %v", err, ErrRequestTransitionInvalid)
+	}
+}
+
+func TestBookingRequestApprovedCancellationBoundaries(t *testing.T) {
+	service, actor, env, cleanup := newBookingServiceFixture(t)
+	defer cleanup()
+
+	resourceKey := insertBookingResource(t, env, "booking-approved-cancel-boundary-court")
+	request, err := service.CreateRequest(context.Background(), actor, bookingRequestInput(resourceKey, "2026-04-22T14:00:00Z", "2026-04-22T15:00:00Z"))
+	if err != nil {
+		t.Fatalf("CreateRequest() error = %v", err)
+	}
+	approved, err := service.Approve(context.Background(), actor, request.ID, TransitionInput{ExpectedVersion: request.Version})
+	if err != nil {
+		t.Fatalf("Approve() error = %v", err)
+	}
+	if approved.ScheduleBlockID == nil {
+		t.Fatal("approved.ScheduleBlockID = nil, want linked schedule block")
+	}
+
+	if _, err := service.Cancel(context.Background(), actor, approved.ID, TransitionInput{ExpectedVersion: approved.Version - 1}); !errors.Is(err, ErrRequestVersionStale) {
+		t.Fatalf("Cancel(stale approved) error = %v, want %v", err, ErrRequestVersionStale)
+	}
+	assertLinkedReservationScheduled(t, env, *approved.ScheduleBlockID)
+
+	untrustedActor := actor
+	untrustedActor.TrustedSurfaceKey = ""
+	if _, err := service.Cancel(context.Background(), untrustedActor, approved.ID, TransitionInput{ExpectedVersion: approved.Version}); !errors.Is(err, ErrRequestTrustedSurface) {
+		t.Fatalf("Cancel(missing trusted surface) error = %v, want %v", err, ErrRequestTrustedSurface)
+	}
+	assertLinkedReservationScheduled(t, env, *approved.ScheduleBlockID)
+}
+
+func TestBookingRequestApprovedCancellationFailsOnLinkedScheduleDrift(t *testing.T) {
+	t.Run("already cancelled linked block", func(t *testing.T) {
+		service, actor, env, cleanup := newBookingServiceFixture(t)
+		defer cleanup()
+
+		resourceKey := insertBookingResource(t, env, "booking-linked-cancelled-court")
+		request, err := service.CreateRequest(context.Background(), actor, bookingRequestInput(resourceKey, "2026-04-23T14:00:00Z", "2026-04-23T15:00:00Z"))
+		if err != nil {
+			t.Fatalf("CreateRequest() error = %v", err)
+		}
+		approved, err := service.Approve(context.Background(), actor, request.ID, TransitionInput{ExpectedVersion: request.Version})
+		if err != nil {
+			t.Fatalf("Approve() error = %v", err)
+		}
+		if approved.ScheduleBlockID == nil {
+			t.Fatal("approved.ScheduleBlockID = nil, want linked schedule block")
+		}
+		cancelScheduleBlockDirectly(t, env, *approved.ScheduleBlockID)
+
+		if _, err := service.Cancel(context.Background(), actor, approved.ID, TransitionInput{ExpectedVersion: approved.Version}); !errors.Is(err, ErrLinkedScheduleBlockDrift) {
+			t.Fatalf("Cancel(already-cancelled linked block) error = %v, want %v", err, ErrLinkedScheduleBlockDrift)
+		}
+		assertBookingRequestStatus(t, env, approved.ID, StatusApproved)
+	})
+
+	t.Run("mutated linked block", func(t *testing.T) {
+		service, actor, env, cleanup := newBookingServiceFixture(t)
+		defer cleanup()
+
+		resourceKey := insertBookingResource(t, env, "booking-linked-mutated-court")
+		request, err := service.CreateRequest(context.Background(), actor, bookingRequestInput(resourceKey, "2026-04-24T14:00:00Z", "2026-04-24T15:00:00Z"))
+		if err != nil {
+			t.Fatalf("CreateRequest() error = %v", err)
+		}
+		approved, err := service.Approve(context.Background(), actor, request.ID, TransitionInput{ExpectedVersion: request.Version})
+		if err != nil {
+			t.Fatalf("Approve() error = %v", err)
+		}
+		if approved.ScheduleBlockID == nil {
+			t.Fatal("approved.ScheduleBlockID = nil, want linked schedule block")
+		}
+		mutateScheduleBlockWindowDirectly(t, env, *approved.ScheduleBlockID)
+
+		if _, err := service.Cancel(context.Background(), actor, approved.ID, TransitionInput{ExpectedVersion: approved.Version}); !errors.Is(err, ErrLinkedScheduleBlockDrift) {
+			t.Fatalf("Cancel(mutated linked block) error = %v, want %v", err, ErrLinkedScheduleBlockDrift)
+		}
+		assertBookingRequestStatus(t, env, approved.ID, StatusApproved)
+		assertLinkedReservationScheduled(t, env, *approved.ScheduleBlockID)
+	})
+}
+
 func TestBookingRequestTransitionsRequireFreshVersions(t *testing.T) {
 	service, actor, env, cleanup := newBookingServiceFixture(t)
 	defer cleanup()
@@ -221,6 +346,92 @@ WHERE id = $1
 	}
 	if storedResourceKey != resourceKey {
 		t.Fatalf("resource_key = %q, want %q", storedResourceKey, resourceKey)
+	}
+}
+
+func assertLinkedReservationCancelled(t *testing.T, env *testutil.PostgresEnv, blockID uuid.UUID) {
+	t.Helper()
+
+	var status, capability string
+	var version int
+	if err := env.DB.QueryRow(context.Background(), `
+SELECT status,
+       version,
+       cancelled_by_capability
+FROM apollo.schedule_blocks
+WHERE id = $1
+`, blockID).Scan(&status, &version, &capability); err != nil {
+		t.Fatalf("QueryRow(cancelled schedule block) error = %v", err)
+	}
+	if status != schedule.StatusCancelled {
+		t.Fatalf("schedule block status = %q, want %q", status, schedule.StatusCancelled)
+	}
+	if version != 2 {
+		t.Fatalf("schedule block version = %d, want 2", version)
+	}
+	if capability != string(authz.CapabilityBookingManage) {
+		t.Fatalf("cancelled_by_capability = %q, want %q", capability, authz.CapabilityBookingManage)
+	}
+}
+
+func assertLinkedReservationScheduled(t *testing.T, env *testutil.PostgresEnv, blockID uuid.UUID) {
+	t.Helper()
+
+	var status string
+	if err := env.DB.QueryRow(context.Background(), `
+SELECT status
+FROM apollo.schedule_blocks
+WHERE id = $1
+`, blockID).Scan(&status); err != nil {
+		t.Fatalf("QueryRow(schedule block status) error = %v", err)
+	}
+	if status != schedule.StatusScheduled {
+		t.Fatalf("schedule block status = %q, want %q", status, schedule.StatusScheduled)
+	}
+}
+
+func assertBookingRequestStatus(t *testing.T, env *testutil.PostgresEnv, requestID uuid.UUID, want string) {
+	t.Helper()
+
+	var status string
+	if err := env.DB.QueryRow(context.Background(), `
+SELECT status
+FROM apollo.booking_requests
+WHERE id = $1
+`, requestID).Scan(&status); err != nil {
+		t.Fatalf("QueryRow(booking request status) error = %v", err)
+	}
+	if status != want {
+		t.Fatalf("booking request status = %q, want %q", status, want)
+	}
+}
+
+func cancelScheduleBlockDirectly(t *testing.T, env *testutil.PostgresEnv, blockID uuid.UUID) {
+	t.Helper()
+
+	if _, err := env.DB.Exec(context.Background(), `
+UPDATE apollo.schedule_blocks
+SET status = 'cancelled',
+    version = version + 1,
+    cancelled_at = NOW(),
+    updated_at = NOW()
+WHERE id = $1
+`, blockID); err != nil {
+		t.Fatalf("cancel schedule block directly error = %v", err)
+	}
+}
+
+func mutateScheduleBlockWindowDirectly(t *testing.T, env *testutil.PostgresEnv, blockID uuid.UUID) {
+	t.Helper()
+
+	if _, err := env.DB.Exec(context.Background(), `
+UPDATE apollo.schedule_blocks
+SET start_at = start_at + INTERVAL '5 minutes',
+    version = version + 1,
+    updated_at = NOW()
+WHERE id = $1
+`, blockID); err != nil {
+		t.Fatalf("mutate schedule block window directly error = %v", err)
 	}
 }
 
