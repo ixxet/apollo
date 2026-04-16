@@ -233,4 +233,48 @@ WHERE table_schema = 'apollo'
 	if scheduleBlocksTableCount != 1 {
 		t.Fatalf("schedule_blocks table count = %d, want 1", scheduleBlocksTableCount)
 	}
+
+	var publicOptionColumnCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.columns
+WHERE table_schema = 'apollo'
+  AND table_name = 'schedule_resources'
+  AND column_name = 'public_option_id'
+`).Scan(&publicOptionColumnCount); err != nil {
+		t.Fatalf("count schedule_resources public_option_id column error = %v", err)
+	}
+
+	if publicOptionColumnCount != 1 {
+		t.Fatalf("public_option_id column count = %d, want 1", publicOptionColumnCount)
+	}
+
+	var requestSourceColumnCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.columns
+WHERE table_schema = 'apollo'
+  AND table_name = 'booking_requests'
+  AND column_name = 'request_source'
+`).Scan(&requestSourceColumnCount); err != nil {
+		t.Fatalf("count booking_requests request_source column error = %v", err)
+	}
+
+	if requestSourceColumnCount != 1 {
+		t.Fatalf("request_source column count = %d, want 1", requestSourceColumnCount)
+	}
+
+	var idempotencyTableCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.tables
+WHERE table_schema = 'apollo'
+  AND table_name = 'booking_request_idempotency_keys'
+`).Scan(&idempotencyTableCount); err != nil {
+		t.Fatalf("count booking_request_idempotency_keys table error = %v", err)
+	}
+
+	if idempotencyTableCount != 1 {
+		t.Fatalf("booking_request_idempotency_keys table count = %d, want 1", idempotencyTableCount)
+	}
 }

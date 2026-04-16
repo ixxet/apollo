@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -111,6 +112,239 @@ func TestBookingRequestApprovalCreatesLinkedReservationAndRejectsConflicts(t *te
 	unchanged := decodeBookingRequest(t, afterConflict)
 	if unchanged.Status != booking.StatusRequested || unchanged.ScheduleBlockID != nil {
 		t.Fatalf("conflict mutated request to status=%s schedule_block_id=%v", unchanged.Status, unchanged.ScheduleBlockID)
+	}
+}
+
+func TestPublicBookingOptionsExposeOnlySafePublicLabels(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	publicOptionID := insertPublicBookingHTTPResource(t, env, "booking-public-options-court", "Community Court", true, true)
+	insertPublicBookingHTTPResource(t, env, "booking-public-options-inactive", "Inactive Court", true, false)
+	insertPublicBookingHTTPResource(t, env, "booking-public-options-unbookable", "Unbookable Court", false, true)
+	insertBookingHTTPResource(t, env, "booking-public-options-unlabeled")
+
+	response := env.doRequest(t, http.MethodGet, "/api/v1/public/booking/options", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("public options code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var options []booking.PublicOption
+	if err := json.Unmarshal(response.Body.Bytes(), &options); err != nil {
+		t.Fatalf("json.Unmarshal(public options) error = %v body=%s", err, response.Body.String())
+	}
+	if len(options) != 1 {
+		t.Fatalf("public options len = %d, want 1: %#v", len(options), options)
+	}
+	if options[0].OptionID != publicOptionID || options[0].Label != "Community Court" {
+		t.Fatalf("public option = %#v, want %s/Community Court", options[0], publicOptionID)
+	}
+	assertPublicBookingResponseSafe(t, response)
+	for _, forbidden := range []string{"booking-public-options-court", "booking-public-options-inactive", "booking-public-options-unbookable", "resource_key", "facility_key", "zone_key", "display_name", "schedule_block", "conflict", "created_by", "trusted_surface"} {
+		if strings.Contains(response.Body.String(), forbidden) {
+			t.Fatalf("public options leaked %q in body %s", forbidden, response.Body.String())
+		}
+	}
+}
+
+func TestPublicBookingSubmitCreatesRequestedRequestWithoutReservationAndIsIdempotent(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	optionID := insertPublicBookingHTTPResource(t, env, "booking-public-submit-court", "Court request", true, true)
+	beforeBlocks := countBookingHTTPScheduleBlocks(t, env)
+	start, end := publicBookingWindow(72*time.Hour, time.Hour)
+	body := publicBookingRequestJSON(optionID, start, end, `"contact_email":"public-booking@example.com"`)
+	headers := map[string]string{
+		"Idempotency-Key":                "public-submit-key-001",
+		"X-Apollo-Public-Intake-Channel": booking.IntakeChannelPublicWeb,
+	}
+
+	response := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(body), headers)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("public submit code = %d, want %d body=%s", response.Code, http.StatusAccepted, response.Body.String())
+	}
+	var receipt booking.PublicReceipt
+	if err := json.Unmarshal(response.Body.Bytes(), &receipt); err != nil {
+		t.Fatalf("json.Unmarshal(public receipt) error = %v body=%s", err, response.Body.String())
+	}
+	if receipt.Status != "received" {
+		t.Fatalf("receipt.Status = %q, want received", receipt.Status)
+	}
+	assertPublicBookingResponseSafe(t, response)
+
+	var status, source, channel string
+	var scheduleBlockNull, createdUserNull, createdSessionNull, createdRoleNull, createdCapabilityNull, createdSurfaceNull bool
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT status,
+       request_source,
+       intake_channel,
+       schedule_block_id IS NULL,
+       created_by_user_id IS NULL,
+       created_by_session_id IS NULL,
+       created_by_role IS NULL,
+       created_by_capability IS NULL,
+       created_trusted_surface_key IS NULL
+FROM apollo.booking_requests
+WHERE contact_email = 'public-booking@example.com'
+`).Scan(&status, &source, &channel, &scheduleBlockNull, &createdUserNull, &createdSessionNull, &createdRoleNull, &createdCapabilityNull, &createdSurfaceNull); err != nil {
+		t.Fatalf("QueryRow(public booking request) error = %v", err)
+	}
+	if status != booking.StatusRequested || source != booking.RequestSourcePublic || channel != booking.IntakeChannelPublicWeb {
+		t.Fatalf("public request status/source/channel = %s/%s/%s, want requested/public/public_web", status, source, channel)
+	}
+	if !scheduleBlockNull {
+		t.Fatal("public submit created schedule_block_id, want nil")
+	}
+	if !createdUserNull || !createdSessionNull || !createdRoleNull || !createdCapabilityNull || !createdSurfaceNull {
+		t.Fatalf("public request has staff creation attribution: user=%t session=%t role=%t cap=%t surface=%t", createdUserNull, createdSessionNull, createdRoleNull, createdCapabilityNull, createdSurfaceNull)
+	}
+	if afterBlocks := countBookingHTTPScheduleBlocks(t, env); afterBlocks != beforeBlocks {
+		t.Fatalf("schedule block count = %d, want unchanged %d", afterBlocks, beforeBlocks)
+	}
+
+	duplicate := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(body), headers)
+	if duplicate.Code != http.StatusAccepted {
+		t.Fatalf("duplicate submit code = %d, want %d body=%s", duplicate.Code, http.StatusAccepted, duplicate.Body.String())
+	}
+	if count := countBookingHTTPRequestsByEmail(t, env, "public-booking@example.com"); count != 1 {
+		t.Fatalf("public booking request count = %d, want 1", count)
+	}
+
+	changedStart, changedEnd := publicBookingWindow(74*time.Hour, time.Hour)
+	changedBody := publicBookingRequestJSON(optionID, changedStart, changedEnd, `"contact_email":"public-booking@example.com"`)
+	conflict := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(changedBody), headers)
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("changed idempotency submit code = %d, want %d body=%s", conflict.Code, http.StatusConflict, conflict.Body.String())
+	}
+	if count := countBookingHTTPRequestsByEmail(t, env, "public-booking@example.com"); count != 1 {
+		t.Fatalf("public booking request count after conflict = %d, want 1", count)
+	}
+
+	managerCookie, manager := createVerifiedSessionViaHTTP(t, env, "student-public-staff-001", "public-staff-001@example.com")
+	setUserRole(t, env, manager.ID, authz.RoleManager)
+	listResponse := env.doRequest(t, http.MethodGet, "/api/v1/booking/requests?facility_key=ashtonbee", nil, managerCookie)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("staff list code = %d, want %d body=%s", listResponse.Code, http.StatusOK, listResponse.Body.String())
+	}
+	var staffRequests []booking.Request
+	if err := json.Unmarshal(listResponse.Body.Bytes(), &staffRequests); err != nil {
+		t.Fatalf("json.Unmarshal(staff booking list) error = %v body=%s", err, listResponse.Body.String())
+	}
+	if len(staffRequests) == 0 || staffRequests[0].RequestSource != booking.RequestSourcePublic || staffRequests[0].IntakeChannel != booking.IntakeChannelPublicWeb {
+		t.Fatalf("staff source/channel = %#v, want public/public_web visible", staffRequests)
+	}
+}
+
+func TestPublicBookingSubmitValidationAndPrivateBoundaries(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	optionID := insertPublicBookingHTTPResource(t, env, "booking-public-validation-court", "Validation Court", true, true)
+	inactiveOptionID := insertPublicBookingHTTPResource(t, env, "booking-public-validation-inactive", "Inactive Validation Court", true, false)
+	unbookableOptionID := insertPublicBookingHTTPResource(t, env, "booking-public-validation-unbookable", "Unbookable Validation Court", false, true)
+	unlabeledOptionID := insertPrivateBookingHTTPResourceWithOption(t, env, "booking-public-validation-unlabeled")
+	start, end := publicBookingWindow(96*time.Hour, time.Hour)
+	validBody := publicBookingRequestJSON(optionID, start, end, `"contact_email":"validation@example.com"`)
+
+	if response := env.doRequest(t, http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(validBody)); response.Code != http.StatusBadRequest {
+		t.Fatalf("missing idempotency code = %d, want %d body=%s", response.Code, http.StatusBadRequest, response.Body.String())
+	}
+	unknownField := strings.Replace(validBody, `"attendee_count":8`, `"attendee_count":8,"internal_notes":"do not accept"`, 1)
+	if response := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(unknownField), map[string]string{"Idempotency-Key": "public-validation-unknown"}); response.Code != http.StatusBadRequest {
+		t.Fatalf("unknown public field code = %d, want %d body=%s", response.Code, http.StatusBadRequest, response.Body.String())
+	}
+
+	testCases := []struct {
+		name string
+		body string
+		code int
+	}{
+		{
+			name: "missing option",
+			body: strings.Replace(validBody, `"option_id":"`+optionID.String()+`",`, "", 1),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "date only",
+			body: publicBookingRequestJSON(optionID, "2026-04-20", end, `"contact_email":"date-only@example.com"`),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "reversed window",
+			body: publicBookingRequestJSON(optionID, end, start, `"contact_email":"reversed@example.com"`),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "past window",
+			body: publicBookingRequestJSON(optionID, time.Now().UTC().Add(-48*time.Hour).Format(time.RFC3339), time.Now().UTC().Add(-47*time.Hour).Format(time.RFC3339), `"contact_email":"past@example.com"`),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "far future window",
+			body: publicBookingRequestJSON(optionID, time.Now().UTC().Add(181*24*time.Hour).Format(time.RFC3339), time.Now().UTC().Add(181*24*time.Hour+time.Hour).Format(time.RFC3339), `"contact_email":"far@example.com"`),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "oversized duration",
+			body: publicBookingRequestJSON(optionID, start, time.Now().UTC().Add(96*time.Hour+9*time.Hour).Format(time.RFC3339), `"contact_email":"duration@example.com"`),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "bad email",
+			body: publicBookingRequestJSON(optionID, start, end, `"contact_email":"not an email"`),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "bad phone",
+			body: publicBookingRequestJSON(optionID, start, end, `"contact_phone":"abc"`),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "no contact",
+			body: publicBookingRequestJSON(optionID, start, end, `"organization":"No Contact"`),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "long field",
+			body: publicBookingRequestJSON(optionID, start, end, `"contact_email":"long@example.com","contact_name":"`+strings.Repeat("x", 121)+`"`),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "invalid attendee count",
+			body: strings.Replace(publicBookingRequestJSON(optionID, start, end, `"contact_email":"attendee@example.com"`), `"attendee_count":8`, `"attendee_count":0`, 1),
+			code: http.StatusBadRequest,
+		},
+		{
+			name: "inactive option",
+			body: publicBookingRequestJSON(inactiveOptionID, start, end, `"contact_email":"inactive@example.com"`),
+			code: http.StatusNotFound,
+		},
+		{
+			name: "unbookable option",
+			body: publicBookingRequestJSON(unbookableOptionID, start, end, `"contact_email":"unbookable@example.com"`),
+			code: http.StatusNotFound,
+		},
+		{
+			name: "unlabeled option",
+			body: publicBookingRequestJSON(unlabeledOptionID, start, end, `"contact_email":"unlabeled@example.com"`),
+			code: http.StatusNotFound,
+		},
+		{
+			name: "missing option id",
+			body: publicBookingRequestJSON(uuid.New(), start, end, `"contact_email":"missing-option@example.com"`),
+			code: http.StatusNotFound,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			headers := map[string]string{"Idempotency-Key": "public-validation-" + strings.ReplaceAll(testCase.name, " ", "-")}
+			response := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(testCase.body), headers)
+			if response.Code != testCase.code {
+				t.Fatalf("code = %d, want %d body=%s", response.Code, testCase.code, response.Body.String())
+			}
+			assertPublicBookingResponseSafe(t, response)
+		})
 	}
 }
 
@@ -273,6 +507,27 @@ func decodeBookingRequest(t *testing.T, response *httptest.ResponseRecorder) boo
 	return payload
 }
 
+func publicBookingWindow(offset time.Duration, duration time.Duration) (string, string) {
+	start := time.Now().UTC().Add(offset).Truncate(time.Second)
+	end := start.Add(duration)
+	return start.Format(time.RFC3339), end.Format(time.RFC3339)
+}
+
+func publicBookingRequestJSON(optionID uuid.UUID, startsAt string, endsAt string, contactFields string) string {
+	if strings.TrimSpace(contactFields) != "" {
+		contactFields = contactFields + ","
+	}
+	return `{
+		"option_id":"` + optionID.String() + `",
+		"requested_start_at":"` + startsAt + `",
+		"requested_end_at":"` + endsAt + `",
+		"contact_name":"Public Booker",
+		` + contactFields + `
+		"purpose":"Community court request",
+		"attendee_count":8
+	}`
+}
+
 func bookingRequestJSON(resourceKey string, startsAt string, endsAt string) string {
 	return `{
 		"facility_key":"ashtonbee",
@@ -287,6 +542,38 @@ func bookingRequestJSON(resourceKey string, startsAt string, endsAt string) stri
 		"attendee_count":8,
 		"internal_notes":"entered by staff"
 	}`
+}
+
+func assertPublicBookingResponseSafe(t *testing.T, response *httptest.ResponseRecorder) {
+	t.Helper()
+
+	body := strings.ToLower(response.Body.String())
+	for _, forbidden := range []string{
+		"request_id",
+		"booking_request_id",
+		"schedule_block_id",
+		"conflicts",
+		"internal_notes",
+		"actor",
+		"session_id",
+		"created_by",
+		"updated_by",
+		"trusted_surface",
+		"staff",
+		"resource_key",
+		"facility_key",
+		"zone_key",
+		"display_name",
+		"payment",
+		"quote",
+		"invoice",
+		"deposit",
+		"checkout",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("public booking response leaked forbidden field %q in body %s", forbidden, response.Body.String())
+		}
+	}
 }
 
 func assertBookingHTTPReservationBlock(t *testing.T, env *authProfileServerEnv, blockID uuid.UUID, resourceKey string) {
@@ -351,6 +638,26 @@ WHERE id = $1
 	}
 }
 
+func countBookingHTTPScheduleBlocks(t *testing.T, env *authProfileServerEnv) int {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `SELECT COUNT(*) FROM apollo.schedule_blocks`).Scan(&count); err != nil {
+		t.Fatalf("QueryRow(schedule block count) error = %v", err)
+	}
+	return count
+}
+
+func countBookingHTTPRequestsByEmail(t *testing.T, env *authProfileServerEnv, email string) int {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `SELECT COUNT(*) FROM apollo.booking_requests WHERE contact_email = $1`, email).Scan(&count); err != nil {
+		t.Fatalf("QueryRow(booking request count) error = %v", err)
+	}
+	return count
+}
+
 func assertBookingResponseHasNoForbiddenFields(t *testing.T, response *httptest.ResponseRecorder) {
 	t.Helper()
 
@@ -380,6 +687,49 @@ RETURNING resource_key
 		t.Fatalf("insert booking HTTP resource error = %v", err)
 	}
 	return insertedKey
+}
+
+func insertPublicBookingHTTPResource(t *testing.T, env *authProfileServerEnv, resourceKey string, publicLabel string, bookable bool, active bool) uuid.UUID {
+	t.Helper()
+
+	var optionID uuid.UUID
+	if err := env.db.DB.QueryRow(context.Background(), `
+INSERT INTO apollo.schedule_resources (
+    resource_key,
+    facility_key,
+    zone_key,
+    resource_type,
+    display_name,
+    public_label,
+    bookable,
+    active
+)
+VALUES ($1, 'ashtonbee', 'gym-floor', 'court', $2, $3, $4, $5)
+RETURNING public_option_id
+`, resourceKey, "Internal "+resourceKey, publicLabel, bookable, active).Scan(&optionID); err != nil {
+		t.Fatalf("insert public booking HTTP resource error = %v", err)
+	}
+	return optionID
+}
+
+func insertPrivateBookingHTTPResourceWithOption(t *testing.T, env *authProfileServerEnv, resourceKey string) uuid.UUID {
+	t.Helper()
+
+	var optionID uuid.UUID
+	if err := env.db.DB.QueryRow(context.Background(), `
+INSERT INTO apollo.schedule_resources (
+    resource_key,
+    facility_key,
+    zone_key,
+    resource_type,
+    display_name
+)
+VALUES ($1, 'ashtonbee', 'gym-floor', 'court', $2)
+RETURNING public_option_id
+`, resourceKey, "Internal "+resourceKey).Scan(&optionID); err != nil {
+		t.Fatalf("insert private booking HTTP resource error = %v", err)
+	}
+	return optionID
 }
 
 func insertBookingHTTPResourceEdge(t *testing.T, env *authProfileServerEnv, resourceKey string, relatedResourceKey string, edgeType string) {
