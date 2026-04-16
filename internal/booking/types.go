@@ -21,6 +21,13 @@ const (
 	AvailabilityConflict      = "conflict"
 	AvailabilityReserved      = "reserved"
 	AvailabilityNotApplicable = "not_applicable"
+
+	RequestSourceStaff  = "staff"
+	RequestSourcePublic = "public"
+
+	IntakeChannelThemis    = "themis"
+	IntakeChannelPublicWeb = "public_web"
+	IntakeChannelPublicAPI = "public_api"
 )
 
 type StaffActor struct {
@@ -45,6 +52,27 @@ type RequestInput struct {
 	Purpose          *string   `json:"purpose,omitempty"`
 	AttendeeCount    *int      `json:"attendee_count,omitempty"`
 	InternalNotes    *string   `json:"internal_notes,omitempty"`
+}
+
+type PublicOption struct {
+	OptionID uuid.UUID `json:"option_id"`
+	Label    string    `json:"label"`
+}
+
+type PublicRequestInput struct {
+	OptionID         uuid.UUID `json:"option_id"`
+	RequestedStartAt time.Time `json:"requested_start_at"`
+	RequestedEndAt   time.Time `json:"requested_end_at"`
+	ContactName      string    `json:"contact_name"`
+	ContactEmail     *string   `json:"contact_email,omitempty"`
+	ContactPhone     *string   `json:"contact_phone,omitempty"`
+	Organization     *string   `json:"organization,omitempty"`
+	Purpose          *string   `json:"purpose,omitempty"`
+	AttendeeCount    *int      `json:"attendee_count,omitempty"`
+}
+
+type PublicReceipt struct {
+	Status string `json:"status"`
 }
 
 type TransitionInput struct {
@@ -74,21 +102,23 @@ type Request struct {
 	Purpose                    *string              `json:"purpose,omitempty"`
 	AttendeeCount              *int                 `json:"attendee_count,omitempty"`
 	InternalNotes              *string              `json:"internal_notes,omitempty"`
+	RequestSource              string               `json:"request_source"`
+	IntakeChannel              string               `json:"intake_channel"`
 	Status                     string               `json:"status"`
 	Version                    int                  `json:"version"`
 	ScheduleBlockID            *uuid.UUID           `json:"schedule_block_id,omitempty"`
 	Availability               AvailabilityDecision `json:"availability"`
-	CreatedByUserID            uuid.UUID            `json:"created_by_user_id"`
-	CreatedBySessionID         uuid.UUID            `json:"created_by_session_id"`
-	CreatedByRole              string               `json:"created_by_role"`
-	CreatedByCapability        string               `json:"created_by_capability"`
-	CreatedTrustedSurfaceKey   string               `json:"created_trusted_surface_key"`
+	CreatedByUserID            *uuid.UUID           `json:"created_by_user_id,omitempty"`
+	CreatedBySessionID         *uuid.UUID           `json:"created_by_session_id,omitempty"`
+	CreatedByRole              *string              `json:"created_by_role,omitempty"`
+	CreatedByCapability        *string              `json:"created_by_capability,omitempty"`
+	CreatedTrustedSurfaceKey   *string              `json:"created_trusted_surface_key,omitempty"`
 	CreatedTrustedSurfaceLabel *string              `json:"created_trusted_surface_label,omitempty"`
-	UpdatedByUserID            uuid.UUID            `json:"updated_by_user_id"`
-	UpdatedBySessionID         uuid.UUID            `json:"updated_by_session_id"`
-	UpdatedByRole              string               `json:"updated_by_role"`
-	UpdatedByCapability        string               `json:"updated_by_capability"`
-	UpdatedTrustedSurfaceKey   string               `json:"updated_trusted_surface_key"`
+	UpdatedByUserID            *uuid.UUID           `json:"updated_by_user_id,omitempty"`
+	UpdatedBySessionID         *uuid.UUID           `json:"updated_by_session_id,omitempty"`
+	UpdatedByRole              *string              `json:"updated_by_role,omitempty"`
+	UpdatedByCapability        *string              `json:"updated_by_capability,omitempty"`
+	UpdatedTrustedSurfaceKey   *string              `json:"updated_trusted_surface_key,omitempty"`
 	UpdatedTrustedSurfaceLabel *string              `json:"updated_trusted_surface_label,omitempty"`
 	CreatedAt                  time.Time            `json:"created_at"`
 	UpdatedAt                  time.Time            `json:"updated_at"`
