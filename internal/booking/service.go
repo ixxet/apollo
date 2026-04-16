@@ -2,8 +2,11 @@ package booking
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,7 +25,16 @@ var (
 	ErrContactNameRequired        = errors.New("contact_name is required")
 	ErrContactChannelRequired     = errors.New("contact_email or contact_phone is required")
 	ErrContactEmailInvalid        = errors.New("contact_email is invalid")
+	ErrContactPhoneInvalid        = errors.New("contact_phone is invalid")
 	ErrAttendeeCountInvalid       = errors.New("attendee_count must be positive")
+	ErrPublicOptionRequired       = errors.New("booking option_id is required")
+	ErrPublicOptionNotFound       = errors.New("booking option is not available")
+	ErrPublicFieldTooLong         = errors.New("booking request field is too long")
+	ErrPublicWindowPast           = errors.New("booking request window must be in the future")
+	ErrPublicWindowTooFar         = errors.New("booking request window is too far in the future")
+	ErrPublicDurationInvalid      = errors.New("booking request duration is invalid")
+	ErrIdempotencyKeyRequired     = errors.New("idempotency key is required")
+	ErrIdempotencyConflict        = errors.New("idempotency key has already been used for a different request")
 	ErrExpectedVersionRequired    = errors.New("expected_version must be positive")
 	ErrRequestVersionStale        = errors.New("booking request version is stale")
 	ErrRequestTransitionInvalid   = errors.New("booking request transition is invalid")
@@ -30,6 +42,20 @@ var (
 	ErrRequestTrustedSurface      = errors.New("booking actor trusted surface is required")
 	ErrScheduleServiceUnavailable = errors.New("schedule service is unavailable for booking requests")
 	ErrLinkedScheduleBlockDrift   = errors.New("linked schedule block drifted from booking request")
+)
+
+const (
+	publicMaxContactNameLength  = 120
+	publicMaxContactEmailLength = 254
+	publicMaxContactPhoneLength = 32
+	publicMaxOrganizationLength = 120
+	publicMaxPurposeLength      = 1000
+	publicMaxIdempotencyLength  = 200
+	publicMaxAttendeeCount      = 500
+
+	publicMinDuration = 30 * time.Minute
+	publicMaxDuration = 8 * time.Hour
+	publicMaxHorizon  = 180 * 24 * time.Hour
 )
 
 type Service struct {
@@ -75,6 +101,124 @@ func (s *Service) GetRequest(ctx context.Context, requestID uuid.UUID) (Request,
 	return s.requestFromStore(ctx, store.New(s.repository.db), *row)
 }
 
+func (s *Service) ListPublicOptions(ctx context.Context) ([]PublicOption, error) {
+	rows, err := store.New(s.repository.db).ListPublicBookingOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	options := make([]PublicOption, 0, len(rows))
+	for _, row := range rows {
+		if row.PublicLabel == nil {
+			continue
+		}
+		options = append(options, PublicOption{
+			OptionID: row.PublicOptionID,
+			Label:    *row.PublicLabel,
+		})
+	}
+	return options, nil
+}
+
+func (s *Service) CreatePublicRequest(ctx context.Context, channel string, idempotencyKey string, input PublicRequestInput) (PublicReceipt, error) {
+	channel = normalizePublicIntakeChannel(channel)
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" || len(idempotencyKey) > publicMaxIdempotencyLength {
+		return PublicReceipt{}, ErrIdempotencyKeyRequired
+	}
+
+	normalized, err := validatePublicRequestInput(input, s.now().UTC())
+	if err != nil {
+		return PublicReceipt{}, err
+	}
+
+	keyHash := sha256Hex(idempotencyKey)
+	payloadHash := publicPayloadHash(normalized)
+	receipt := PublicReceipt{Status: "received"}
+
+	return withBookingQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (PublicReceipt, error) {
+		existing, err := queries.GetBookingRequestIdempotencyByKeyHashForUpdate(ctx, keyHash)
+		if err == nil {
+			if existing.PayloadHash == payloadHash {
+				return receipt, nil
+			}
+			return PublicReceipt{}, ErrIdempotencyConflict
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return PublicReceipt{}, err
+		}
+
+		resource, err := queries.GetPublicBookingResourceByOptionID(ctx, normalized.OptionID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return PublicReceipt{}, ErrPublicOptionNotFound
+		}
+		if err != nil {
+			return PublicReceipt{}, err
+		}
+		if resource.PublicLabel == nil {
+			return PublicReceipt{}, ErrPublicOptionNotFound
+		}
+
+		resolved := RequestInput{
+			FacilityKey:      resource.FacilityKey,
+			ZoneKey:          resource.ZoneKey,
+			ResourceKey:      &resource.ResourceKey,
+			RequestedStartAt: normalized.RequestedStartAt,
+			RequestedEndAt:   normalized.RequestedEndAt,
+			ContactName:      normalized.ContactName,
+			ContactEmail:     normalized.ContactEmail,
+			ContactPhone:     normalized.ContactPhone,
+			Organization:     normalized.Organization,
+			Purpose:          normalized.Purpose,
+			AttendeeCount:    normalized.AttendeeCount,
+		}
+		resolved, err = validateRequestInput(resolved)
+		if err != nil {
+			return PublicReceipt{}, err
+		}
+		if s.schedule == nil {
+			return PublicReceipt{}, ErrScheduleServiceUnavailable
+		}
+		if _, err := s.schedule.PreviewBlockWithQueries(ctx, queries, scheduleBlockInputForRequest(resolved)); err != nil {
+			return PublicReceipt{}, err
+		}
+
+		now := s.now().UTC()
+		requestID := uuid.New()
+		row, err := queries.CreatePublicBookingRequest(ctx, store.CreatePublicBookingRequestParams{
+			ID:               requestID,
+			FacilityKey:      resolved.FacilityKey,
+			ZoneKey:          resolved.ZoneKey,
+			ResourceKey:      resolved.ResourceKey,
+			Scope:            requestScope(resolved),
+			RequestedStartAt: pgTimestamptzFromTime(resolved.RequestedStartAt),
+			RequestedEndAt:   pgTimestamptzFromTime(resolved.RequestedEndAt),
+			ContactName:      resolved.ContactName,
+			ContactEmail:     resolved.ContactEmail,
+			ContactPhone:     resolved.ContactPhone,
+			Organization:     resolved.Organization,
+			Purpose:          resolved.Purpose,
+			AttendeeCount:    int32PtrFromIntPtr(resolved.AttendeeCount),
+			IntakeChannel:    channel,
+			CreatedAt:        pgTimestamptzFromTime(now),
+		})
+		if err != nil {
+			return PublicReceipt{}, err
+		}
+
+		if _, err := queries.CreateBookingRequestIdempotencyKey(ctx, store.CreateBookingRequestIdempotencyKeyParams{
+			KeyHash:          keyHash,
+			PayloadHash:      payloadHash,
+			BookingRequestID: row.ID,
+			CreatedAt:        pgTimestamptzFromTime(now),
+		}); err != nil {
+			return PublicReceipt{}, err
+		}
+
+		return receipt, nil
+	})
+}
+
 func (s *Service) CreateRequest(ctx context.Context, actor StaffActor, input RequestInput) (Request, error) {
 	if err := validateStaffActor(actor); err != nil {
 		return Request{}, err
@@ -110,11 +254,11 @@ func (s *Service) CreateRequest(ctx context.Context, actor StaffActor, input Req
 			Purpose:                    resolved.Purpose,
 			AttendeeCount:              attendeeCount,
 			InternalNotes:              resolved.InternalNotes,
-			CreatedByUserID:            actor.UserID,
-			CreatedBySessionID:         actor.SessionID,
-			CreatedByRole:              string(actor.Role),
-			CreatedByCapability:        string(actor.Capability),
-			CreatedTrustedSurfaceKey:   actor.TrustedSurfaceKey,
+			CreatedByUserID:            pgUUIDFromUUID(actor.UserID),
+			CreatedBySessionID:         pgUUIDFromUUID(actor.SessionID),
+			CreatedByRole:              requiredStringPtr(string(actor.Role)),
+			CreatedByCapability:        requiredStringPtr(string(actor.Capability)),
+			CreatedTrustedSurfaceKey:   requiredStringPtr(actor.TrustedSurfaceKey),
 			CreatedTrustedSurfaceLabel: nullableStringPtr(actor.TrustedSurfaceLabel),
 			CreatedAt:                  pgTimestamptzFromTime(now),
 		})
@@ -287,11 +431,11 @@ func (s *Service) updateStatus(ctx context.Context, queries *store.Queries, acto
 		Status:                     nextStatus,
 		ScheduleBlockID:            pgUUIDFromPtr(scheduleBlockID),
 		InternalNotes:              trimOptionalString(internalNotes),
-		UpdatedByUserID:            actor.UserID,
-		UpdatedBySessionID:         actor.SessionID,
-		UpdatedByRole:              string(actor.Role),
-		UpdatedByCapability:        string(actor.Capability),
-		UpdatedTrustedSurfaceKey:   actor.TrustedSurfaceKey,
+		UpdatedByUserID:            pgUUIDFromUUID(actor.UserID),
+		UpdatedBySessionID:         pgUUIDFromUUID(actor.SessionID),
+		UpdatedByRole:              requiredStringPtr(string(actor.Role)),
+		UpdatedByCapability:        requiredStringPtr(string(actor.Capability)),
+		UpdatedTrustedSurfaceKey:   requiredStringPtr(actor.TrustedSurfaceKey),
 		UpdatedTrustedSurfaceLabel: nullableStringPtr(actor.TrustedSurfaceLabel),
 		UpdatedAt:                  pgTimestamptzFromTime(s.now().UTC()),
 		Version:                    current.Version,
@@ -378,6 +522,107 @@ func validateRequestInput(input RequestInput) (RequestInput, error) {
 		}
 	}
 	return input, nil
+}
+
+func validatePublicRequestInput(input PublicRequestInput, now time.Time) (PublicRequestInput, error) {
+	input.ContactName = strings.TrimSpace(input.ContactName)
+	input.ContactEmail = trimOptionalString(input.ContactEmail)
+	input.ContactPhone = trimOptionalString(input.ContactPhone)
+	input.Organization = trimOptionalString(input.Organization)
+	input.Purpose = trimOptionalString(input.Purpose)
+	input.RequestedStartAt = input.RequestedStartAt.UTC()
+	input.RequestedEndAt = input.RequestedEndAt.UTC()
+
+	switch {
+	case input.OptionID == uuid.Nil:
+		return PublicRequestInput{}, ErrPublicOptionRequired
+	case input.RequestedStartAt.IsZero() || input.RequestedEndAt.IsZero() || !input.RequestedStartAt.Before(input.RequestedEndAt):
+		return PublicRequestInput{}, ErrWindowInvalid
+	case !input.RequestedStartAt.After(now):
+		return PublicRequestInput{}, ErrPublicWindowPast
+	case input.RequestedStartAt.After(now.Add(publicMaxHorizon)):
+		return PublicRequestInput{}, ErrPublicWindowTooFar
+	case input.RequestedEndAt.Sub(input.RequestedStartAt) < publicMinDuration || input.RequestedEndAt.Sub(input.RequestedStartAt) > publicMaxDuration:
+		return PublicRequestInput{}, ErrPublicDurationInvalid
+	case input.ContactName == "":
+		return PublicRequestInput{}, ErrContactNameRequired
+	case len(input.ContactName) > publicMaxContactNameLength:
+		return PublicRequestInput{}, ErrPublicFieldTooLong
+	case input.ContactEmail == nil && input.ContactPhone == nil:
+		return PublicRequestInput{}, ErrContactChannelRequired
+	case input.AttendeeCount != nil && (*input.AttendeeCount <= 0 || *input.AttendeeCount > publicMaxAttendeeCount):
+		return PublicRequestInput{}, ErrAttendeeCountInvalid
+	}
+
+	if input.ContactEmail != nil {
+		if len(*input.ContactEmail) > publicMaxContactEmailLength {
+			return PublicRequestInput{}, ErrPublicFieldTooLong
+		}
+		if _, err := mail.ParseAddress(*input.ContactEmail); err != nil {
+			return PublicRequestInput{}, ErrContactEmailInvalid
+		}
+	}
+	if input.ContactPhone != nil {
+		if len(*input.ContactPhone) > publicMaxContactPhoneLength {
+			return PublicRequestInput{}, ErrPublicFieldTooLong
+		}
+		if !validPublicPhone(*input.ContactPhone) {
+			return PublicRequestInput{}, ErrContactPhoneInvalid
+		}
+	}
+	if input.Organization != nil && len(*input.Organization) > publicMaxOrganizationLength {
+		return PublicRequestInput{}, ErrPublicFieldTooLong
+	}
+	if input.Purpose != nil && len(*input.Purpose) > publicMaxPurposeLength {
+		return PublicRequestInput{}, ErrPublicFieldTooLong
+	}
+
+	return input, nil
+}
+
+func validPublicPhone(value string) bool {
+	digits := 0
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+			digits++
+		case r == '+' || r == '-' || r == '(' || r == ')' || r == ' ' || r == '.':
+		default:
+			return false
+		}
+	}
+	return digits >= 7
+}
+
+func normalizePublicIntakeChannel(channel string) string {
+	switch strings.TrimSpace(channel) {
+	case IntakeChannelPublicWeb:
+		return IntakeChannelPublicWeb
+	case IntakeChannelPublicAPI:
+		return IntakeChannelPublicAPI
+	default:
+		return IntakeChannelPublicAPI
+	}
+}
+
+func publicPayloadHash(input PublicRequestInput) string {
+	parts := []string{
+		input.OptionID.String(),
+		input.RequestedStartAt.UTC().Format(time.RFC3339Nano),
+		input.RequestedEndAt.UTC().Format(time.RFC3339Nano),
+		input.ContactName,
+		optionalStringValue(input.ContactEmail),
+		optionalStringValue(input.ContactPhone),
+		optionalStringValue(input.Organization),
+		optionalStringValue(input.Purpose),
+		optionalIntValue(input.AttendeeCount),
+	}
+	return sha256Hex(strings.Join(parts, "\n"))
+}
+
+func sha256Hex(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func requestScope(input RequestInput) string {
@@ -467,18 +712,20 @@ func requestFromStore(row store.ApolloBookingRequest, availability AvailabilityD
 		Purpose:                    row.Purpose,
 		AttendeeCount:              intPtrFromInt32Ptr(row.AttendeeCount),
 		InternalNotes:              row.InternalNotes,
+		RequestSource:              row.RequestSource,
+		IntakeChannel:              row.IntakeChannel,
 		Status:                     row.Status,
 		Version:                    int(row.Version),
 		ScheduleBlockID:            uuidPtrFromPgUUID(row.ScheduleBlockID),
 		Availability:               availability,
-		CreatedByUserID:            row.CreatedByUserID,
-		CreatedBySessionID:         row.CreatedBySessionID,
+		CreatedByUserID:            uuidPtrFromPgUUID(row.CreatedByUserID),
+		CreatedBySessionID:         uuidPtrFromPgUUID(row.CreatedBySessionID),
 		CreatedByRole:              row.CreatedByRole,
 		CreatedByCapability:        row.CreatedByCapability,
 		CreatedTrustedSurfaceKey:   row.CreatedTrustedSurfaceKey,
 		CreatedTrustedSurfaceLabel: row.CreatedTrustedSurfaceLabel,
-		UpdatedByUserID:            row.UpdatedByUserID,
-		UpdatedBySessionID:         row.UpdatedBySessionID,
+		UpdatedByUserID:            uuidPtrFromPgUUID(row.UpdatedByUserID),
+		UpdatedBySessionID:         uuidPtrFromPgUUID(row.UpdatedBySessionID),
 		UpdatedByRole:              row.UpdatedByRole,
 		UpdatedByCapability:        row.UpdatedByCapability,
 		UpdatedTrustedSurfaceKey:   row.UpdatedTrustedSurfaceKey,
@@ -507,6 +754,24 @@ func nullableStringPtr(value string) *string {
 	return &trimmed
 }
 
+func requiredStringPtr(value string) *string {
+	return &value
+}
+
+func optionalStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func optionalIntValue(value *int) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.Itoa(*value)
+}
+
 func int32PtrFromIntPtr(value *int) *int32 {
 	if value == nil {
 		return nil
@@ -525,6 +790,10 @@ func intPtrFromInt32Ptr(value *int32) *int {
 
 func pgTimestamptzFromTime(value time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: value.UTC(), Valid: true}
+}
+
+func pgUUIDFromUUID(value uuid.UUID) pgtype.UUID {
+	return pgtype.UUID{Bytes: value, Valid: true}
 }
 
 func pgUUIDFromPtr(value *uuid.UUID) pgtype.UUID {

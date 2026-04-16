@@ -132,6 +132,8 @@ type BookingManager interface {
 	ListRequests(ctx context.Context, facilityKey string) ([]booking.Request, error)
 	GetRequest(ctx context.Context, requestID uuid.UUID) (booking.Request, error)
 	CreateRequest(ctx context.Context, actor booking.StaffActor, input booking.RequestInput) (booking.Request, error)
+	ListPublicOptions(ctx context.Context) ([]booking.PublicOption, error)
+	CreatePublicRequest(ctx context.Context, channel string, idempotencyKey string, input booking.PublicRequestInput) (booking.PublicReceipt, error)
 	StartReview(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
 	NeedsChanges(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
 	Reject(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
@@ -286,6 +288,7 @@ type contextKey string
 const principalContextKey contextKey = "session_principal"
 
 const maxJSONBodyBytes int64 = 1 << 20
+const maxPublicBookingJSONBodyBytes int64 = 16 << 10
 
 func NewHandler(deps Dependencies) http.Handler {
 	router := chi.NewRouter()
@@ -358,6 +361,46 @@ func NewHandler(deps Dependencies) http.Handler {
 	}
 	router.Get("/api/v1/auth/verify", verifyHandler)
 	router.Post("/api/v1/auth/verify", verifyHandler)
+
+	router.Get("/api/v1/public/booking/options", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Booking == nil {
+			writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+			return
+		}
+
+		options, err := deps.Booking.ListPublicOptions(r.Context())
+		if err != nil {
+			writePublicBookingError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, options)
+	})
+	router.Post("/api/v1/public/booking/requests", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Booking == nil {
+			writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+			return
+		}
+
+		var request booking.PublicRequestInput
+		if err := decodeJSONBodyWithLimit(w, r, &request, maxPublicBookingJSONBodyBytes); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		receipt, err := deps.Booking.CreatePublicRequest(
+			r.Context(),
+			r.Header.Get("X-Apollo-Public-Intake-Channel"),
+			r.Header.Get("Idempotency-Key"),
+			request,
+		)
+		if err != nil {
+			writePublicBookingError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusAccepted, receipt)
+	})
 
 	router.Group(func(authenticated chi.Router) {
 		authenticated.Use(sessionMiddleware(deps.Auth))
@@ -1989,11 +2032,15 @@ func logLobbyMembershipTransition(message string, userID uuid.UUID, lobbyMembers
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, target any) error {
+	return decodeJSONBodyWithLimit(w, r, target, maxJSONBodyBytes)
+}
+
+func decodeJSONBodyWithLimit(w http.ResponseWriter, r *http.Request, target any, limit int64) error {
 	if r.Body == nil {
 		return errors.New("request body is required")
 	}
 
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBodyBytes))
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return normalizeDecodeError(err)
@@ -2225,6 +2272,43 @@ func writeBookingError(w http.ResponseWriter, err error) {
 		errors.Is(err, booking.ErrExpectedVersionRequired),
 		errors.Is(err, booking.ErrRequestActorRequired),
 		errors.Is(err, booking.ErrRequestTrustedSurface),
+		errors.Is(err, schedule.ErrResourceFacilityRequired),
+		errors.Is(err, schedule.ErrResourceFacilityInvalid),
+		errors.Is(err, schedule.ErrResourceZoneInvalid),
+		errors.Is(err, schedule.ErrBlockScopeInvalid),
+		errors.Is(err, schedule.ErrBlockShapeInvalid),
+		errors.Is(err, schedule.ErrBlockKindInvalid),
+		errors.Is(err, schedule.ErrBlockEffectInvalid),
+		errors.Is(err, schedule.ErrBlockVisibilityInvalid),
+		errors.Is(err, schedule.ErrBlockDateWindowInvalid),
+		errors.Is(err, schedule.ErrBlockDateWindowTooLarge):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, booking.ErrScheduleServiceUnavailable):
+		writeError(w, http.StatusServiceUnavailable, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
+}
+
+func writePublicBookingError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, booking.ErrPublicOptionNotFound), errors.Is(err, schedule.ErrResourceNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, booking.ErrIdempotencyConflict):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, booking.ErrPublicOptionRequired),
+		errors.Is(err, booking.ErrIdempotencyKeyRequired),
+		errors.Is(err, booking.ErrFacilityRequired),
+		errors.Is(err, booking.ErrWindowInvalid),
+		errors.Is(err, booking.ErrPublicWindowPast),
+		errors.Is(err, booking.ErrPublicWindowTooFar),
+		errors.Is(err, booking.ErrPublicDurationInvalid),
+		errors.Is(err, booking.ErrContactNameRequired),
+		errors.Is(err, booking.ErrContactChannelRequired),
+		errors.Is(err, booking.ErrContactEmailInvalid),
+		errors.Is(err, booking.ErrContactPhoneInvalid),
+		errors.Is(err, booking.ErrPublicFieldTooLong),
+		errors.Is(err, booking.ErrAttendeeCountInvalid),
 		errors.Is(err, schedule.ErrResourceFacilityRequired),
 		errors.Is(err, schedule.ErrResourceFacilityInvalid),
 		errors.Is(err, schedule.ErrResourceZoneInvalid),
