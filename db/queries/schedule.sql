@@ -8,7 +8,8 @@ SELECT resource_key,
        bookable,
        active,
        created_at,
-       updated_at
+       updated_at,
+       public_option_id
 FROM apollo.schedule_resources
 WHERE facility_key = $1
 ORDER BY resource_key;
@@ -23,7 +24,8 @@ SELECT resource_key,
        bookable,
        active,
        created_at,
-       updated_at
+       updated_at,
+       public_option_id
 FROM apollo.schedule_resources
 WHERE resource_key = $1
 LIMIT 1;
@@ -60,7 +62,38 @@ RETURNING resource_key,
           bookable,
           active,
           created_at,
-          updated_at;
+          updated_at,
+          public_option_id;
+
+-- name: ListPublicBookingOptions :many
+SELECT public_option_id,
+       public_label
+FROM apollo.schedule_resources
+WHERE active = TRUE
+  AND bookable = TRUE
+  AND public_label IS NOT NULL
+  AND btrim(public_label) <> ''
+ORDER BY public_label, public_option_id;
+
+-- name: GetPublicBookingResourceByOptionID :one
+SELECT resource_key,
+       facility_key,
+       zone_key,
+       resource_type,
+       display_name,
+       public_label,
+       public_option_id,
+       bookable,
+       active,
+       created_at,
+       updated_at
+FROM apollo.schedule_resources
+WHERE public_option_id = $1
+  AND active = TRUE
+  AND bookable = TRUE
+  AND public_label IS NOT NULL
+  AND btrim(public_label) <> ''
+LIMIT 1;
 
 -- name: ListScheduleResourceEdgesByFacilityKey :many
 SELECT edge.resource_key,

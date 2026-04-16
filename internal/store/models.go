@@ -56,20 +56,29 @@ type ApolloBookingRequest struct {
 	Status                     string
 	Version                    int32
 	ScheduleBlockID            pgtype.UUID
-	CreatedByUserID            uuid.UUID
-	CreatedBySessionID         uuid.UUID
-	CreatedByRole              string
-	CreatedByCapability        string
-	CreatedTrustedSurfaceKey   string
+	CreatedByUserID            pgtype.UUID
+	CreatedBySessionID         pgtype.UUID
+	CreatedByRole              *string
+	CreatedByCapability        *string
+	CreatedTrustedSurfaceKey   *string
 	CreatedTrustedSurfaceLabel *string
-	UpdatedByUserID            uuid.UUID
-	UpdatedBySessionID         uuid.UUID
-	UpdatedByRole              string
-	UpdatedByCapability        string
-	UpdatedTrustedSurfaceKey   string
+	UpdatedByUserID            pgtype.UUID
+	UpdatedBySessionID         pgtype.UUID
+	UpdatedByRole              *string
+	UpdatedByCapability        *string
+	UpdatedTrustedSurfaceKey   *string
 	UpdatedTrustedSurfaceLabel *string
 	CreatedAt                  pgtype.Timestamptz
 	UpdatedAt                  pgtype.Timestamptz
+	RequestSource              string
+	IntakeChannel              string
+}
+
+type ApolloBookingRequestIdempotencyKey struct {
+	KeyHash          string
+	PayloadHash      string
+	BookingRequestID uuid.UUID
+	CreatedAt        pgtype.Timestamptz
 }
 
 type ApolloClaimedTag struct {
@@ -381,16 +390,17 @@ type ApolloScheduleBlockException struct {
 }
 
 type ApolloScheduleResource struct {
-	ResourceKey  string
-	FacilityKey  string
-	ZoneKey      *string
-	ResourceType string
-	DisplayName  string
-	PublicLabel  *string
-	Bookable     bool
-	Active       bool
-	CreatedAt    pgtype.Timestamptz
-	UpdatedAt    pgtype.Timestamptz
+	ResourceKey    string
+	FacilityKey    string
+	ZoneKey        *string
+	ResourceType   string
+	DisplayName    string
+	PublicLabel    *string
+	Bookable       bool
+	Active         bool
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+	PublicOptionID uuid.UUID
 }
 
 type ApolloScheduleResourceEdge struct {

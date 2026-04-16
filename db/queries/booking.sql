@@ -13,6 +13,8 @@ INSERT INTO apollo.booking_requests (
     purpose,
     attendee_count,
     internal_notes,
+    request_source,
+    intake_channel,
     status,
     version,
     created_by_user_id,
@@ -30,7 +32,7 @@ INSERT INTO apollo.booking_requests (
     created_at,
     updated_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'requested', 1, $14, $15, $16, $17, $18, $19, $14, $15, $16, $17, $18, $19, $20, $20)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'staff', 'themis', 'requested', 1, $14, $15, $16, $17, $18, $19, $14, $15, $16, $17, $18, $19, $20, $20)
 RETURNING id,
           facility_key,
           zone_key,
@@ -61,7 +63,67 @@ RETURNING id,
           updated_trusted_surface_key,
           updated_trusted_surface_label,
           created_at,
-          updated_at;
+          updated_at,
+          request_source,
+          intake_channel;
+
+-- name: CreatePublicBookingRequest :one
+INSERT INTO apollo.booking_requests (
+    id,
+    facility_key,
+    zone_key,
+    resource_key,
+    scope,
+    requested_start_at,
+    requested_end_at,
+    contact_name,
+    contact_email,
+    contact_phone,
+    organization,
+    purpose,
+    attendee_count,
+    internal_notes,
+    request_source,
+    intake_channel,
+    status,
+    version,
+    created_at,
+    updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NULL, 'public', $14, 'requested', 1, $15, $15)
+RETURNING id,
+          facility_key,
+          zone_key,
+          resource_key,
+          scope,
+          requested_start_at,
+          requested_end_at,
+          contact_name,
+          contact_email,
+          contact_phone,
+          organization,
+          purpose,
+          attendee_count,
+          internal_notes,
+          status,
+          version,
+          schedule_block_id,
+          created_by_user_id,
+          created_by_session_id,
+          created_by_role,
+          created_by_capability,
+          created_trusted_surface_key,
+          created_trusted_surface_label,
+          updated_by_user_id,
+          updated_by_session_id,
+          updated_by_role,
+          updated_by_capability,
+          updated_trusted_surface_key,
+          updated_trusted_surface_label,
+          created_at,
+          updated_at,
+          request_source,
+          intake_channel;
 
 -- name: ListBookingRequests :many
 SELECT id,
@@ -94,7 +156,9 @@ SELECT id,
        updated_trusted_surface_key,
        updated_trusted_surface_label,
        created_at,
-       updated_at
+       updated_at,
+       request_source,
+       intake_channel
 FROM apollo.booking_requests
 ORDER BY updated_at DESC, id DESC;
 
@@ -129,7 +193,9 @@ SELECT id,
        updated_trusted_surface_key,
        updated_trusted_surface_label,
        created_at,
-       updated_at
+       updated_at,
+       request_source,
+       intake_channel
 FROM apollo.booking_requests
 WHERE facility_key = $1
 ORDER BY updated_at DESC, id DESC;
@@ -165,7 +231,9 @@ SELECT id,
        updated_trusted_surface_key,
        updated_trusted_surface_label,
        created_at,
-       updated_at
+       updated_at,
+       request_source,
+       intake_channel
 FROM apollo.booking_requests
 WHERE id = $1
 LIMIT 1;
@@ -201,7 +269,9 @@ SELECT id,
        updated_trusted_surface_key,
        updated_trusted_surface_label,
        created_at,
-       updated_at
+       updated_at,
+       request_source,
+       intake_channel
 FROM apollo.booking_requests
 WHERE id = $1
 LIMIT 1
@@ -252,4 +322,29 @@ RETURNING id,
           updated_trusted_surface_key,
           updated_trusted_surface_label,
           created_at,
-          updated_at;
+          updated_at,
+          request_source,
+          intake_channel;
+
+-- name: GetBookingRequestIdempotencyByKeyHashForUpdate :one
+SELECT key_hash,
+       payload_hash,
+       booking_request_id,
+       created_at
+FROM apollo.booking_request_idempotency_keys
+WHERE key_hash = $1
+LIMIT 1
+FOR UPDATE;
+
+-- name: CreateBookingRequestIdempotencyKey :one
+INSERT INTO apollo.booking_request_idempotency_keys (
+    key_hash,
+    payload_hash,
+    booking_request_id,
+    created_at
+)
+VALUES ($1, $2, $3, $4)
+RETURNING key_hash,
+          payload_hash,
+          booking_request_id,
+          created_at;

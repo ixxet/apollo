@@ -481,6 +481,60 @@ func (q *Queries) FacilityZoneRefExists(ctx context.Context, arg FacilityZoneRef
 	return exists, err
 }
 
+const getPublicBookingResourceByOptionID = `-- name: GetPublicBookingResourceByOptionID :one
+SELECT resource_key,
+       facility_key,
+       zone_key,
+       resource_type,
+       display_name,
+       public_label,
+       public_option_id,
+       bookable,
+       active,
+       created_at,
+       updated_at
+FROM apollo.schedule_resources
+WHERE public_option_id = $1
+  AND active = TRUE
+  AND bookable = TRUE
+  AND public_label IS NOT NULL
+  AND btrim(public_label) <> ''
+LIMIT 1
+`
+
+type GetPublicBookingResourceByOptionIDRow struct {
+	ResourceKey    string
+	FacilityKey    string
+	ZoneKey        *string
+	ResourceType   string
+	DisplayName    string
+	PublicLabel    *string
+	PublicOptionID uuid.UUID
+	Bookable       bool
+	Active         bool
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+func (q *Queries) GetPublicBookingResourceByOptionID(ctx context.Context, publicOptionID uuid.UUID) (GetPublicBookingResourceByOptionIDRow, error) {
+	row := q.db.QueryRow(ctx, getPublicBookingResourceByOptionID, publicOptionID)
+	var i GetPublicBookingResourceByOptionIDRow
+	err := row.Scan(
+		&i.ResourceKey,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.ResourceType,
+		&i.DisplayName,
+		&i.PublicLabel,
+		&i.PublicOptionID,
+		&i.Bookable,
+		&i.Active,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getScheduleBlockByID = `-- name: GetScheduleBlockByID :one
 SELECT id,
        facility_key,
@@ -680,7 +734,8 @@ SELECT resource_key,
        bookable,
        active,
        created_at,
-       updated_at
+       updated_at,
+       public_option_id
 FROM apollo.schedule_resources
 WHERE resource_key = $1
 LIMIT 1
@@ -700,6 +755,7 @@ func (q *Queries) GetScheduleResourceByKey(ctx context.Context, resourceKey stri
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PublicOptionID,
 	)
 	return i, err
 }
@@ -767,6 +823,42 @@ func (q *Queries) InsertScheduleBlockException(ctx context.Context, arg InsertSc
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listPublicBookingOptions = `-- name: ListPublicBookingOptions :many
+SELECT public_option_id,
+       public_label
+FROM apollo.schedule_resources
+WHERE active = TRUE
+  AND bookable = TRUE
+  AND public_label IS NOT NULL
+  AND btrim(public_label) <> ''
+ORDER BY public_label, public_option_id
+`
+
+type ListPublicBookingOptionsRow struct {
+	PublicOptionID uuid.UUID
+	PublicLabel    *string
+}
+
+func (q *Queries) ListPublicBookingOptions(ctx context.Context) ([]ListPublicBookingOptionsRow, error) {
+	rows, err := q.db.Query(ctx, listPublicBookingOptions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPublicBookingOptionsRow
+	for rows.Next() {
+		var i ListPublicBookingOptionsRow
+		if err := rows.Scan(&i.PublicOptionID, &i.PublicLabel); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listScheduleBlockExceptionsByBlockIDs = `-- name: ListScheduleBlockExceptionsByBlockIDs :many
@@ -975,7 +1067,8 @@ SELECT resource_key,
        bookable,
        active,
        created_at,
-       updated_at
+       updated_at,
+       public_option_id
 FROM apollo.schedule_resources
 WHERE facility_key = $1
 ORDER BY resource_key
@@ -1001,6 +1094,7 @@ func (q *Queries) ListScheduleResourcesByFacilityKey(ctx context.Context, facili
 			&i.Active,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PublicOptionID,
 		); err != nil {
 			return nil, err
 		}
@@ -1044,7 +1138,8 @@ RETURNING resource_key,
           bookable,
           active,
           created_at,
-          updated_at
+          updated_at,
+          public_option_id
 `
 
 type UpsertScheduleResourceParams struct {
@@ -1083,6 +1178,7 @@ func (q *Queries) UpsertScheduleResource(ctx context.Context, arg UpsertSchedule
 		&i.Active,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PublicOptionID,
 	)
 	return i, err
 }

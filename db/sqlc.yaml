@@ -22,6 +22,7 @@ sql:
       - "migrations/017_schedule_substrate_runtime.up.sql"
       - "migrations/018_booking_request_runtime.up.sql"
       - "migrations/019_approved_booking_cancellation.up.sql"
+      - "migrations/020_public_booking_intake.up.sql"
     queries: "queries"
     gen:
       go:

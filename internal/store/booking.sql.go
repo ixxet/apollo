@@ -27,6 +27,8 @@ INSERT INTO apollo.booking_requests (
     purpose,
     attendee_count,
     internal_notes,
+    request_source,
+    intake_channel,
     status,
     version,
     created_by_user_id,
@@ -44,7 +46,7 @@ INSERT INTO apollo.booking_requests (
     created_at,
     updated_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'requested', 1, $14, $15, $16, $17, $18, $19, $14, $15, $16, $17, $18, $19, $20, $20)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'staff', 'themis', 'requested', 1, $14, $15, $16, $17, $18, $19, $14, $15, $16, $17, $18, $19, $20, $20)
 RETURNING id,
           facility_key,
           zone_key,
@@ -75,7 +77,9 @@ RETURNING id,
           updated_trusted_surface_key,
           updated_trusted_surface_label,
           created_at,
-          updated_at
+          updated_at,
+          request_source,
+          intake_channel
 `
 
 type CreateBookingRequestParams struct {
@@ -92,11 +96,11 @@ type CreateBookingRequestParams struct {
 	Purpose                    *string
 	AttendeeCount              *int32
 	InternalNotes              *string
-	CreatedByUserID            uuid.UUID
-	CreatedBySessionID         uuid.UUID
-	CreatedByRole              string
-	CreatedByCapability        string
-	CreatedTrustedSurfaceKey   string
+	CreatedByUserID            pgtype.UUID
+	CreatedBySessionID         pgtype.UUID
+	CreatedByRole              *string
+	CreatedByCapability        *string
+	CreatedTrustedSurfaceKey   *string
 	CreatedTrustedSurfaceLabel *string
 	CreatedAt                  pgtype.Timestamptz
 }
@@ -157,6 +161,180 @@ func (q *Queries) CreateBookingRequest(ctx context.Context, arg CreateBookingReq
 		&i.UpdatedTrustedSurfaceLabel,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RequestSource,
+		&i.IntakeChannel,
+	)
+	return i, err
+}
+
+const createBookingRequestIdempotencyKey = `-- name: CreateBookingRequestIdempotencyKey :one
+INSERT INTO apollo.booking_request_idempotency_keys (
+    key_hash,
+    payload_hash,
+    booking_request_id,
+    created_at
+)
+VALUES ($1, $2, $3, $4)
+RETURNING key_hash,
+          payload_hash,
+          booking_request_id,
+          created_at
+`
+
+type CreateBookingRequestIdempotencyKeyParams struct {
+	KeyHash          string
+	PayloadHash      string
+	BookingRequestID uuid.UUID
+	CreatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) CreateBookingRequestIdempotencyKey(ctx context.Context, arg CreateBookingRequestIdempotencyKeyParams) (ApolloBookingRequestIdempotencyKey, error) {
+	row := q.db.QueryRow(ctx, createBookingRequestIdempotencyKey,
+		arg.KeyHash,
+		arg.PayloadHash,
+		arg.BookingRequestID,
+		arg.CreatedAt,
+	)
+	var i ApolloBookingRequestIdempotencyKey
+	err := row.Scan(
+		&i.KeyHash,
+		&i.PayloadHash,
+		&i.BookingRequestID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createPublicBookingRequest = `-- name: CreatePublicBookingRequest :one
+INSERT INTO apollo.booking_requests (
+    id,
+    facility_key,
+    zone_key,
+    resource_key,
+    scope,
+    requested_start_at,
+    requested_end_at,
+    contact_name,
+    contact_email,
+    contact_phone,
+    organization,
+    purpose,
+    attendee_count,
+    internal_notes,
+    request_source,
+    intake_channel,
+    status,
+    version,
+    created_at,
+    updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NULL, 'public', $14, 'requested', 1, $15, $15)
+RETURNING id,
+          facility_key,
+          zone_key,
+          resource_key,
+          scope,
+          requested_start_at,
+          requested_end_at,
+          contact_name,
+          contact_email,
+          contact_phone,
+          organization,
+          purpose,
+          attendee_count,
+          internal_notes,
+          status,
+          version,
+          schedule_block_id,
+          created_by_user_id,
+          created_by_session_id,
+          created_by_role,
+          created_by_capability,
+          created_trusted_surface_key,
+          created_trusted_surface_label,
+          updated_by_user_id,
+          updated_by_session_id,
+          updated_by_role,
+          updated_by_capability,
+          updated_trusted_surface_key,
+          updated_trusted_surface_label,
+          created_at,
+          updated_at,
+          request_source,
+          intake_channel
+`
+
+type CreatePublicBookingRequestParams struct {
+	ID               uuid.UUID
+	FacilityKey      string
+	ZoneKey          *string
+	ResourceKey      *string
+	Scope            string
+	RequestedStartAt pgtype.Timestamptz
+	RequestedEndAt   pgtype.Timestamptz
+	ContactName      string
+	ContactEmail     *string
+	ContactPhone     *string
+	Organization     *string
+	Purpose          *string
+	AttendeeCount    *int32
+	IntakeChannel    string
+	CreatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) CreatePublicBookingRequest(ctx context.Context, arg CreatePublicBookingRequestParams) (ApolloBookingRequest, error) {
+	row := q.db.QueryRow(ctx, createPublicBookingRequest,
+		arg.ID,
+		arg.FacilityKey,
+		arg.ZoneKey,
+		arg.ResourceKey,
+		arg.Scope,
+		arg.RequestedStartAt,
+		arg.RequestedEndAt,
+		arg.ContactName,
+		arg.ContactEmail,
+		arg.ContactPhone,
+		arg.Organization,
+		arg.Purpose,
+		arg.AttendeeCount,
+		arg.IntakeChannel,
+		arg.CreatedAt,
+	)
+	var i ApolloBookingRequest
+	err := row.Scan(
+		&i.ID,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.ResourceKey,
+		&i.Scope,
+		&i.RequestedStartAt,
+		&i.RequestedEndAt,
+		&i.ContactName,
+		&i.ContactEmail,
+		&i.ContactPhone,
+		&i.Organization,
+		&i.Purpose,
+		&i.AttendeeCount,
+		&i.InternalNotes,
+		&i.Status,
+		&i.Version,
+		&i.ScheduleBlockID,
+		&i.CreatedByUserID,
+		&i.CreatedBySessionID,
+		&i.CreatedByRole,
+		&i.CreatedByCapability,
+		&i.CreatedTrustedSurfaceKey,
+		&i.CreatedTrustedSurfaceLabel,
+		&i.UpdatedByUserID,
+		&i.UpdatedBySessionID,
+		&i.UpdatedByRole,
+		&i.UpdatedByCapability,
+		&i.UpdatedTrustedSurfaceKey,
+		&i.UpdatedTrustedSurfaceLabel,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RequestSource,
+		&i.IntakeChannel,
 	)
 	return i, err
 }
@@ -192,7 +370,9 @@ SELECT id,
        updated_trusted_surface_key,
        updated_trusted_surface_label,
        created_at,
-       updated_at
+       updated_at,
+       request_source,
+       intake_channel
 FROM apollo.booking_requests
 WHERE id = $1
 LIMIT 1
@@ -233,6 +413,8 @@ func (q *Queries) GetBookingRequestByID(ctx context.Context, id uuid.UUID) (Apol
 		&i.UpdatedTrustedSurfaceLabel,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RequestSource,
+		&i.IntakeChannel,
 	)
 	return i, err
 }
@@ -268,7 +450,9 @@ SELECT id,
        updated_trusted_surface_key,
        updated_trusted_surface_label,
        created_at,
-       updated_at
+       updated_at,
+       request_source,
+       intake_channel
 FROM apollo.booking_requests
 WHERE id = $1
 LIMIT 1
@@ -310,6 +494,31 @@ func (q *Queries) GetBookingRequestByIDForUpdate(ctx context.Context, id uuid.UU
 		&i.UpdatedTrustedSurfaceLabel,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RequestSource,
+		&i.IntakeChannel,
+	)
+	return i, err
+}
+
+const getBookingRequestIdempotencyByKeyHashForUpdate = `-- name: GetBookingRequestIdempotencyByKeyHashForUpdate :one
+SELECT key_hash,
+       payload_hash,
+       booking_request_id,
+       created_at
+FROM apollo.booking_request_idempotency_keys
+WHERE key_hash = $1
+LIMIT 1
+FOR UPDATE
+`
+
+func (q *Queries) GetBookingRequestIdempotencyByKeyHashForUpdate(ctx context.Context, keyHash string) (ApolloBookingRequestIdempotencyKey, error) {
+	row := q.db.QueryRow(ctx, getBookingRequestIdempotencyByKeyHashForUpdate, keyHash)
+	var i ApolloBookingRequestIdempotencyKey
+	err := row.Scan(
+		&i.KeyHash,
+		&i.PayloadHash,
+		&i.BookingRequestID,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -345,7 +554,9 @@ SELECT id,
        updated_trusted_surface_key,
        updated_trusted_surface_label,
        created_at,
-       updated_at
+       updated_at,
+       request_source,
+       intake_channel
 FROM apollo.booking_requests
 ORDER BY updated_at DESC, id DESC
 `
@@ -391,6 +602,8 @@ func (q *Queries) ListBookingRequests(ctx context.Context) ([]ApolloBookingReque
 			&i.UpdatedTrustedSurfaceLabel,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RequestSource,
+			&i.IntakeChannel,
 		); err != nil {
 			return nil, err
 		}
@@ -433,7 +646,9 @@ SELECT id,
        updated_trusted_surface_key,
        updated_trusted_surface_label,
        created_at,
-       updated_at
+       updated_at,
+       request_source,
+       intake_channel
 FROM apollo.booking_requests
 WHERE facility_key = $1
 ORDER BY updated_at DESC, id DESC
@@ -480,6 +695,8 @@ func (q *Queries) ListBookingRequestsByFacilityKey(ctx context.Context, facility
 			&i.UpdatedTrustedSurfaceLabel,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RequestSource,
+			&i.IntakeChannel,
 		); err != nil {
 			return nil, err
 		}
@@ -536,7 +753,9 @@ RETURNING id,
           updated_trusted_surface_key,
           updated_trusted_surface_label,
           created_at,
-          updated_at
+          updated_at,
+          request_source,
+          intake_channel
 `
 
 type UpdateBookingRequestStatusParams struct {
@@ -544,11 +763,11 @@ type UpdateBookingRequestStatusParams struct {
 	Status                     string
 	ScheduleBlockID            pgtype.UUID
 	InternalNotes              *string
-	UpdatedByUserID            uuid.UUID
-	UpdatedBySessionID         uuid.UUID
-	UpdatedByRole              string
-	UpdatedByCapability        string
-	UpdatedTrustedSurfaceKey   string
+	UpdatedByUserID            pgtype.UUID
+	UpdatedBySessionID         pgtype.UUID
+	UpdatedByRole              *string
+	UpdatedByCapability        *string
+	UpdatedTrustedSurfaceKey   *string
 	UpdatedTrustedSurfaceLabel *string
 	UpdatedAt                  pgtype.Timestamptz
 	Version                    int32
@@ -602,6 +821,8 @@ func (q *Queries) UpdateBookingRequestStatus(ctx context.Context, arg UpdateBook
 		&i.UpdatedTrustedSurfaceLabel,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RequestSource,
+		&i.IntakeChannel,
 	)
 	return i, err
 }
