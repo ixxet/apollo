@@ -262,6 +262,12 @@ func (s *Service) GetCalendar(ctx context.Context, facilityKey string, window Ca
 }
 
 func (s *Service) CreateBlock(ctx context.Context, actor StaffActor, input BlockInput) (Block, error) {
+	return withScheduleQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (Block, error) {
+		return s.CreateBlockWithQueries(ctx, queries, actor, input)
+	})
+}
+
+func (s *Service) CreateBlockWithQueries(ctx context.Context, queries *store.Queries, actor StaffActor, input BlockInput) (Block, error) {
 	if err := validateStaffActor(actor); err != nil {
 		return Block{}, err
 	}
@@ -271,32 +277,86 @@ func (s *Service) CreateBlock(ctx context.Context, actor StaffActor, input Block
 		return Block{}, err
 	}
 
-	return withScheduleQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (Block, error) {
-		if err := s.validateBlockReferences(ctx, queries, resolved); err != nil {
-			return Block{}, err
-		}
-		snapshot, err := s.loadFacilitySnapshot(ctx, queries, resolved.FacilityKey)
-		if err != nil {
-			return Block{}, err
-		}
+	if err := s.validateBlockReferences(ctx, queries, resolved); err != nil {
+		return Block{}, err
+	}
+	snapshot, err := s.loadFacilitySnapshot(ctx, queries, resolved.FacilityKey)
+	if err != nil {
+		return Block{}, err
+	}
 
-		writeParams, err := s.prepareCandidateBlock(ctx, queries, actor, resolved, snapshot, s.now().UTC())
-		if err != nil {
-			return Block{}, err
-		}
+	writeParams, err := s.prepareCandidateBlock(ctx, queries, actor, resolved, snapshot, s.now().UTC())
+	if err != nil {
+		return Block{}, err
+	}
 
-		if err := s.validateBlockAgainstSnapshot(writeParams.candidate, snapshot); err != nil {
-			return Block{}, err
-		}
+	if err := s.validateBlockAgainstSnapshot(writeParams.candidate, snapshot); err != nil {
+		return Block{}, err
+	}
 
-		row, err := queries.CreateScheduleBlock(ctx, writeParams.params)
-		if err != nil {
-			return Block{}, err
-		}
+	row, err := queries.CreateScheduleBlock(ctx, writeParams.params)
+	if err != nil {
+		return Block{}, err
+	}
 
-		block := blockFromStore(row)
-		return s.decorateBlock(block, append(snapshot.blocks, block), snapshot, writeParams.window)
-	})
+	block := blockFromStore(row)
+	return s.decorateBlock(block, append(snapshot.blocks, block), snapshot, writeParams.window)
+}
+
+func (s *Service) PreviewBlock(ctx context.Context, input BlockInput) (AvailabilityDecision, error) {
+	queries := store.New(s.repository.db)
+	return s.PreviewBlockWithQueries(ctx, queries, input)
+}
+
+func (s *Service) PreviewBlockWithQueries(ctx context.Context, queries *store.Queries, input BlockInput) (AvailabilityDecision, error) {
+	resolved, err := validateBlockInput(input)
+	if err != nil {
+		return AvailabilityDecision{}, err
+	}
+	if err := s.validateBlockReferences(ctx, queries, resolved); err != nil {
+		return AvailabilityDecision{}, err
+	}
+
+	snapshot, err := s.loadFacilitySnapshot(ctx, queries, resolved.FacilityKey)
+	if err != nil {
+		return AvailabilityDecision{}, err
+	}
+
+	candidate, window, err := s.previewCandidateBlock(ctx, queries, resolved, snapshot, s.now().UTC())
+	if err != nil {
+		return AvailabilityDecision{}, err
+	}
+
+	if err := s.validateBlockAgainstSnapshot(candidate, snapshot); err != nil {
+		if errors.Is(err, ErrBlockConflictRejected) {
+			decorated, decorateErr := s.decorateBlock(candidate, append(snapshot.blocks, candidate), snapshot, window)
+			if decorateErr != nil {
+				return AvailabilityDecision{}, decorateErr
+			}
+			return AvailabilityDecision{
+				Status:    AvailabilityConflict,
+				Available: false,
+				Conflicts: decorated.Conflicts,
+			}, nil
+		}
+		return AvailabilityDecision{}, err
+	}
+
+	decorated, err := s.decorateBlock(candidate, append(snapshot.blocks, candidate), snapshot, window)
+	if err != nil {
+		return AvailabilityDecision{}, err
+	}
+	status := AvailabilityAvailable
+	available := true
+	if len(decorated.Conflicts) > 0 {
+		status = AvailabilityConflict
+		available = false
+	}
+	return AvailabilityDecision{
+		Status:    status,
+		Available: available,
+		Conflicts: decorated.Conflicts,
+	}, nil
 }
 
 func (s *Service) validateBlockReferences(ctx context.Context, queries *store.Queries, input BlockInput) error {
@@ -450,21 +510,28 @@ func (s *Service) validateFacilityAndZone(ctx context.Context, queries *store.Qu
 		return nil
 	}
 
-	var zoneExists bool
-	if err := s.repository.db.QueryRow(ctx, `
-SELECT EXISTS (
-    SELECT 1
-    FROM apollo.facility_zone_refs
-    WHERE facility_key = $1
-      AND zone_key = $2
-)
-`, facilityKey, *zoneKey).Scan(&zoneExists); err != nil {
+	zoneExists, err := queries.FacilityZoneRefExists(ctx, store.FacilityZoneRefExistsParams{
+		FacilityKey: facilityKey,
+		ZoneKey:     *zoneKey,
+	})
+	if err != nil {
 		return err
 	}
 	if !zoneExists {
 		return ErrResourceZoneInvalid
 	}
 	return nil
+}
+
+func (s *Service) previewCandidateBlock(ctx context.Context, queries *store.Queries, input BlockInput, snapshot *facilitySnapshot, now time.Time) (Block, CalendarWindow, error) {
+	params, err := s.prepareCandidateBlock(ctx, queries, StaffActor{}, input, snapshot, now)
+	if err != nil {
+		return Block{}, CalendarWindow{}, err
+	}
+
+	candidate := params.candidate
+	candidate.ID = uuid.New()
+	return candidate, params.window, nil
 }
 
 func (s *Service) requireResource(ctx context.Context, queries *store.Queries, resourceKey string) (store.ApolloScheduleResource, error) {

@@ -14,7 +14,7 @@ const (
 	ScopeResource = "resource"
 
 	ScheduleTypeOneOff = "one_off"
-	ScheduleTypeWeekly  = "weekly"
+	ScheduleTypeWeekly = "weekly"
 
 	KindOperatingHours = "operating_hours"
 	KindClosure        = "closure"
@@ -39,6 +39,9 @@ const (
 	EdgeExclusiveWith = "exclusive_with"
 
 	DefaultCalendarWindowDays = 90
+
+	AvailabilityAvailable = "available"
+	AvailabilityConflict  = "conflict"
 )
 
 type StaffActor struct {
@@ -51,16 +54,16 @@ type StaffActor struct {
 }
 
 type Resource struct {
-	ResourceKey  string     `json:"resource_key"`
-	FacilityKey  string     `json:"facility_key"`
-	ZoneKey      *string    `json:"zone_key,omitempty"`
-	ResourceType string     `json:"resource_type"`
-	DisplayName  string     `json:"display_name"`
-	PublicLabel  *string    `json:"public_label,omitempty"`
-	Bookable     bool       `json:"bookable"`
-	Active       bool       `json:"active"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ResourceKey  string         `json:"resource_key"`
+	FacilityKey  string         `json:"facility_key"`
+	ZoneKey      *string        `json:"zone_key,omitempty"`
+	ResourceType string         `json:"resource_type"`
+	DisplayName  string         `json:"display_name"`
+	PublicLabel  *string        `json:"public_label,omitempty"`
+	Bookable     bool           `json:"bookable"`
+	Active       bool           `json:"active"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 	Edges        []ResourceEdge `json:"edges,omitempty"`
 }
 
@@ -77,16 +80,16 @@ type ResourceInput struct {
 
 type ResourceEdge struct {
 	ResourceKey        string    `json:"resource_key"`
-	RelatedResourceKey  string    `json:"related_resource_key"`
+	RelatedResourceKey string    `json:"related_resource_key"`
 	EdgeType           string    `json:"edge_type"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type ResourceEdgeInput struct {
-	ResourceKey       string `json:"resource_key"`
+	ResourceKey        string `json:"resource_key"`
 	RelatedResourceKey string `json:"related_resource_key"`
-	EdgeType          string `json:"edge_type"`
+	EdgeType           string `json:"edge_type"`
 }
 
 type OneOffInput struct {
@@ -104,15 +107,15 @@ type WeeklyInput struct {
 }
 
 type BlockInput struct {
-	FacilityKey string  `json:"facility_key"`
-	ZoneKey     *string `json:"zone_key,omitempty"`
-	ResourceKey *string `json:"resource_key,omitempty"`
-	Scope       string  `json:"scope"`
-	Kind        string  `json:"kind"`
-	Effect      string  `json:"effect"`
-	Visibility  string  `json:"visibility"`
+	FacilityKey string       `json:"facility_key"`
+	ZoneKey     *string      `json:"zone_key,omitempty"`
+	ResourceKey *string      `json:"resource_key,omitempty"`
+	Scope       string       `json:"scope"`
+	Kind        string       `json:"kind"`
+	Effect      string       `json:"effect"`
+	Visibility  string       `json:"visibility"`
 	OneOff      *OneOffInput `json:"one_off,omitempty"`
-	Weekly      *WeeklyInput  `json:"weekly,omitempty"`
+	Weekly      *WeeklyInput `json:"weekly,omitempty"`
 }
 
 type BlockExceptionInput struct {
@@ -129,71 +132,77 @@ type CalendarWindow struct {
 }
 
 type Conflict struct {
-	BlockID   uuid.UUID `json:"block_id"`
-	Reason    string    `json:"reason"`
-	Scope     string    `json:"scope"`
-	Kind      string    `json:"kind"`
-	Effect    string    `json:"effect"`
+	BlockID    uuid.UUID `json:"block_id"`
+	Reason     string    `json:"reason"`
+	Scope      string    `json:"scope"`
+	Kind       string    `json:"kind"`
+	Effect     string    `json:"effect"`
 	Visibility string    `json:"visibility"`
 }
 
+type AvailabilityDecision struct {
+	Status    string     `json:"status"`
+	Available bool       `json:"available"`
+	Conflicts []Conflict `json:"conflicts,omitempty"`
+}
+
 type Block struct {
-	ID                           uuid.UUID   `json:"id"`
-	FacilityKey                  string      `json:"facility_key"`
-	ZoneKey                      *string     `json:"zone_key,omitempty"`
-	ResourceKey                  *string     `json:"resource_key,omitempty"`
-	Scope                        string      `json:"scope"`
-	ScheduleType                 string      `json:"schedule_type"`
-	Kind                         string      `json:"kind"`
-	Effect                       string      `json:"effect"`
-	Visibility                   string      `json:"visibility"`
-	Status                       string      `json:"status"`
-	Version                      int         `json:"version"`
-	Weekday                      *int        `json:"weekday,omitempty"`
-	StartTime                    *string     `json:"start_time,omitempty"`
-	EndTime                      *string     `json:"end_time,omitempty"`
-	Timezone                     *string     `json:"timezone,omitempty"`
-	RecurrenceStartDate          *string     `json:"recurrence_start_date,omitempty"`
-	RecurrenceEndDate            *string     `json:"recurrence_end_date,omitempty"`
-	StartAt                      *time.Time  `json:"start_at,omitempty"`
-	EndAt                        *time.Time  `json:"end_at,omitempty"`
-	CreatedByUserID              uuid.UUID   `json:"created_by_user_id"`
-	CreatedBySessionID           uuid.UUID   `json:"created_by_session_id"`
-	CreatedByRole                string      `json:"created_by_role"`
-	CreatedByCapability          string      `json:"created_by_capability"`
-	CreatedTrustedSurfaceKey     string      `json:"created_trusted_surface_key"`
-	CreatedTrustedSurfaceLabel   *string     `json:"created_trusted_surface_label,omitempty"`
-	UpdatedByUserID              uuid.UUID   `json:"updated_by_user_id"`
-	UpdatedBySessionID           uuid.UUID   `json:"updated_by_session_id"`
-	UpdatedByRole                string      `json:"updated_by_role"`
-	UpdatedByCapability          string      `json:"updated_by_capability"`
-	UpdatedTrustedSurfaceKey     string      `json:"updated_trusted_surface_key"`
-	UpdatedTrustedSurfaceLabel   *string     `json:"updated_trusted_surface_label,omitempty"`
-	CreatedAt                    time.Time   `json:"created_at"`
-	UpdatedAt                    time.Time   `json:"updated_at"`
-	CancelledAt                  *time.Time  `json:"cancelled_at,omitempty"`
-	CancelledByUserID            *uuid.UUID  `json:"cancelled_by_user_id,omitempty"`
-	CancelledBySessionID         *uuid.UUID  `json:"cancelled_by_session_id,omitempty"`
-	CancelledByRole              *string     `json:"cancelled_by_role,omitempty"`
-	CancelledByCapability        *string     `json:"cancelled_by_capability,omitempty"`
-	CancelledTrustedSurfaceKey   *string     `json:"cancelled_trusted_surface_key,omitempty"`
-	CancelledTrustedSurfaceLabel *string     `json:"cancelled_trusted_surface_label,omitempty"`
-	Conflicts                    []Conflict  `json:"conflicts,omitempty"`
-	Exceptions                   []string    `json:"exceptions,omitempty"`
+	ID                           uuid.UUID  `json:"id"`
+	FacilityKey                  string     `json:"facility_key"`
+	ZoneKey                      *string    `json:"zone_key,omitempty"`
+	ResourceKey                  *string    `json:"resource_key,omitempty"`
+	Scope                        string     `json:"scope"`
+	ScheduleType                 string     `json:"schedule_type"`
+	Kind                         string     `json:"kind"`
+	Effect                       string     `json:"effect"`
+	Visibility                   string     `json:"visibility"`
+	Status                       string     `json:"status"`
+	Version                      int        `json:"version"`
+	Weekday                      *int       `json:"weekday,omitempty"`
+	StartTime                    *string    `json:"start_time,omitempty"`
+	EndTime                      *string    `json:"end_time,omitempty"`
+	Timezone                     *string    `json:"timezone,omitempty"`
+	RecurrenceStartDate          *string    `json:"recurrence_start_date,omitempty"`
+	RecurrenceEndDate            *string    `json:"recurrence_end_date,omitempty"`
+	StartAt                      *time.Time `json:"start_at,omitempty"`
+	EndAt                        *time.Time `json:"end_at,omitempty"`
+	CreatedByUserID              uuid.UUID  `json:"created_by_user_id"`
+	CreatedBySessionID           uuid.UUID  `json:"created_by_session_id"`
+	CreatedByRole                string     `json:"created_by_role"`
+	CreatedByCapability          string     `json:"created_by_capability"`
+	CreatedTrustedSurfaceKey     string     `json:"created_trusted_surface_key"`
+	CreatedTrustedSurfaceLabel   *string    `json:"created_trusted_surface_label,omitempty"`
+	UpdatedByUserID              uuid.UUID  `json:"updated_by_user_id"`
+	UpdatedBySessionID           uuid.UUID  `json:"updated_by_session_id"`
+	UpdatedByRole                string     `json:"updated_by_role"`
+	UpdatedByCapability          string     `json:"updated_by_capability"`
+	UpdatedTrustedSurfaceKey     string     `json:"updated_trusted_surface_key"`
+	UpdatedTrustedSurfaceLabel   *string    `json:"updated_trusted_surface_label,omitempty"`
+	CreatedAt                    time.Time  `json:"created_at"`
+	UpdatedAt                    time.Time  `json:"updated_at"`
+	CancelledAt                  *time.Time `json:"cancelled_at,omitempty"`
+	CancelledByUserID            *uuid.UUID `json:"cancelled_by_user_id,omitempty"`
+	CancelledBySessionID         *uuid.UUID `json:"cancelled_by_session_id,omitempty"`
+	CancelledByRole              *string    `json:"cancelled_by_role,omitempty"`
+	CancelledByCapability        *string    `json:"cancelled_by_capability,omitempty"`
+	CancelledTrustedSurfaceKey   *string    `json:"cancelled_trusted_surface_key,omitempty"`
+	CancelledTrustedSurfaceLabel *string    `json:"cancelled_trusted_surface_label,omitempty"`
+	Conflicts                    []Conflict `json:"conflicts,omitempty"`
+	Exceptions                   []string   `json:"exceptions,omitempty"`
 }
 
 type Occurrence struct {
-	BlockID         uuid.UUID  `json:"block_id"`
-	FacilityKey     string     `json:"facility_key"`
-	ZoneKey         *string    `json:"zone_key,omitempty"`
-	ResourceKey     *string    `json:"resource_key,omitempty"`
-	Scope           string     `json:"scope"`
-	Kind            string     `json:"kind"`
-	Effect          string     `json:"effect"`
-	Visibility      string     `json:"visibility"`
-	Status          string     `json:"status"`
-	StartsAt        time.Time  `json:"starts_at"`
-	EndsAt          time.Time  `json:"ends_at"`
-	OccurrenceDate  string     `json:"occurrence_date"`
-	Conflicts       []Conflict `json:"conflicts,omitempty"`
+	BlockID        uuid.UUID  `json:"block_id"`
+	FacilityKey    string     `json:"facility_key"`
+	ZoneKey        *string    `json:"zone_key,omitempty"`
+	ResourceKey    *string    `json:"resource_key,omitempty"`
+	Scope          string     `json:"scope"`
+	Kind           string     `json:"kind"`
+	Effect         string     `json:"effect"`
+	Visibility     string     `json:"visibility"`
+	Status         string     `json:"status"`
+	StartsAt       time.Time  `json:"starts_at"`
+	EndsAt         time.Time  `json:"ends_at"`
+	OccurrenceDate string     `json:"occurrence_date"`
+	Conflicts      []Conflict `json:"conflicts,omitempty"`
 }
