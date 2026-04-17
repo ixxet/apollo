@@ -67,6 +67,76 @@ func TestBookingRequestAuthzEnforcesStaffMatrixAndTrustedSurface(t *testing.T) {
 	}
 }
 
+func TestBookingRequestStaffCreateIdempotency(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	managerCookie, manager := createVerifiedSessionViaHTTP(t, env, "student-booking-staff-idem-001", "booking-staff-idem-001@example.com")
+	setUserRole(t, env, manager.ID, authz.RoleManager)
+	resourceKey := insertBookingHTTPResource(t, env, "booking-staff-idem-court")
+	email := "staff-idempotent@example.com"
+	body := bookingRequestJSONWithEmail(resourceKey, "2026-04-18T18:00:00Z", "2026-04-18T19:00:00Z", email)
+	headers := staffBookingIdempotencyHeaders(env, "staff-idem-key-001")
+
+	first := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/booking/requests", bytes.NewBufferString(body), headers, managerCookie)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first staff idempotent create code = %d, want %d body=%s", first.Code, http.StatusCreated, first.Body.String())
+	}
+	firstRequest := decodeBookingRequest(t, first)
+
+	duplicate := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/booking/requests", bytes.NewBufferString(body), headers, managerCookie)
+	if duplicate.Code != http.StatusCreated {
+		t.Fatalf("duplicate staff idempotent create code = %d, want %d body=%s", duplicate.Code, http.StatusCreated, duplicate.Body.String())
+	}
+	duplicateRequest := decodeBookingRequest(t, duplicate)
+	if duplicateRequest.ID != firstRequest.ID {
+		t.Fatalf("duplicate staff idempotent create ID = %s, want %s", duplicateRequest.ID, firstRequest.ID)
+	}
+	if count := countBookingHTTPRequestsByEmail(t, env, email); count != 1 {
+		t.Fatalf("staff idempotent request count = %d, want 1", count)
+	}
+
+	changed := bookingRequestJSONWithEmail(resourceKey, "2026-04-18T19:30:00Z", "2026-04-18T20:30:00Z", email)
+	conflict := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/booking/requests", bytes.NewBufferString(changed), headers, managerCookie)
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("changed staff idempotent create code = %d, want %d body=%s", conflict.Code, http.StatusConflict, conflict.Body.String())
+	}
+	if count := countBookingHTTPRequestsByEmail(t, env, email); count != 1 {
+		t.Fatalf("staff idempotent request count after conflict = %d, want 1", count)
+	}
+}
+
+func TestBookingRequestStaffCreateConcurrentSameKeySerializesDuplicate(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	managerCookie, manager := createVerifiedSessionViaHTTP(t, env, "student-booking-staff-concurrent-001", "booking-staff-concurrent-001@example.com")
+	setUserRole(t, env, manager.ID, authz.RoleManager)
+	resourceKey := insertBookingHTTPResource(t, env, "booking-staff-concurrent-court")
+	email := "staff-concurrent@example.com"
+	body := bookingRequestJSONWithEmail(resourceKey, "2026-04-18T20:00:00Z", "2026-04-18T21:00:00Z", email)
+	headers := staffBookingIdempotencyHeaders(env, "staff-concurrent-key-001")
+
+	responses := doConcurrentStaffBookingCreates(env, managerCookie, headers, body, body, body, body, body)
+	var firstID uuid.UUID
+	for index, response := range responses {
+		if response.Code != http.StatusCreated {
+			t.Fatalf("concurrent staff create %d code = %d, want %d body=%s", index, response.Code, http.StatusCreated, response.Body.String())
+		}
+		request := decodeBookingRequest(t, response)
+		if index == 0 {
+			firstID = request.ID
+			continue
+		}
+		if request.ID != firstID {
+			t.Fatalf("concurrent staff create %d ID = %s, want %s", index, request.ID, firstID)
+		}
+	}
+	if count := countBookingHTTPRequestsByEmail(t, env, email); count != 1 {
+		t.Fatalf("concurrent staff request count = %d, want 1", count)
+	}
+}
+
 func TestBookingRequestApprovalCreatesLinkedReservationAndRejectsConflicts(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
@@ -619,6 +689,41 @@ func doConcurrentPublicBookingSubmits(env *authProfileServerEnv, headers map[str
 	return responses
 }
 
+func doConcurrentStaffBookingCreates(env *authProfileServerEnv, cookie *http.Cookie, headers map[string]string, bodies ...string) []*httptest.ResponseRecorder {
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	responses := make([]*httptest.ResponseRecorder, len(bodies))
+
+	for index, body := range bodies {
+		wg.Add(1)
+		go func(index int, body string) {
+			defer wg.Done()
+			<-start
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/booking/requests", bytes.NewBufferString(body))
+			request.Header.Set("Content-Type", "application/json")
+			for key, value := range headers {
+				request.Header.Set(key, value)
+			}
+			request.AddCookie(cookie)
+			recorder := httptest.NewRecorder()
+			env.handler.ServeHTTP(recorder, request)
+			responses[index] = recorder
+		}(index, body)
+	}
+
+	close(start)
+	wg.Wait()
+	return responses
+}
+
+func staffBookingIdempotencyHeaders(env *authProfileServerEnv, key string) map[string]string {
+	return map[string]string{
+		authz.TrustedSurfaceHeader:      env.trustedSurfaceKey,
+		authz.TrustedSurfaceTokenHeader: env.trustedSurfaceToken,
+		"Idempotency-Key":               key,
+	}
+}
+
 func bookingRequestJSON(resourceKey string, startsAt string, endsAt string) string {
 	return `{
 		"facility_key":"ashtonbee",
@@ -633,6 +738,10 @@ func bookingRequestJSON(resourceKey string, startsAt string, endsAt string) stri
 		"attendee_count":8,
 		"internal_notes":"entered by staff"
 	}`
+}
+
+func bookingRequestJSONWithEmail(resourceKey string, startsAt string, endsAt string, email string) string {
+	return strings.Replace(bookingRequestJSON(resourceKey, startsAt, endsAt), `"contact_email":"casey@example.com"`, `"contact_email":"`+email+`"`, 1)
 }
 
 func assertPublicBookingResponseSafe(t *testing.T, response *httptest.ResponseRecorder) {
