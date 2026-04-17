@@ -131,7 +131,7 @@ type ScheduleManager interface {
 type BookingManager interface {
 	ListRequests(ctx context.Context, facilityKey string) ([]booking.Request, error)
 	GetRequest(ctx context.Context, requestID uuid.UUID) (booking.Request, error)
-	CreateRequest(ctx context.Context, actor booking.StaffActor, input booking.RequestInput) (booking.Request, error)
+	CreateRequestWithIdempotency(ctx context.Context, actor booking.StaffActor, idempotencyKey string, input booking.RequestInput) (booking.Request, error)
 	ListPublicOptions(ctx context.Context) ([]booking.PublicOption, error)
 	CreatePublicRequest(ctx context.Context, channel string, idempotencyKey string, input booking.PublicRequestInput) (booking.PublicReceipt, error)
 	StartReview(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
@@ -1103,7 +1103,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				return
 			}
 
-			created, err := deps.Booking.CreateRequest(r.Context(), actor, request)
+			created, err := deps.Booking.CreateRequestWithIdempotency(r.Context(), actor, r.Header.Get("Idempotency-Key"), request)
 			if err != nil {
 				writeBookingError(w, err)
 				return
@@ -2254,6 +2254,7 @@ func writeBookingError(w http.ResponseWriter, err error) {
 	case errors.Is(err, booking.ErrRequestVersionStale),
 		errors.Is(err, booking.ErrRequestTransitionInvalid),
 		errors.Is(err, booking.ErrLinkedScheduleBlockDrift),
+		errors.Is(err, booking.ErrIdempotencyConflict),
 		errors.Is(err, schedule.ErrBlockConflictRejected),
 		errors.Is(err, schedule.ErrBlockResourceNotClaimable),
 		errors.Is(err, schedule.ErrBlockClaimableScopeEmpty):
@@ -2269,6 +2270,7 @@ func writeBookingError(w http.ResponseWriter, err error) {
 		errors.Is(err, booking.ErrContactChannelRequired),
 		errors.Is(err, booking.ErrContactEmailInvalid),
 		errors.Is(err, booking.ErrAttendeeCountInvalid),
+		errors.Is(err, booking.ErrIdempotencyKeyRequired),
 		errors.Is(err, booking.ErrExpectedVersionRequired),
 		errors.Is(err, booking.ErrRequestActorRequired),
 		errors.Is(err, booking.ErrRequestTrustedSurface),

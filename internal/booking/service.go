@@ -224,8 +224,21 @@ func (s *Service) CreatePublicRequest(ctx context.Context, channel string, idemp
 }
 
 func (s *Service) CreateRequest(ctx context.Context, actor StaffActor, input RequestInput) (Request, error) {
+	return s.createRequest(ctx, actor, "", input)
+}
+
+func (s *Service) CreateRequestWithIdempotency(ctx context.Context, actor StaffActor, idempotencyKey string, input RequestInput) (Request, error) {
+	return s.createRequest(ctx, actor, idempotencyKey, input)
+}
+
+func (s *Service) createRequest(ctx context.Context, actor StaffActor, idempotencyKey string, input RequestInput) (Request, error) {
 	if err := validateStaffActor(actor); err != nil {
 		return Request{}, err
+	}
+
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if len(idempotencyKey) > publicMaxIdempotencyLength {
+		return Request{}, ErrIdempotencyKeyRequired
 	}
 
 	resolved, err := validateRequestInput(input)
@@ -233,8 +246,37 @@ func (s *Service) CreateRequest(ctx context.Context, actor StaffActor, input Req
 		return Request{}, err
 	}
 	blockInput := scheduleBlockInputForRequest(resolved)
+	keyHash := ""
+	payloadHash := ""
+	if idempotencyKey != "" {
+		keyHash = staffCreateIdempotencyKeyHash(actor, idempotencyKey)
+		payloadHash = staffCreatePayloadHash(resolved)
+	}
 
 	return withBookingQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (Request, error) {
+		if idempotencyKey != "" {
+			if err := queries.LockBookingRequestIdempotencyKey(ctx, keyHash); err != nil {
+				return Request{}, err
+			}
+			existing, err := queries.GetBookingRequestIdempotencyByKeyHashForUpdate(ctx, keyHash)
+			if err == nil {
+				if existing.PayloadHash != payloadHash {
+					return Request{}, ErrIdempotencyConflict
+				}
+				row, err := queries.GetBookingRequestByID(ctx, existing.BookingRequestID)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return Request{}, ErrRequestNotFound
+				}
+				if err != nil {
+					return Request{}, err
+				}
+				return s.requestFromStore(ctx, queries, row)
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return Request{}, err
+			}
+		}
+
 		if s.schedule == nil {
 			return Request{}, ErrScheduleServiceUnavailable
 		}
@@ -268,6 +310,16 @@ func (s *Service) CreateRequest(ctx context.Context, actor StaffActor, input Req
 		})
 		if err != nil {
 			return Request{}, err
+		}
+		if idempotencyKey != "" {
+			if _, err := queries.CreateBookingRequestIdempotencyKey(ctx, store.CreateBookingRequestIdempotencyKeyParams{
+				KeyHash:          keyHash,
+				PayloadHash:      payloadHash,
+				BookingRequestID: row.ID,
+				CreatedAt:        pgTimestamptzFromTime(now),
+			}); err != nil {
+				return Request{}, err
+			}
 		}
 		return s.requestFromStore(ctx, queries, row)
 	})
@@ -620,6 +672,35 @@ func publicPayloadHash(input PublicRequestInput) string {
 		optionalStringValue(input.Organization),
 		optionalStringValue(input.Purpose),
 		optionalIntValue(input.AttendeeCount),
+	}
+	return sha256Hex(strings.Join(parts, "\n"))
+}
+
+func staffCreateIdempotencyKeyHash(actor StaffActor, idempotencyKey string) string {
+	return sha256Hex(strings.Join([]string{
+		"staff",
+		"booking_request",
+		"create",
+		actor.UserID.String(),
+		idempotencyKey,
+	}, "\n"))
+}
+
+func staffCreatePayloadHash(input RequestInput) string {
+	parts := []string{
+		input.FacilityKey,
+		optionalStringValue(input.ZoneKey),
+		optionalStringValue(input.ResourceKey),
+		requestScope(input),
+		input.RequestedStartAt.UTC().Format(time.RFC3339Nano),
+		input.RequestedEndAt.UTC().Format(time.RFC3339Nano),
+		input.ContactName,
+		optionalStringValue(input.ContactEmail),
+		optionalStringValue(input.ContactPhone),
+		optionalStringValue(input.Organization),
+		optionalStringValue(input.Purpose),
+		optionalIntValue(input.AttendeeCount),
+		optionalStringValue(input.InternalNotes),
 	}
 	return sha256Hex(strings.Join(parts, "\n"))
 }
