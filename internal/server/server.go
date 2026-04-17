@@ -134,6 +134,8 @@ type BookingManager interface {
 	CreateRequestWithIdempotency(ctx context.Context, actor booking.StaffActor, idempotencyKey string, input booking.RequestInput) (booking.Request, error)
 	ListPublicOptions(ctx context.Context) ([]booking.PublicOption, error)
 	CreatePublicRequest(ctx context.Context, channel string, idempotencyKey string, input booking.PublicRequestInput) (booking.PublicReceipt, error)
+	GetPublicStatus(ctx context.Context, receiptCode string) (booking.PublicStatus, error)
+	UpdatePublicMessage(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.PublicMessageInput) (booking.Request, error)
 	StartReview(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
 	NeedsChanges(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
 	Reject(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.TransitionInput) (booking.Request, error)
@@ -400,6 +402,20 @@ func NewHandler(deps Dependencies) http.Handler {
 		}
 
 		writeJSON(w, http.StatusAccepted, receipt)
+	})
+	router.Get("/api/v1/public/booking/requests/status", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Booking == nil {
+			writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+			return
+		}
+
+		status, err := deps.Booking.GetPublicStatus(r.Context(), r.URL.Query().Get("receipt_code"))
+		if err != nil {
+			writePublicBookingError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, status)
 	})
 
 	router.Group(func(authenticated chi.Router) {
@@ -1124,6 +1140,36 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			request, err := deps.Booking.GetRequest(r.Context(), requestID)
+			if err != nil {
+				writeBookingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, request)
+		}))
+		authenticated.Post("/api/v1/booking/requests/{requestID}/public-message", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
+			if deps.Booking == nil {
+				writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+				return
+			}
+
+			requestID, err := parseUUIDParam(r, "requestID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var input booking.PublicMessageInput
+			if err := decodeJSONBody(w, r, &input); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if input.ExpectedVersion <= 0 {
+				writeError(w, http.StatusBadRequest, booking.ErrExpectedVersionRequired)
+				return
+			}
+
+			request, err := deps.Booking.UpdatePublicMessage(r.Context(), actor, requestID, input)
 			if err != nil {
 				writeBookingError(w, err)
 				return
@@ -2249,7 +2295,9 @@ func writeScheduleError(w http.ResponseWriter, err error) {
 
 func writeBookingError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, booking.ErrRequestNotFound), errors.Is(err, schedule.ErrResourceNotFound):
+	case errors.Is(err, booking.ErrRequestNotFound),
+		errors.Is(err, booking.ErrPublicReceiptNotFound),
+		errors.Is(err, schedule.ErrResourceNotFound):
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, booking.ErrRequestVersionStale),
 		errors.Is(err, booking.ErrRequestTransitionInvalid),
@@ -2271,6 +2319,7 @@ func writeBookingError(w http.ResponseWriter, err error) {
 		errors.Is(err, booking.ErrContactEmailInvalid),
 		errors.Is(err, booking.ErrAttendeeCountInvalid),
 		errors.Is(err, booking.ErrIdempotencyKeyRequired),
+		errors.Is(err, booking.ErrPublicMessageTooLong),
 		errors.Is(err, booking.ErrExpectedVersionRequired),
 		errors.Is(err, booking.ErrRequestActorRequired),
 		errors.Is(err, booking.ErrRequestTrustedSurface),
@@ -2294,11 +2343,14 @@ func writeBookingError(w http.ResponseWriter, err error) {
 
 func writePublicBookingError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, booking.ErrPublicOptionNotFound), errors.Is(err, schedule.ErrResourceNotFound):
+	case errors.Is(err, booking.ErrPublicOptionNotFound),
+		errors.Is(err, booking.ErrPublicReceiptNotFound),
+		errors.Is(err, schedule.ErrResourceNotFound):
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, booking.ErrIdempotencyConflict):
 		writeError(w, http.StatusConflict, err)
 	case errors.Is(err, booking.ErrPublicOptionRequired),
+		errors.Is(err, booking.ErrPublicReceiptRequired),
 		errors.Is(err, booking.ErrIdempotencyKeyRequired),
 		errors.Is(err, booking.ErrFacilityRequired),
 		errors.Is(err, booking.ErrWindowInvalid),
