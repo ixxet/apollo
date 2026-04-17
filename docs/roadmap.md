@@ -7,11 +7,11 @@ jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3B.6 public request entrypoint
+Current repo/runtime working line on `main`: Phase 3B.7 customer status and communication
 over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
-Phase 3B.5 approved booking lifecycle lines
+Phase 3B.6 public request entrypoint lines
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -110,6 +110,15 @@ Phase 3B.5 approved booking lifecycle lines
   quote, customer status portal, instant booking, Hestia/member booking UI,
   owner policy writes, admin-role widening, gateway work, HERMES widening, or
   deploy claims
+- Phase 3B.7 customer status and communication is now real in repo/runtime on
+  `main`: public submit returns an opaque public receipt code; unauthenticated
+  status lookup by receipt code returns only customer-safe status, optional
+  staff-authored public message, requested window, and update time; manager and
+  owner staff can save the public message through trusted-surface APOLLO APIs;
+  supervisors remain read-only; internal notes, request UUIDs, schedule block
+  IDs, conflicts, staff IDs, trusted-surface fields, quote/payment fields,
+  public availability calendars, instant booking, edit/rebook, AI/LLM
+  negotiation, and deploy claims remain out
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -121,9 +130,10 @@ Phase 3B.5 approved booking lifecycle lines
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime working line on
-`main` is Phase 3B.6 public request entrypoint over the closed Tracer 28
+`main` is Phase 3B.7 customer status and communication over the closed Tracer 28
 authz/staff-boundary truth, Milestone 2.0 hardening follow-up, scheduling
-substrate, member-safe calendar, ops-read, and approved booking lifecycle lines.
+substrate, member-safe calendar, ops-read, approved booking lifecycle, and
+public request entrypoint lines.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -135,18 +145,19 @@ substrate, member-safe calendar, ops-read, and approved booking lifecycle lines.
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
-| later than `Phase 3B.1` | `Phase 3B.6 public request entrypoint` on `main`: APOLLO-owned staff and public request persistence, staff APIs, public-safe options, idempotent neutral public submit, source/channel truth, availability decisions, approval-created linked schedule reservations, and approved cancellation of those reservations | keep members denied, supervisor read-only, manager/owner managed, trusted-surface gated for staff mutations, idempotency-keyed for public submit, versioned, request-first, and APOLLO-authoritative for conflict truth and linked reservation cancellation | do not widen into instant booking, customer status portals, quotes/payments, in-place approved editing, Hestia/member booking UI, owner policy writes, admin role widening, HERMES widening, gateway widening, or deploy claims |
+| later than `Phase 3B.1` | `Phase 3B.7 customer status and communication` on `main`: APOLLO-owned staff and public request persistence, staff APIs, public-safe options, idempotent public submit, opaque receipt/status lookup, separate public-safe customer messages, source/channel truth, availability decisions, approval-created linked schedule reservations, and approved cancellation of those reservations | keep members denied, supervisor read-only, manager/owner managed, trusted-surface gated for staff mutations, idempotency-keyed for public submit, versioned, request-first, and APOLLO-authoritative for conflict truth, receipt/status mapping, public messages, and linked reservation cancellation | do not widen into instant booking, public availability calendars, broader customer self-service/status portals, quotes/payments, edit/rebook, owner policy writes, admin role widening, AI/LLM negotiation, HERMES widening, gateway widening, or deploy claims |
 
 ## Current Phase 3B Line
 
-Phase 3B.6 public request entrypoint is now real in repo/runtime on `main`,
+Phase 3B.7 customer status and communication is now real in repo/runtime on `main`,
 with deployed truth still separate and unchanged. Phase 3B.5 approved booking
-lifecycle is the latest closed line this public intake builds on.
+lifecycle and Phase 3B.6 public request entrypoint are the latest closed lines
+this status/message lookup builds on.
 
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
-- public availability calendar, customer status portal, instant booking, and customer self-service
+- public availability calendar, broader customer self-service/status portal, instant booking, and edit/rebook
 - in-place approved-booking editing or cancel-and-new-request rebooking
 - public competition, rivalry, or social presentation
 - staff shell, HERMES widening, gateway coupling, and deploy work
