@@ -72,12 +72,27 @@ type PublicRequestInput struct {
 }
 
 type PublicReceipt struct {
-	Status string `json:"status"`
+	Status      string `json:"status"`
+	ReceiptCode string `json:"receipt_code"`
+}
+
+type PublicStatus struct {
+	ReceiptCode      string    `json:"receipt_code"`
+	Status           string    `json:"status"`
+	Message          *string   `json:"message,omitempty"`
+	RequestedStartAt time.Time `json:"requested_start_at"`
+	RequestedEndAt   time.Time `json:"requested_end_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type TransitionInput struct {
 	ExpectedVersion int     `json:"expected_version"`
 	InternalNotes   *string `json:"internal_notes,omitempty"`
+}
+
+type PublicMessageInput struct {
+	ExpectedVersion int     `json:"expected_version"`
+	PublicMessage   *string `json:"public_message,omitempty"`
 }
 
 type AvailabilityDecision struct {
@@ -104,6 +119,9 @@ type Request struct {
 	InternalNotes              *string              `json:"internal_notes,omitempty"`
 	RequestSource              string               `json:"request_source"`
 	IntakeChannel              string               `json:"intake_channel"`
+	PublicReceiptCode          *string              `json:"public_receipt_code,omitempty"`
+	PublicStatus               *string              `json:"public_status,omitempty"`
+	PublicMessage              *string              `json:"public_message,omitempty"`
 	Status                     string               `json:"status"`
 	Version                    int                  `json:"version"`
 	ScheduleBlockID            *uuid.UUID           `json:"schedule_block_id,omitempty"`

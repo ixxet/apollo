@@ -322,6 +322,14 @@ type ApolloPlannerWeek struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
+type ApolloPublicBookingReceipt struct {
+	ReceiptCode      string
+	BookingRequestID uuid.UUID
+	PublicMessage    *string
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
 type ApolloRecommendation struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID

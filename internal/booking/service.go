@@ -2,7 +2,9 @@ package booking
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base32"
 	"encoding/hex"
 	"errors"
 	"net/mail"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/ixxet/apollo/internal/schedule"
@@ -35,6 +38,10 @@ var (
 	ErrPublicDurationInvalid      = errors.New("booking request duration is invalid")
 	ErrIdempotencyKeyRequired     = errors.New("idempotency key is required")
 	ErrIdempotencyConflict        = errors.New("idempotency key has already been used for a different request")
+	ErrPublicReceiptRequired      = errors.New("booking receipt code is required")
+	ErrPublicReceiptNotFound      = errors.New("booking receipt was not found")
+	ErrPublicReceiptGeneration    = errors.New("booking receipt could not be generated")
+	ErrPublicMessageTooLong       = errors.New("booking public message is too long")
 	ErrExpectedVersionRequired    = errors.New("expected_version must be positive")
 	ErrRequestVersionStale        = errors.New("booking request version is stale")
 	ErrRequestTransitionInvalid   = errors.New("booking request transition is invalid")
@@ -51,12 +58,18 @@ const (
 	publicMaxOrganizationLength = 120
 	publicMaxPurposeLength      = 1000
 	publicMaxIdempotencyLength  = 200
+	publicMaxReceiptCodeLength  = 80
+	publicMaxMessageLength      = 1000
 	publicMaxAttendeeCount      = 500
 
 	publicMinDuration = 30 * time.Minute
 	publicMaxDuration = 8 * time.Hour
 	publicMaxHorizon  = 180 * 24 * time.Hour
+
+	publicReceiptInsertAttempts = 5
 )
+
+var publicReceiptEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
 
 type Service struct {
 	repository *Repository
@@ -134,7 +147,6 @@ func (s *Service) CreatePublicRequest(ctx context.Context, channel string, idemp
 
 	keyHash := sha256Hex(idempotencyKey)
 	payloadHash := publicPayloadHash(normalized)
-	receipt := PublicReceipt{Status: "received"}
 
 	return withBookingQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (PublicReceipt, error) {
 		if err := queries.LockBookingRequestIdempotencyKey(ctx, keyHash); err != nil {
@@ -144,7 +156,14 @@ func (s *Service) CreatePublicRequest(ctx context.Context, channel string, idemp
 		existing, err := queries.GetBookingRequestIdempotencyByKeyHashForUpdate(ctx, keyHash)
 		if err == nil {
 			if existing.PayloadHash == payloadHash {
-				return receipt, nil
+				status, err := s.publicStatusByRequestID(ctx, queries, existing.BookingRequestID)
+				if err != nil {
+					return PublicReceipt{}, err
+				}
+				return PublicReceipt{
+					Status:      status.Status,
+					ReceiptCode: status.ReceiptCode,
+				}, nil
 			}
 			return PublicReceipt{}, ErrIdempotencyConflict
 		}
@@ -219,7 +238,82 @@ func (s *Service) CreatePublicRequest(ctx context.Context, channel string, idemp
 			return PublicReceipt{}, err
 		}
 
-		return receipt, nil
+		receipt, err := s.createPublicBookingReceipt(ctx, queries, row.ID, now)
+		if err != nil {
+			return PublicReceipt{}, err
+		}
+
+		return PublicReceipt{
+			Status:      publicStatusFromInternal(row.Status),
+			ReceiptCode: receipt.ReceiptCode,
+		}, nil
+	})
+}
+
+func (s *Service) GetPublicStatus(ctx context.Context, receiptCode string) (PublicStatus, error) {
+	receiptCode, err := normalizeReceiptCode(receiptCode)
+	if err != nil {
+		return PublicStatus{}, err
+	}
+
+	row, err := store.New(s.repository.db).GetPublicBookingStatusByReceiptCode(ctx, receiptCode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PublicStatus{}, ErrPublicReceiptNotFound
+	}
+	if err != nil {
+		return PublicStatus{}, err
+	}
+
+	return publicStatusFromRow(row.ReceiptCode, row.Status, row.PublicMessage, row.RequestedStartAt, row.RequestedEndAt, row.UpdatedAt), nil
+}
+
+func (s *Service) UpdatePublicMessage(ctx context.Context, actor StaffActor, requestID uuid.UUID, input PublicMessageInput) (Request, error) {
+	if err := validateStaffActor(actor); err != nil {
+		return Request{}, err
+	}
+	if input.ExpectedVersion <= 0 {
+		return Request{}, ErrExpectedVersionRequired
+	}
+	publicMessage, err := normalizePublicMessage(input.PublicMessage)
+	if err != nil {
+		return Request{}, err
+	}
+
+	return withBookingQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (Request, error) {
+		current, err := s.requireCurrentForTransition(ctx, queries, requestID, input.ExpectedVersion)
+		if err != nil {
+			return Request{}, err
+		}
+
+		now := s.now().UTC()
+		if _, err := queries.UpdatePublicBookingReceiptMessage(ctx, store.UpdatePublicBookingReceiptMessageParams{
+			BookingRequestID: current.ID,
+			PublicMessage:    publicMessage,
+			UpdatedAt:        pgTimestamptzFromTime(now),
+		}); errors.Is(err, pgx.ErrNoRows) {
+			return Request{}, ErrPublicReceiptNotFound
+		} else if err != nil {
+			return Request{}, err
+		}
+
+		row, err := queries.TouchBookingRequestPublicMessage(ctx, store.TouchBookingRequestPublicMessageParams{
+			ID:                         current.ID,
+			UpdatedByUserID:            pgUUIDFromUUID(actor.UserID),
+			UpdatedBySessionID:         pgUUIDFromUUID(actor.SessionID),
+			UpdatedByRole:              requiredStringPtr(string(actor.Role)),
+			UpdatedByCapability:        requiredStringPtr(string(actor.Capability)),
+			UpdatedTrustedSurfaceKey:   requiredStringPtr(actor.TrustedSurfaceKey),
+			UpdatedTrustedSurfaceLabel: nullableStringPtr(actor.TrustedSurfaceLabel),
+			UpdatedAt:                  pgTimestamptzFromTime(now),
+			Version:                    current.Version,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Request{}, ErrRequestVersionStale
+		}
+		if err != nil {
+			return Request{}, err
+		}
+		return s.requestFromStore(ctx, queries, row)
 	})
 }
 
@@ -510,7 +604,63 @@ func (s *Service) requestFromStore(ctx context.Context, queries *store.Queries, 
 	if err != nil {
 		return Request{}, err
 	}
-	return requestFromStore(row, availability), nil
+	publicReceipt, err := s.publicReceiptForRequest(ctx, queries, row.ID)
+	if err != nil {
+		return Request{}, err
+	}
+	return requestFromStore(row, availability, publicReceipt), nil
+}
+
+func (s *Service) createPublicBookingReceipt(ctx context.Context, queries *store.Queries, requestID uuid.UUID, now time.Time) (store.ApolloPublicBookingReceipt, error) {
+	for attempt := 0; attempt < publicReceiptInsertAttempts; attempt++ {
+		receiptCode, err := generatePublicReceiptCode()
+		if err != nil {
+			return store.ApolloPublicBookingReceipt{}, err
+		}
+		receipt, err := queries.CreatePublicBookingReceipt(ctx, store.CreatePublicBookingReceiptParams{
+			ReceiptCode:      receiptCode,
+			BookingRequestID: requestID,
+			CreatedAt:        pgTimestamptzFromTime(now),
+		})
+		if isUniqueViolation(err) {
+			continue
+		}
+		if err != nil {
+			return store.ApolloPublicBookingReceipt{}, err
+		}
+		return receipt, nil
+	}
+	return store.ApolloPublicBookingReceipt{}, ErrPublicReceiptGeneration
+}
+
+func (s *Service) publicStatusByRequestID(ctx context.Context, queries *store.Queries, requestID uuid.UUID) (PublicStatus, error) {
+	row, err := queries.GetPublicBookingStatusByRequestID(ctx, requestID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PublicStatus{}, ErrPublicReceiptNotFound
+	}
+	if err != nil {
+		return PublicStatus{}, err
+	}
+	return publicStatusFromRow(row.ReceiptCode, row.Status, row.PublicMessage, row.RequestedStartAt, row.RequestedEndAt, row.UpdatedAt), nil
+}
+
+type requestPublicReceipt struct {
+	ReceiptCode   string
+	PublicMessage *string
+}
+
+func (s *Service) publicReceiptForRequest(ctx context.Context, queries *store.Queries, requestID uuid.UUID) (*requestPublicReceipt, error) {
+	receipt, err := queries.GetPublicBookingReceiptByBookingRequestID(ctx, requestID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &requestPublicReceipt{
+		ReceiptCode:   receipt.ReceiptCode,
+		PublicMessage: receipt.PublicMessage,
+	}, nil
 }
 
 func (s *Service) availabilityForRequest(ctx context.Context, queries *store.Queries, row store.ApolloBookingRequest) (AvailabilityDecision, error) {
@@ -661,6 +811,58 @@ func normalizePublicIntakeChannel(channel string) string {
 	}
 }
 
+func normalizeReceiptCode(value string) (string, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	if normalized == "" || len(normalized) > publicMaxReceiptCodeLength {
+		return "", ErrPublicReceiptRequired
+	}
+	return normalized, nil
+}
+
+func normalizePublicMessage(value *string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if len(trimmed) > publicMaxMessageLength {
+		return nil, ErrPublicMessageTooLong
+	}
+	return &trimmed, nil
+}
+
+func publicStatusFromInternal(status string) string {
+	switch status {
+	case StatusRequested:
+		return "received"
+	case StatusUnderReview:
+		return "under_review"
+	case StatusNeedsChanges:
+		return "more_information_needed"
+	case StatusApproved:
+		return "approved"
+	case StatusRejected:
+		return "declined"
+	case StatusCancelled:
+		return "cancelled"
+	default:
+		return "under_review"
+	}
+}
+
+func publicStatusFromRow(receiptCode string, internalStatus string, message *string, requestedStartAt pgtype.Timestamptz, requestedEndAt pgtype.Timestamptz, updatedAt pgtype.Timestamptz) PublicStatus {
+	return PublicStatus{
+		ReceiptCode:      receiptCode,
+		Status:           publicStatusFromInternal(internalStatus),
+		Message:          message,
+		RequestedStartAt: requestedStartAt.Time.UTC(),
+		RequestedEndAt:   requestedEndAt.Time.UTC(),
+		UpdatedAt:        updatedAt.Time.UTC(),
+	}
+}
+
 func publicPayloadHash(input PublicRequestInput) string {
 	parts := []string{
 		input.OptionID.String(),
@@ -708,6 +910,27 @@ func staffCreatePayloadHash(input RequestInput) string {
 func sha256Hex(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+func generatePublicReceiptCode() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", ErrPublicReceiptGeneration
+	}
+	encoded := publicReceiptEncoding.EncodeToString(raw[:])
+	return strings.Join([]string{
+		"BR",
+		encoded[0:5],
+		encoded[5:10],
+		encoded[10:15],
+		encoded[15:20],
+		encoded[20:],
+	}, "-"), nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func requestScope(input RequestInput) string {
@@ -781,8 +1004,8 @@ func isLinkedScheduleDrift(err error) bool {
 		errors.Is(err, schedule.ErrBlockVersionStale)
 }
 
-func requestFromStore(row store.ApolloBookingRequest, availability AvailabilityDecision) Request {
-	return Request{
+func requestFromStore(row store.ApolloBookingRequest, availability AvailabilityDecision, publicReceipt *requestPublicReceipt) Request {
+	request := Request{
 		ID:                         row.ID,
 		FacilityKey:                row.FacilityKey,
 		ZoneKey:                    row.ZoneKey,
@@ -818,6 +1041,13 @@ func requestFromStore(row store.ApolloBookingRequest, availability AvailabilityD
 		CreatedAt:                  row.CreatedAt.Time.UTC(),
 		UpdatedAt:                  row.UpdatedAt.Time.UTC(),
 	}
+	if publicReceipt != nil {
+		request.PublicReceiptCode = &publicReceipt.ReceiptCode
+		publicStatus := publicStatusFromInternal(row.Status)
+		request.PublicStatus = &publicStatus
+		request.PublicMessage = publicReceipt.PublicMessage
+	}
+	return request
 }
 
 func trimOptionalString(value *string) *string {

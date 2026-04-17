@@ -351,3 +351,110 @@ RETURNING key_hash,
           payload_hash,
           booking_request_id,
           created_at;
+
+-- name: CreatePublicBookingReceipt :one
+INSERT INTO apollo.public_booking_receipts (
+    receipt_code,
+    booking_request_id,
+    created_at,
+    updated_at
+)
+VALUES ($1, $2, $3, $3)
+RETURNING receipt_code,
+          booking_request_id,
+          public_message,
+          created_at,
+          updated_at;
+
+-- name: GetPublicBookingReceiptByBookingRequestID :one
+SELECT receipt_code,
+       booking_request_id,
+       public_message,
+       created_at,
+       updated_at
+FROM apollo.public_booking_receipts
+WHERE booking_request_id = $1
+LIMIT 1;
+
+-- name: GetPublicBookingStatusByReceiptCode :one
+SELECT receipt.receipt_code,
+       request.status,
+       receipt.public_message,
+       request.requested_start_at,
+       request.requested_end_at,
+       GREATEST(request.updated_at, receipt.updated_at)::timestamptz AS updated_at
+FROM apollo.public_booking_receipts AS receipt
+JOIN apollo.booking_requests AS request
+  ON request.id = receipt.booking_request_id
+WHERE receipt.receipt_code = $1
+LIMIT 1;
+
+-- name: GetPublicBookingStatusByRequestID :one
+SELECT receipt.receipt_code,
+       request.status,
+       receipt.public_message,
+       request.requested_start_at,
+       request.requested_end_at,
+       GREATEST(request.updated_at, receipt.updated_at)::timestamptz AS updated_at
+FROM apollo.public_booking_receipts AS receipt
+JOIN apollo.booking_requests AS request
+  ON request.id = receipt.booking_request_id
+WHERE request.id = $1
+LIMIT 1;
+
+-- name: UpdatePublicBookingReceiptMessage :one
+UPDATE apollo.public_booking_receipts
+SET public_message = $2,
+    updated_at = $3
+WHERE booking_request_id = $1
+RETURNING receipt_code,
+          booking_request_id,
+          public_message,
+          created_at,
+          updated_at;
+
+-- name: TouchBookingRequestPublicMessage :one
+UPDATE apollo.booking_requests
+SET version = version + 1,
+    updated_by_user_id = $2,
+    updated_by_session_id = $3,
+    updated_by_role = $4,
+    updated_by_capability = $5,
+    updated_trusted_surface_key = $6,
+    updated_trusted_surface_label = $7,
+    updated_at = $8
+WHERE id = $1
+  AND version = $9
+RETURNING id,
+          facility_key,
+          zone_key,
+          resource_key,
+          scope,
+          requested_start_at,
+          requested_end_at,
+          contact_name,
+          contact_email,
+          contact_phone,
+          organization,
+          purpose,
+          attendee_count,
+          internal_notes,
+          status,
+          version,
+          schedule_block_id,
+          created_by_user_id,
+          created_by_session_id,
+          created_by_role,
+          created_by_capability,
+          created_trusted_surface_key,
+          created_trusted_surface_label,
+          updated_by_user_id,
+          updated_by_session_id,
+          updated_by_role,
+          updated_by_capability,
+          updated_trusted_surface_key,
+          updated_trusted_surface_label,
+          created_at,
+          updated_at,
+          request_source,
+          intake_channel;

@@ -205,6 +205,40 @@ func (q *Queries) CreateBookingRequestIdempotencyKey(ctx context.Context, arg Cr
 	return i, err
 }
 
+const createPublicBookingReceipt = `-- name: CreatePublicBookingReceipt :one
+INSERT INTO apollo.public_booking_receipts (
+    receipt_code,
+    booking_request_id,
+    created_at,
+    updated_at
+)
+VALUES ($1, $2, $3, $3)
+RETURNING receipt_code,
+          booking_request_id,
+          public_message,
+          created_at,
+          updated_at
+`
+
+type CreatePublicBookingReceiptParams struct {
+	ReceiptCode      string
+	BookingRequestID uuid.UUID
+	CreatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) CreatePublicBookingReceipt(ctx context.Context, arg CreatePublicBookingReceiptParams) (ApolloPublicBookingReceipt, error) {
+	row := q.db.QueryRow(ctx, createPublicBookingReceipt, arg.ReceiptCode, arg.BookingRequestID, arg.CreatedAt)
+	var i ApolloPublicBookingReceipt
+	err := row.Scan(
+		&i.ReceiptCode,
+		&i.BookingRequestID,
+		&i.PublicMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createPublicBookingRequest = `-- name: CreatePublicBookingRequest :one
 INSERT INTO apollo.booking_requests (
     id,
@@ -523,6 +557,104 @@ func (q *Queries) GetBookingRequestIdempotencyByKeyHashForUpdate(ctx context.Con
 	return i, err
 }
 
+const getPublicBookingReceiptByBookingRequestID = `-- name: GetPublicBookingReceiptByBookingRequestID :one
+SELECT receipt_code,
+       booking_request_id,
+       public_message,
+       created_at,
+       updated_at
+FROM apollo.public_booking_receipts
+WHERE booking_request_id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetPublicBookingReceiptByBookingRequestID(ctx context.Context, bookingRequestID uuid.UUID) (ApolloPublicBookingReceipt, error) {
+	row := q.db.QueryRow(ctx, getPublicBookingReceiptByBookingRequestID, bookingRequestID)
+	var i ApolloPublicBookingReceipt
+	err := row.Scan(
+		&i.ReceiptCode,
+		&i.BookingRequestID,
+		&i.PublicMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getPublicBookingStatusByReceiptCode = `-- name: GetPublicBookingStatusByReceiptCode :one
+SELECT receipt.receipt_code,
+       request.status,
+       receipt.public_message,
+       request.requested_start_at,
+       request.requested_end_at,
+       GREATEST(request.updated_at, receipt.updated_at)::timestamptz AS updated_at
+FROM apollo.public_booking_receipts AS receipt
+JOIN apollo.booking_requests AS request
+  ON request.id = receipt.booking_request_id
+WHERE receipt.receipt_code = $1
+LIMIT 1
+`
+
+type GetPublicBookingStatusByReceiptCodeRow struct {
+	ReceiptCode      string
+	Status           string
+	PublicMessage    *string
+	RequestedStartAt pgtype.Timestamptz
+	RequestedEndAt   pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) GetPublicBookingStatusByReceiptCode(ctx context.Context, receiptCode string) (GetPublicBookingStatusByReceiptCodeRow, error) {
+	row := q.db.QueryRow(ctx, getPublicBookingStatusByReceiptCode, receiptCode)
+	var i GetPublicBookingStatusByReceiptCodeRow
+	err := row.Scan(
+		&i.ReceiptCode,
+		&i.Status,
+		&i.PublicMessage,
+		&i.RequestedStartAt,
+		&i.RequestedEndAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getPublicBookingStatusByRequestID = `-- name: GetPublicBookingStatusByRequestID :one
+SELECT receipt.receipt_code,
+       request.status,
+       receipt.public_message,
+       request.requested_start_at,
+       request.requested_end_at,
+       GREATEST(request.updated_at, receipt.updated_at)::timestamptz AS updated_at
+FROM apollo.public_booking_receipts AS receipt
+JOIN apollo.booking_requests AS request
+  ON request.id = receipt.booking_request_id
+WHERE request.id = $1
+LIMIT 1
+`
+
+type GetPublicBookingStatusByRequestIDRow struct {
+	ReceiptCode      string
+	Status           string
+	PublicMessage    *string
+	RequestedStartAt pgtype.Timestamptz
+	RequestedEndAt   pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) GetPublicBookingStatusByRequestID(ctx context.Context, id uuid.UUID) (GetPublicBookingStatusByRequestIDRow, error) {
+	row := q.db.QueryRow(ctx, getPublicBookingStatusByRequestID, id)
+	var i GetPublicBookingStatusByRequestIDRow
+	err := row.Scan(
+		&i.ReceiptCode,
+		&i.Status,
+		&i.PublicMessage,
+		&i.RequestedStartAt,
+		&i.RequestedEndAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listBookingRequests = `-- name: ListBookingRequests :many
 SELECT id,
        facility_key,
@@ -717,6 +849,116 @@ func (q *Queries) LockBookingRequestIdempotencyKey(ctx context.Context, hashtext
 	return err
 }
 
+const touchBookingRequestPublicMessage = `-- name: TouchBookingRequestPublicMessage :one
+UPDATE apollo.booking_requests
+SET version = version + 1,
+    updated_by_user_id = $2,
+    updated_by_session_id = $3,
+    updated_by_role = $4,
+    updated_by_capability = $5,
+    updated_trusted_surface_key = $6,
+    updated_trusted_surface_label = $7,
+    updated_at = $8
+WHERE id = $1
+  AND version = $9
+RETURNING id,
+          facility_key,
+          zone_key,
+          resource_key,
+          scope,
+          requested_start_at,
+          requested_end_at,
+          contact_name,
+          contact_email,
+          contact_phone,
+          organization,
+          purpose,
+          attendee_count,
+          internal_notes,
+          status,
+          version,
+          schedule_block_id,
+          created_by_user_id,
+          created_by_session_id,
+          created_by_role,
+          created_by_capability,
+          created_trusted_surface_key,
+          created_trusted_surface_label,
+          updated_by_user_id,
+          updated_by_session_id,
+          updated_by_role,
+          updated_by_capability,
+          updated_trusted_surface_key,
+          updated_trusted_surface_label,
+          created_at,
+          updated_at,
+          request_source,
+          intake_channel
+`
+
+type TouchBookingRequestPublicMessageParams struct {
+	ID                         uuid.UUID
+	UpdatedByUserID            pgtype.UUID
+	UpdatedBySessionID         pgtype.UUID
+	UpdatedByRole              *string
+	UpdatedByCapability        *string
+	UpdatedTrustedSurfaceKey   *string
+	UpdatedTrustedSurfaceLabel *string
+	UpdatedAt                  pgtype.Timestamptz
+	Version                    int32
+}
+
+func (q *Queries) TouchBookingRequestPublicMessage(ctx context.Context, arg TouchBookingRequestPublicMessageParams) (ApolloBookingRequest, error) {
+	row := q.db.QueryRow(ctx, touchBookingRequestPublicMessage,
+		arg.ID,
+		arg.UpdatedByUserID,
+		arg.UpdatedBySessionID,
+		arg.UpdatedByRole,
+		arg.UpdatedByCapability,
+		arg.UpdatedTrustedSurfaceKey,
+		arg.UpdatedTrustedSurfaceLabel,
+		arg.UpdatedAt,
+		arg.Version,
+	)
+	var i ApolloBookingRequest
+	err := row.Scan(
+		&i.ID,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.ResourceKey,
+		&i.Scope,
+		&i.RequestedStartAt,
+		&i.RequestedEndAt,
+		&i.ContactName,
+		&i.ContactEmail,
+		&i.ContactPhone,
+		&i.Organization,
+		&i.Purpose,
+		&i.AttendeeCount,
+		&i.InternalNotes,
+		&i.Status,
+		&i.Version,
+		&i.ScheduleBlockID,
+		&i.CreatedByUserID,
+		&i.CreatedBySessionID,
+		&i.CreatedByRole,
+		&i.CreatedByCapability,
+		&i.CreatedTrustedSurfaceKey,
+		&i.CreatedTrustedSurfaceLabel,
+		&i.UpdatedByUserID,
+		&i.UpdatedBySessionID,
+		&i.UpdatedByRole,
+		&i.UpdatedByCapability,
+		&i.UpdatedTrustedSurfaceKey,
+		&i.UpdatedTrustedSurfaceLabel,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RequestSource,
+		&i.IntakeChannel,
+	)
+	return i, err
+}
+
 const updateBookingRequestStatus = `-- name: UpdateBookingRequestStatus :one
 UPDATE apollo.booking_requests
 SET status = $2,
@@ -832,6 +1074,37 @@ func (q *Queries) UpdateBookingRequestStatus(ctx context.Context, arg UpdateBook
 		&i.UpdatedAt,
 		&i.RequestSource,
 		&i.IntakeChannel,
+	)
+	return i, err
+}
+
+const updatePublicBookingReceiptMessage = `-- name: UpdatePublicBookingReceiptMessage :one
+UPDATE apollo.public_booking_receipts
+SET public_message = $2,
+    updated_at = $3
+WHERE booking_request_id = $1
+RETURNING receipt_code,
+          booking_request_id,
+          public_message,
+          created_at,
+          updated_at
+`
+
+type UpdatePublicBookingReceiptMessageParams struct {
+	BookingRequestID uuid.UUID
+	PublicMessage    *string
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) UpdatePublicBookingReceiptMessage(ctx context.Context, arg UpdatePublicBookingReceiptMessageParams) (ApolloPublicBookingReceipt, error) {
+	row := q.db.QueryRow(ctx, updatePublicBookingReceiptMessage, arg.BookingRequestID, arg.PublicMessage, arg.UpdatedAt)
+	var i ApolloPublicBookingReceipt
+	err := row.Scan(
+		&i.ReceiptCode,
+		&i.BookingRequestID,
+		&i.PublicMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
