@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -235,12 +236,12 @@ func TestPublicBookingSubmitCreatesRequestedRequestWithoutReservationAndIsIdempo
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("public submit code = %d, want %d body=%s", response.Code, http.StatusAccepted, response.Body.String())
 	}
-	var receipt booking.PublicReceipt
-	if err := json.Unmarshal(response.Body.Bytes(), &receipt); err != nil {
-		t.Fatalf("json.Unmarshal(public receipt) error = %v body=%s", err, response.Body.String())
-	}
+	receipt := decodePublicReceipt(t, response)
 	if receipt.Status != "received" {
 		t.Fatalf("receipt.Status = %q, want received", receipt.Status)
+	}
+	if receipt.ReceiptCode == "" {
+		t.Fatal("receipt.ReceiptCode is empty")
 	}
 	assertPublicBookingResponseSafe(t, response)
 
@@ -278,6 +279,10 @@ WHERE contact_email = 'public-booking@example.com'
 	if duplicate.Code != http.StatusAccepted {
 		t.Fatalf("duplicate submit code = %d, want %d body=%s", duplicate.Code, http.StatusAccepted, duplicate.Body.String())
 	}
+	duplicateReceipt := decodePublicReceipt(t, duplicate)
+	if duplicateReceipt.ReceiptCode != receipt.ReceiptCode || duplicateReceipt.Status != receipt.Status {
+		t.Fatalf("duplicate receipt = %#v, want same as %#v", duplicateReceipt, receipt)
+	}
 	if count := countBookingHTTPRequestsByEmail(t, env, "public-booking@example.com"); count != 1 {
 		t.Fatalf("public booking request count = %d, want 1", count)
 	}
@@ -292,6 +297,25 @@ WHERE contact_email = 'public-booking@example.com'
 		t.Fatalf("public booking request count after conflict = %d, want 1", count)
 	}
 
+	statusResponse := env.doRequest(t, http.MethodGet, "/api/v1/public/booking/requests/status?receipt_code="+url.QueryEscape(receipt.ReceiptCode), nil)
+	if statusResponse.Code != http.StatusOK {
+		t.Fatalf("public status code = %d, want %d body=%s", statusResponse.Code, http.StatusOK, statusResponse.Body.String())
+	}
+	publicStatus := decodePublicStatus(t, statusResponse)
+	if publicStatus.ReceiptCode != receipt.ReceiptCode || publicStatus.Status != "received" {
+		t.Fatalf("public status = %#v, want receipt %s received", publicStatus, receipt.ReceiptCode)
+	}
+	if publicStatus.RequestedStartAt.IsZero() || publicStatus.RequestedEndAt.IsZero() || publicStatus.UpdatedAt.IsZero() {
+		t.Fatalf("public status timestamps not populated: %#v", publicStatus)
+	}
+	assertPublicBookingResponseSafe(t, statusResponse)
+
+	unknown := env.doRequest(t, http.MethodGet, "/api/v1/public/booking/requests/status?receipt_code=BR-UNKNOWN", nil)
+	if unknown.Code != http.StatusNotFound {
+		t.Fatalf("unknown public status code = %d, want %d body=%s", unknown.Code, http.StatusNotFound, unknown.Body.String())
+	}
+	assertPublicBookingResponseSafe(t, unknown)
+
 	managerCookie, manager := createVerifiedSessionViaHTTP(t, env, "student-public-staff-001", "public-staff-001@example.com")
 	setUserRole(t, env, manager.ID, authz.RoleManager)
 	listResponse := env.doRequest(t, http.MethodGet, "/api/v1/booking/requests?facility_key=ashtonbee", nil, managerCookie)
@@ -305,6 +329,102 @@ WHERE contact_email = 'public-booking@example.com'
 	if len(staffRequests) == 0 || staffRequests[0].RequestSource != booking.RequestSourcePublic || staffRequests[0].IntakeChannel != booking.IntakeChannelPublicWeb {
 		t.Fatalf("staff source/channel = %#v, want public/public_web visible", staffRequests)
 	}
+}
+
+func TestPublicBookingStatusMapsDecisionsAndPublicMessageBoundaries(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	optionID := insertPublicBookingHTTPResource(t, env, "booking-public-status-court", "Status Court", true, true)
+	start, end := publicBookingWindow(80*time.Hour, time.Hour)
+	body := publicBookingRequestJSON(optionID, start, end, `"contact_email":"public-status@example.com"`)
+	headers := map[string]string{
+		"Idempotency-Key":                "public-status-key-001",
+		"X-Apollo-Public-Intake-Channel": booking.IntakeChannelPublicWeb,
+	}
+
+	submit := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(body), headers)
+	if submit.Code != http.StatusAccepted {
+		t.Fatalf("public status submit code = %d, want %d body=%s", submit.Code, http.StatusAccepted, submit.Body.String())
+	}
+	receipt := decodePublicReceipt(t, submit)
+	requestID := bookingHTTPRequestIDByEmail(t, env, "public-status@example.com")
+
+	managerCookie, manager := createVerifiedSessionViaHTTP(t, env, "student-public-status-manager", "public-status-manager@example.com")
+	supervisorCookie, supervisor := createVerifiedSessionViaHTTP(t, env, "student-public-status-supervisor", "public-status-supervisor@example.com")
+	setUserRole(t, env, manager.ID, authz.RoleManager)
+	setUserRole(t, env, supervisor.ID, authz.RoleSupervisor)
+
+	supervisorUpdate := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+requestID.String()+"/public-message", `{"expected_version":1,"public_message":"We are reviewing your request."}`, supervisorCookie)
+	if supervisorUpdate.Code != http.StatusForbidden {
+		t.Fatalf("supervisor public message code = %d, want %d body=%s", supervisorUpdate.Code, http.StatusForbidden, supervisorUpdate.Body.String())
+	}
+	missingSurface := env.doRequestWithoutTrustedSurface(t, http.MethodPost, "/api/v1/booking/requests/"+requestID.String()+"/public-message", bytes.NewBufferString(`{"expected_version":1,"public_message":"We are reviewing your request."}`), managerCookie)
+	if missingSurface.Code != http.StatusForbidden {
+		t.Fatalf("missing trusted public message code = %d, want %d body=%s", missingSurface.Code, http.StatusForbidden, missingSurface.Body.String())
+	}
+
+	messageBody := `{"expected_version":1,"public_message":"Please send the updated attendee count when you can."}`
+	messageUpdate := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+requestID.String()+"/public-message", messageBody, managerCookie)
+	if messageUpdate.Code != http.StatusOK {
+		t.Fatalf("manager public message code = %d, want %d body=%s", messageUpdate.Code, http.StatusOK, messageUpdate.Body.String())
+	}
+	updated := decodeBookingRequest(t, messageUpdate)
+	if updated.PublicMessage == nil || *updated.PublicMessage != "Please send the updated attendee count when you can." {
+		t.Fatalf("updated public message = %v", updated.PublicMessage)
+	}
+	if updated.InternalNotes != nil {
+		t.Fatalf("public message update changed internal notes to %q", *updated.InternalNotes)
+	}
+	if updated.Version != 2 {
+		t.Fatalf("public message update version = %d, want 2", updated.Version)
+	}
+
+	review := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+requestID.String()+"/review", `{"expected_version":2,"internal_notes":"secret internal conflict note"}`, managerCookie)
+	if review.Code != http.StatusOK {
+		t.Fatalf("review code = %d, want %d body=%s", review.Code, http.StatusOK, review.Body.String())
+	}
+	assertPublicStatus(t, env, receipt.ReceiptCode, "under_review", "Please send the updated attendee count when you can.", "secret internal conflict note")
+
+	needsChanges := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+requestID.String()+"/needs-changes", `{"expected_version":3}`, managerCookie)
+	if needsChanges.Code != http.StatusOK {
+		t.Fatalf("needs changes code = %d, want %d body=%s", needsChanges.Code, http.StatusOK, needsChanges.Body.String())
+	}
+	assertPublicStatus(t, env, receipt.ReceiptCode, "more_information_needed", "Please send the updated attendee count when you can.", "")
+
+	reReview := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+requestID.String()+"/review", `{"expected_version":4}`, managerCookie)
+	if reReview.Code != http.StatusOK {
+		t.Fatalf("re-review code = %d, want %d body=%s", reReview.Code, http.StatusOK, reReview.Body.String())
+	}
+	approve := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+requestID.String()+"/approve", `{"expected_version":5}`, managerCookie)
+	if approve.Code != http.StatusOK {
+		t.Fatalf("approve code = %d, want %d body=%s", approve.Code, http.StatusOK, approve.Body.String())
+	}
+	assertPublicStatus(t, env, receipt.ReceiptCode, "approved", "Please send the updated attendee count when you can.", "")
+
+	cancel := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+requestID.String()+"/cancel", `{"expected_version":6}`, managerCookie)
+	if cancel.Code != http.StatusOK {
+		t.Fatalf("cancel code = %d, want %d body=%s", cancel.Code, http.StatusOK, cancel.Body.String())
+	}
+	assertPublicStatus(t, env, receipt.ReceiptCode, "cancelled", "Please send the updated attendee count when you can.", "")
+
+	rejectOptionID := insertPublicBookingHTTPResource(t, env, "booking-public-status-reject-court", "Reject Court", true, true)
+	rejectStart, rejectEnd := publicBookingWindow(90*time.Hour, time.Hour)
+	rejectBody := publicBookingRequestJSON(rejectOptionID, rejectStart, rejectEnd, `"contact_email":"public-status-reject@example.com"`)
+	rejectSubmit := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(rejectBody), map[string]string{
+		"Idempotency-Key":                "public-status-reject-key-001",
+		"X-Apollo-Public-Intake-Channel": booking.IntakeChannelPublicWeb,
+	})
+	if rejectSubmit.Code != http.StatusAccepted {
+		t.Fatalf("reject public submit code = %d, want %d body=%s", rejectSubmit.Code, http.StatusAccepted, rejectSubmit.Body.String())
+	}
+	rejectReceipt := decodePublicReceipt(t, rejectSubmit)
+	rejectRequestID := bookingHTTPRequestIDByEmail(t, env, "public-status-reject@example.com")
+	reject := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+rejectRequestID.String()+"/reject", `{"expected_version":1}`, managerCookie)
+	if reject.Code != http.StatusOK {
+		t.Fatalf("reject code = %d, want %d body=%s", reject.Code, http.StatusOK, reject.Body.String())
+	}
+	assertPublicStatus(t, env, rejectReceipt.ReceiptCode, "declined", "", "")
 }
 
 func TestPublicBookingSubmitConcurrentSameKeySerializesDuplicate(t *testing.T) {
@@ -642,6 +762,50 @@ func decodeBookingRequest(t *testing.T, response *httptest.ResponseRecorder) boo
 	return payload
 }
 
+func decodePublicReceipt(t *testing.T, response *httptest.ResponseRecorder) booking.PublicReceipt {
+	t.Helper()
+
+	var receipt booking.PublicReceipt
+	if err := json.Unmarshal(response.Body.Bytes(), &receipt); err != nil {
+		t.Fatalf("json.Unmarshal(public receipt) error = %v body=%s", err, response.Body.String())
+	}
+	return receipt
+}
+
+func decodePublicStatus(t *testing.T, response *httptest.ResponseRecorder) booking.PublicStatus {
+	t.Helper()
+
+	var status booking.PublicStatus
+	if err := json.Unmarshal(response.Body.Bytes(), &status); err != nil {
+		t.Fatalf("json.Unmarshal(public status) error = %v body=%s", err, response.Body.String())
+	}
+	return status
+}
+
+func assertPublicStatus(t *testing.T, env *authProfileServerEnv, receiptCode string, wantStatus string, wantMessage string, forbiddenText string) {
+	t.Helper()
+
+	response := env.doRequest(t, http.MethodGet, "/api/v1/public/booking/requests/status?receipt_code="+url.QueryEscape(receiptCode), nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("public status code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	status := decodePublicStatus(t, response)
+	if status.ReceiptCode != receiptCode || status.Status != wantStatus {
+		t.Fatalf("public status = %#v, want receipt %s status %s", status, receiptCode, wantStatus)
+	}
+	if wantMessage == "" {
+		if status.Message != nil {
+			t.Fatalf("public status message = %q, want nil", *status.Message)
+		}
+	} else if status.Message == nil || *status.Message != wantMessage {
+		t.Fatalf("public status message = %v, want %q", status.Message, wantMessage)
+	}
+	if forbiddenText != "" && strings.Contains(response.Body.String(), forbiddenText) {
+		t.Fatalf("public status leaked forbidden text %q in body %s", forbiddenText, response.Body.String())
+	}
+	assertPublicBookingResponseSafe(t, response)
+}
+
 func publicBookingWindow(offset time.Duration, duration time.Duration) (string, string) {
 	start := time.Now().UTC().Add(offset).Truncate(time.Second)
 	end := start.Add(duration)
@@ -856,6 +1020,16 @@ func countBookingHTTPRequestsByEmail(t *testing.T, env *authProfileServerEnv, em
 		t.Fatalf("QueryRow(booking request count) error = %v", err)
 	}
 	return count
+}
+
+func bookingHTTPRequestIDByEmail(t *testing.T, env *authProfileServerEnv, email string) uuid.UUID {
+	t.Helper()
+
+	var id uuid.UUID
+	if err := env.db.DB.QueryRow(context.Background(), `SELECT id FROM apollo.booking_requests WHERE contact_email = $1`, email).Scan(&id); err != nil {
+		t.Fatalf("QueryRow(booking request id) error = %v", err)
+	}
+	return id
 }
 
 func assertBookingResponseHasNoForbiddenFields(t *testing.T, response *httptest.ResponseRecorder) {
