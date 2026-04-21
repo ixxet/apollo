@@ -72,6 +72,7 @@ type ApolloBookingRequest struct {
 	UpdatedAt                  pgtype.Timestamptz
 	RequestSource              string
 	IntakeChannel              string
+	ReplacesRequestID          pgtype.UUID
 }
 
 type ApolloBookingRequestIdempotencyKey struct {

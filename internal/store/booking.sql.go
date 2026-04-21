@@ -27,6 +27,7 @@ INSERT INTO apollo.booking_requests (
     purpose,
     attendee_count,
     internal_notes,
+    replaces_request_id,
     request_source,
     intake_channel,
     status,
@@ -46,7 +47,7 @@ INSERT INTO apollo.booking_requests (
     created_at,
     updated_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'staff', 'themis', 'requested', 1, $14, $15, $16, $17, $18, $19, $14, $15, $16, $17, $18, $19, $20, $20)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'staff', 'themis', 'requested', 1, $15, $16, $17, $18, $19, $20, $15, $16, $17, $18, $19, $20, $21, $21)
 RETURNING id,
           facility_key,
           zone_key,
@@ -79,7 +80,8 @@ RETURNING id,
           created_at,
           updated_at,
           request_source,
-          intake_channel
+          intake_channel,
+          replaces_request_id
 `
 
 type CreateBookingRequestParams struct {
@@ -96,6 +98,7 @@ type CreateBookingRequestParams struct {
 	Purpose                    *string
 	AttendeeCount              *int32
 	InternalNotes              *string
+	ReplacesRequestID          pgtype.UUID
 	CreatedByUserID            pgtype.UUID
 	CreatedBySessionID         pgtype.UUID
 	CreatedByRole              *string
@@ -120,6 +123,7 @@ func (q *Queries) CreateBookingRequest(ctx context.Context, arg CreateBookingReq
 		arg.Purpose,
 		arg.AttendeeCount,
 		arg.InternalNotes,
+		arg.ReplacesRequestID,
 		arg.CreatedByUserID,
 		arg.CreatedBySessionID,
 		arg.CreatedByRole,
@@ -163,6 +167,7 @@ func (q *Queries) CreateBookingRequest(ctx context.Context, arg CreateBookingReq
 		&i.UpdatedAt,
 		&i.RequestSource,
 		&i.IntakeChannel,
+		&i.ReplacesRequestID,
 	)
 	return i, err
 }
@@ -255,6 +260,7 @@ INSERT INTO apollo.booking_requests (
     purpose,
     attendee_count,
     internal_notes,
+    replaces_request_id,
     request_source,
     intake_channel,
     status,
@@ -262,7 +268,7 @@ INSERT INTO apollo.booking_requests (
     created_at,
     updated_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NULL, 'public', $14, 'requested', 1, $15, $15)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NULL, NULL, 'public', $14, 'requested', 1, $15, $15)
 RETURNING id,
           facility_key,
           zone_key,
@@ -295,7 +301,8 @@ RETURNING id,
           created_at,
           updated_at,
           request_source,
-          intake_channel
+          intake_channel,
+          replaces_request_id
 `
 
 type CreatePublicBookingRequestParams struct {
@@ -369,6 +376,7 @@ func (q *Queries) CreatePublicBookingRequest(ctx context.Context, arg CreatePubl
 		&i.UpdatedAt,
 		&i.RequestSource,
 		&i.IntakeChannel,
+		&i.ReplacesRequestID,
 	)
 	return i, err
 }
@@ -406,7 +414,8 @@ SELECT id,
        created_at,
        updated_at,
        request_source,
-       intake_channel
+       intake_channel,
+       replaces_request_id
 FROM apollo.booking_requests
 WHERE id = $1
 LIMIT 1
@@ -449,6 +458,7 @@ func (q *Queries) GetBookingRequestByID(ctx context.Context, id uuid.UUID) (Apol
 		&i.UpdatedAt,
 		&i.RequestSource,
 		&i.IntakeChannel,
+		&i.ReplacesRequestID,
 	)
 	return i, err
 }
@@ -486,7 +496,8 @@ SELECT id,
        created_at,
        updated_at,
        request_source,
-       intake_channel
+       intake_channel,
+       replaces_request_id
 FROM apollo.booking_requests
 WHERE id = $1
 LIMIT 1
@@ -530,6 +541,7 @@ func (q *Queries) GetBookingRequestByIDForUpdate(ctx context.Context, id uuid.UU
 		&i.UpdatedAt,
 		&i.RequestSource,
 		&i.IntakeChannel,
+		&i.ReplacesRequestID,
 	)
 	return i, err
 }
@@ -688,7 +700,8 @@ SELECT id,
        created_at,
        updated_at,
        request_source,
-       intake_channel
+       intake_channel,
+       replaces_request_id
 FROM apollo.booking_requests
 ORDER BY updated_at DESC, id DESC
 `
@@ -736,6 +749,7 @@ func (q *Queries) ListBookingRequests(ctx context.Context) ([]ApolloBookingReque
 			&i.UpdatedAt,
 			&i.RequestSource,
 			&i.IntakeChannel,
+			&i.ReplacesRequestID,
 		); err != nil {
 			return nil, err
 		}
@@ -780,7 +794,8 @@ SELECT id,
        created_at,
        updated_at,
        request_source,
-       intake_channel
+       intake_channel,
+       replaces_request_id
 FROM apollo.booking_requests
 WHERE facility_key = $1
 ORDER BY updated_at DESC, id DESC
@@ -829,6 +844,7 @@ func (q *Queries) ListBookingRequestsByFacilityKey(ctx context.Context, facility
 			&i.UpdatedAt,
 			&i.RequestSource,
 			&i.IntakeChannel,
+			&i.ReplacesRequestID,
 		); err != nil {
 			return nil, err
 		}
@@ -893,7 +909,8 @@ RETURNING id,
           created_at,
           updated_at,
           request_source,
-          intake_channel
+          intake_channel,
+          replaces_request_id
 `
 
 type TouchBookingRequestPublicMessageParams struct {
@@ -955,6 +972,158 @@ func (q *Queries) TouchBookingRequestPublicMessage(ctx context.Context, arg Touc
 		&i.UpdatedAt,
 		&i.RequestSource,
 		&i.IntakeChannel,
+		&i.ReplacesRequestID,
+	)
+	return i, err
+}
+
+const updateBookingRequestDetails = `-- name: UpdateBookingRequestDetails :one
+UPDATE apollo.booking_requests
+SET facility_key = $2,
+    zone_key = $3,
+    resource_key = $4,
+    scope = $5,
+    requested_start_at = $6,
+    requested_end_at = $7,
+    contact_name = $8,
+    contact_email = $9,
+    contact_phone = $10,
+    organization = $11,
+    purpose = $12,
+    attendee_count = $13,
+    internal_notes = $14,
+    version = version + 1,
+    updated_by_user_id = $15,
+    updated_by_session_id = $16,
+    updated_by_role = $17,
+    updated_by_capability = $18,
+    updated_trusted_surface_key = $19,
+    updated_trusted_surface_label = $20,
+    updated_at = $21
+WHERE id = $1
+  AND version = $22
+RETURNING id,
+          facility_key,
+          zone_key,
+          resource_key,
+          scope,
+          requested_start_at,
+          requested_end_at,
+          contact_name,
+          contact_email,
+          contact_phone,
+          organization,
+          purpose,
+          attendee_count,
+          internal_notes,
+          status,
+          version,
+          schedule_block_id,
+          created_by_user_id,
+          created_by_session_id,
+          created_by_role,
+          created_by_capability,
+          created_trusted_surface_key,
+          created_trusted_surface_label,
+          updated_by_user_id,
+          updated_by_session_id,
+          updated_by_role,
+          updated_by_capability,
+          updated_trusted_surface_key,
+          updated_trusted_surface_label,
+          created_at,
+          updated_at,
+          request_source,
+          intake_channel,
+          replaces_request_id
+`
+
+type UpdateBookingRequestDetailsParams struct {
+	ID                         uuid.UUID
+	FacilityKey                string
+	ZoneKey                    *string
+	ResourceKey                *string
+	Scope                      string
+	RequestedStartAt           pgtype.Timestamptz
+	RequestedEndAt             pgtype.Timestamptz
+	ContactName                string
+	ContactEmail               *string
+	ContactPhone               *string
+	Organization               *string
+	Purpose                    *string
+	AttendeeCount              *int32
+	InternalNotes              *string
+	UpdatedByUserID            pgtype.UUID
+	UpdatedBySessionID         pgtype.UUID
+	UpdatedByRole              *string
+	UpdatedByCapability        *string
+	UpdatedTrustedSurfaceKey   *string
+	UpdatedTrustedSurfaceLabel *string
+	UpdatedAt                  pgtype.Timestamptz
+	Version                    int32
+}
+
+func (q *Queries) UpdateBookingRequestDetails(ctx context.Context, arg UpdateBookingRequestDetailsParams) (ApolloBookingRequest, error) {
+	row := q.db.QueryRow(ctx, updateBookingRequestDetails,
+		arg.ID,
+		arg.FacilityKey,
+		arg.ZoneKey,
+		arg.ResourceKey,
+		arg.Scope,
+		arg.RequestedStartAt,
+		arg.RequestedEndAt,
+		arg.ContactName,
+		arg.ContactEmail,
+		arg.ContactPhone,
+		arg.Organization,
+		arg.Purpose,
+		arg.AttendeeCount,
+		arg.InternalNotes,
+		arg.UpdatedByUserID,
+		arg.UpdatedBySessionID,
+		arg.UpdatedByRole,
+		arg.UpdatedByCapability,
+		arg.UpdatedTrustedSurfaceKey,
+		arg.UpdatedTrustedSurfaceLabel,
+		arg.UpdatedAt,
+		arg.Version,
+	)
+	var i ApolloBookingRequest
+	err := row.Scan(
+		&i.ID,
+		&i.FacilityKey,
+		&i.ZoneKey,
+		&i.ResourceKey,
+		&i.Scope,
+		&i.RequestedStartAt,
+		&i.RequestedEndAt,
+		&i.ContactName,
+		&i.ContactEmail,
+		&i.ContactPhone,
+		&i.Organization,
+		&i.Purpose,
+		&i.AttendeeCount,
+		&i.InternalNotes,
+		&i.Status,
+		&i.Version,
+		&i.ScheduleBlockID,
+		&i.CreatedByUserID,
+		&i.CreatedBySessionID,
+		&i.CreatedByRole,
+		&i.CreatedByCapability,
+		&i.CreatedTrustedSurfaceKey,
+		&i.CreatedTrustedSurfaceLabel,
+		&i.UpdatedByUserID,
+		&i.UpdatedBySessionID,
+		&i.UpdatedByRole,
+		&i.UpdatedByCapability,
+		&i.UpdatedTrustedSurfaceKey,
+		&i.UpdatedTrustedSurfaceLabel,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RequestSource,
+		&i.IntakeChannel,
+		&i.ReplacesRequestID,
 	)
 	return i, err
 }
@@ -1006,7 +1175,8 @@ RETURNING id,
           created_at,
           updated_at,
           request_source,
-          intake_channel
+          intake_channel,
+          replaces_request_id
 `
 
 type UpdateBookingRequestStatusParams struct {
@@ -1074,6 +1244,7 @@ func (q *Queries) UpdateBookingRequestStatus(ctx context.Context, arg UpdateBook
 		&i.UpdatedAt,
 		&i.RequestSource,
 		&i.IntakeChannel,
+		&i.ReplacesRequestID,
 	)
 	return i, err
 }

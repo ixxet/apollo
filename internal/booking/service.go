@@ -379,29 +379,7 @@ func (s *Service) createRequest(ctx context.Context, actor StaffActor, idempoten
 		}
 
 		now := s.now().UTC()
-		attendeeCount := int32PtrFromIntPtr(resolved.AttendeeCount)
-		row, err := queries.CreateBookingRequest(ctx, store.CreateBookingRequestParams{
-			FacilityKey:                resolved.FacilityKey,
-			ZoneKey:                    resolved.ZoneKey,
-			ResourceKey:                resolved.ResourceKey,
-			Scope:                      requestScope(resolved),
-			RequestedStartAt:           pgTimestamptzFromTime(resolved.RequestedStartAt),
-			RequestedEndAt:             pgTimestamptzFromTime(resolved.RequestedEndAt),
-			ContactName:                resolved.ContactName,
-			ContactEmail:               resolved.ContactEmail,
-			ContactPhone:               resolved.ContactPhone,
-			Organization:               resolved.Organization,
-			Purpose:                    resolved.Purpose,
-			AttendeeCount:              attendeeCount,
-			InternalNotes:              resolved.InternalNotes,
-			CreatedByUserID:            pgUUIDFromUUID(actor.UserID),
-			CreatedBySessionID:         pgUUIDFromUUID(actor.SessionID),
-			CreatedByRole:              requiredStringPtr(string(actor.Role)),
-			CreatedByCapability:        requiredStringPtr(string(actor.Capability)),
-			CreatedTrustedSurfaceKey:   requiredStringPtr(actor.TrustedSurfaceKey),
-			CreatedTrustedSurfaceLabel: nullableStringPtr(actor.TrustedSurfaceLabel),
-			CreatedAt:                  pgTimestamptzFromTime(now),
-		})
+		row, err := createStaffRequestWithQueries(ctx, queries, actor, resolved, nil, now)
 		if err != nil {
 			return Request{}, err
 		}
@@ -414,6 +392,139 @@ func (s *Service) createRequest(ctx context.Context, actor StaffActor, idempoten
 			}); err != nil {
 				return Request{}, err
 			}
+		}
+		return s.requestFromStore(ctx, queries, row)
+	})
+}
+
+func (s *Service) UpdateRequest(ctx context.Context, actor StaffActor, requestID uuid.UUID, input RequestEditInput) (Request, error) {
+	if err := validateStaffActor(actor); err != nil {
+		return Request{}, err
+	}
+	if input.ExpectedVersion <= 0 {
+		return Request{}, ErrExpectedVersionRequired
+	}
+	resolved, err := validateRequestInput(input.RequestInput)
+	if err != nil {
+		return Request{}, err
+	}
+
+	return withBookingQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (Request, error) {
+		current, err := s.requireCurrentForTransition(ctx, queries, requestID, input.ExpectedVersion)
+		if err != nil {
+			return Request{}, err
+		}
+		if current.Status != StatusRequested && current.Status != StatusUnderReview && current.Status != StatusNeedsChanges {
+			return Request{}, ErrRequestTransitionInvalid
+		}
+		if s.schedule == nil {
+			return Request{}, ErrScheduleServiceUnavailable
+		}
+		if _, err := s.schedule.PreviewBlockWithQueries(ctx, queries, scheduleBlockInputForRequest(resolved)); err != nil {
+			return Request{}, err
+		}
+
+		row, err := queries.UpdateBookingRequestDetails(ctx, store.UpdateBookingRequestDetailsParams{
+			ID:                         current.ID,
+			FacilityKey:                resolved.FacilityKey,
+			ZoneKey:                    resolved.ZoneKey,
+			ResourceKey:                resolved.ResourceKey,
+			Scope:                      requestScope(resolved),
+			RequestedStartAt:           pgTimestamptzFromTime(resolved.RequestedStartAt),
+			RequestedEndAt:             pgTimestamptzFromTime(resolved.RequestedEndAt),
+			ContactName:                resolved.ContactName,
+			ContactEmail:               resolved.ContactEmail,
+			ContactPhone:               resolved.ContactPhone,
+			Organization:               resolved.Organization,
+			Purpose:                    resolved.Purpose,
+			AttendeeCount:              int32PtrFromIntPtr(resolved.AttendeeCount),
+			InternalNotes:              resolved.InternalNotes,
+			UpdatedByUserID:            pgUUIDFromUUID(actor.UserID),
+			UpdatedBySessionID:         pgUUIDFromUUID(actor.SessionID),
+			UpdatedByRole:              requiredStringPtr(string(actor.Role)),
+			UpdatedByCapability:        requiredStringPtr(string(actor.Capability)),
+			UpdatedTrustedSurfaceKey:   requiredStringPtr(actor.TrustedSurfaceKey),
+			UpdatedTrustedSurfaceLabel: nullableStringPtr(actor.TrustedSurfaceLabel),
+			UpdatedAt:                  pgTimestamptzFromTime(s.now().UTC()),
+			Version:                    current.Version,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Request{}, ErrRequestVersionStale
+		}
+		if err != nil {
+			return Request{}, err
+		}
+		return s.requestFromStore(ctx, queries, row)
+	})
+}
+
+func (s *Service) RebookRequestWithIdempotency(ctx context.Context, actor StaffActor, requestID uuid.UUID, idempotencyKey string, input RequestEditInput) (Request, error) {
+	if err := validateStaffActor(actor); err != nil {
+		return Request{}, err
+	}
+	if input.ExpectedVersion <= 0 {
+		return Request{}, ErrExpectedVersionRequired
+	}
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" || len(idempotencyKey) > publicMaxIdempotencyLength {
+		return Request{}, ErrIdempotencyKeyRequired
+	}
+	resolved, err := validateRequestInput(input.RequestInput)
+	if err != nil {
+		return Request{}, err
+	}
+
+	keyHash := staffRebookIdempotencyKeyHash(actor, requestID, idempotencyKey)
+	payloadHash := staffCreatePayloadHash(resolved)
+
+	return withBookingQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (Request, error) {
+		if err := queries.LockBookingRequestIdempotencyKey(ctx, keyHash); err != nil {
+			return Request{}, err
+		}
+		existing, err := queries.GetBookingRequestIdempotencyByKeyHashForUpdate(ctx, keyHash)
+		if err == nil {
+			if existing.PayloadHash != payloadHash {
+				return Request{}, ErrIdempotencyConflict
+			}
+			row, err := queries.GetBookingRequestByID(ctx, existing.BookingRequestID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return Request{}, ErrRequestNotFound
+			}
+			if err != nil {
+				return Request{}, err
+			}
+			return s.requestFromStore(ctx, queries, row)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return Request{}, err
+		}
+
+		current, err := s.requireCurrentForTransition(ctx, queries, requestID, input.ExpectedVersion)
+		if err != nil {
+			return Request{}, err
+		}
+		if current.Status != StatusApproved {
+			return Request{}, ErrRequestTransitionInvalid
+		}
+		if s.schedule == nil {
+			return Request{}, ErrScheduleServiceUnavailable
+		}
+		if _, err := s.schedule.PreviewBlockWithQueries(ctx, queries, scheduleBlockInputForRequest(resolved)); err != nil {
+			return Request{}, err
+		}
+
+		now := s.now().UTC()
+		row, err := createStaffRequestWithQueries(ctx, queries, actor, resolved, &current.ID, now)
+		if err != nil {
+			return Request{}, err
+		}
+		if _, err := queries.CreateBookingRequestIdempotencyKey(ctx, store.CreateBookingRequestIdempotencyKeyParams{
+			KeyHash:          keyHash,
+			PayloadHash:      payloadHash,
+			BookingRequestID: row.ID,
+			CreatedAt:        pgTimestamptzFromTime(now),
+		}); err != nil {
+			return Request{}, err
 		}
 		return s.requestFromStore(ctx, queries, row)
 	})
@@ -597,6 +708,32 @@ func (s *Service) updateStatus(ctx context.Context, queries *store.Queries, acto
 		return store.ApolloBookingRequest{}, err
 	}
 	return row, nil
+}
+
+func createStaffRequestWithQueries(ctx context.Context, queries *store.Queries, actor StaffActor, input RequestInput, replacesRequestID *uuid.UUID, now time.Time) (store.ApolloBookingRequest, error) {
+	return queries.CreateBookingRequest(ctx, store.CreateBookingRequestParams{
+		FacilityKey:                input.FacilityKey,
+		ZoneKey:                    input.ZoneKey,
+		ResourceKey:                input.ResourceKey,
+		Scope:                      requestScope(input),
+		RequestedStartAt:           pgTimestamptzFromTime(input.RequestedStartAt),
+		RequestedEndAt:             pgTimestamptzFromTime(input.RequestedEndAt),
+		ContactName:                input.ContactName,
+		ContactEmail:               input.ContactEmail,
+		ContactPhone:               input.ContactPhone,
+		Organization:               input.Organization,
+		Purpose:                    input.Purpose,
+		AttendeeCount:              int32PtrFromIntPtr(input.AttendeeCount),
+		InternalNotes:              input.InternalNotes,
+		ReplacesRequestID:          pgUUIDFromPtr(replacesRequestID),
+		CreatedByUserID:            pgUUIDFromUUID(actor.UserID),
+		CreatedBySessionID:         pgUUIDFromUUID(actor.SessionID),
+		CreatedByRole:              requiredStringPtr(string(actor.Role)),
+		CreatedByCapability:        requiredStringPtr(string(actor.Capability)),
+		CreatedTrustedSurfaceKey:   requiredStringPtr(actor.TrustedSurfaceKey),
+		CreatedTrustedSurfaceLabel: nullableStringPtr(actor.TrustedSurfaceLabel),
+		CreatedAt:                  pgTimestamptzFromTime(now),
+	})
 }
 
 func (s *Service) requestFromStore(ctx context.Context, queries *store.Queries, row store.ApolloBookingRequest) (Request, error) {
@@ -888,6 +1025,17 @@ func staffCreateIdempotencyKeyHash(actor StaffActor, idempotencyKey string) stri
 	}, "\n"))
 }
 
+func staffRebookIdempotencyKeyHash(actor StaffActor, requestID uuid.UUID, idempotencyKey string) string {
+	return sha256Hex(strings.Join([]string{
+		"staff",
+		"booking_request",
+		"rebook",
+		actor.UserID.String(),
+		requestID.String(),
+		idempotencyKey,
+	}, "\n"))
+}
+
 func staffCreatePayloadHash(input RequestInput) string {
 	parts := []string{
 		input.FacilityKey,
@@ -1020,6 +1168,7 @@ func requestFromStore(row store.ApolloBookingRequest, availability AvailabilityD
 		Purpose:                    row.Purpose,
 		AttendeeCount:              intPtrFromInt32Ptr(row.AttendeeCount),
 		InternalNotes:              row.InternalNotes,
+		ReplacesRequestID:          uuidPtrFromPgUUID(row.ReplacesRequestID),
 		RequestSource:              row.RequestSource,
 		IntakeChannel:              row.IntakeChannel,
 		Status:                     row.Status,

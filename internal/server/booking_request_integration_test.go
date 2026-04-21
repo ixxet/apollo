@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -185,6 +186,132 @@ func TestBookingRequestApprovalCreatesLinkedReservationAndRejectsConflicts(t *te
 	if unchanged.Status != booking.StatusRequested || unchanged.ScheduleBlockID != nil {
 		t.Fatalf("conflict mutated request to status=%s schedule_block_id=%v", unchanged.Status, unchanged.ScheduleBlockID)
 	}
+}
+
+func TestBookingRequestEditAndRebookBoundariesHTTP(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	managerCookie, manager := createVerifiedSessionViaHTTP(t, env, "student-booking-edit-001", "booking-edit-001@example.com")
+	supervisorCookie, supervisor := createVerifiedSessionViaHTTP(t, env, "student-booking-edit-002", "booking-edit-002@example.com")
+	setUserRole(t, env, manager.ID, authz.RoleManager)
+	setUserRole(t, env, supervisor.ID, authz.RoleSupervisor)
+
+	originalResource := insertBookingHTTPResource(t, env, "booking-edit-original-court")
+	editedResource := insertBookingHTTPResource(t, env, "booking-edit-updated-court")
+	create := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests", bookingRequestJSONWithEmail(originalResource, "2026-04-19T18:00:00Z", "2026-04-19T19:00:00Z", "booking-edit@example.com"), managerCookie)
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create.Code = %d, want %d body=%s", create.Code, http.StatusCreated, create.Body.String())
+	}
+	created := decodeBookingRequest(t, create)
+
+	editBody := bookingRequestEditJSON(editedResource, "2026-04-19T20:00:00Z", "2026-04-19T21:00:00Z", "booking-edit-updated@example.com", 1)
+	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/edit", editBody, supervisorCookie); response.Code != http.StatusForbidden {
+		t.Fatalf("supervisor edit code = %d, want %d body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+	if response := env.doRequestWithoutTrustedSurface(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/edit", bytes.NewBufferString(editBody), managerCookie); response.Code != http.StatusForbidden {
+		t.Fatalf("missing trusted edit code = %d, want %d body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/edit", strings.Replace(editBody, `"expected_version":1`, `"expected_version":9`, 1), managerCookie); response.Code != http.StatusConflict {
+		t.Fatalf("stale edit code = %d, want %d body=%s", response.Code, http.StatusConflict, response.Body.String())
+	}
+
+	edit := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/edit", editBody, managerCookie)
+	if edit.Code != http.StatusOK {
+		t.Fatalf("edit.Code = %d, want %d body=%s", edit.Code, http.StatusOK, edit.Body.String())
+	}
+	edited := decodeBookingRequest(t, edit)
+	if edited.ID != created.ID || edited.Version != 2 || edited.Status != booking.StatusRequested || edited.ScheduleBlockID != nil {
+		t.Fatalf("edited identity/version/status/block = %s/%d/%s/%v", edited.ID, edited.Version, edited.Status, edited.ScheduleBlockID)
+	}
+	if edited.ResourceKey == nil || *edited.ResourceKey != editedResource || edited.ContactEmail == nil || *edited.ContactEmail != "booking-edit-updated@example.com" {
+		t.Fatalf("edited resource/email = %v/%v, want %s/booking-edit-updated@example.com", edited.ResourceKey, edited.ContactEmail, editedResource)
+	}
+
+	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/approve", `{"expected_version":2}`, managerCookie); response.Code != http.StatusOK {
+		t.Fatalf("approve edited code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	approvedResponse := env.doRequest(t, http.MethodGet, "/api/v1/booking/requests/"+created.ID.String(), nil, managerCookie)
+	approved := decodeBookingRequest(t, approvedResponse)
+	if approved.Status != booking.StatusApproved || approved.ScheduleBlockID == nil {
+		t.Fatalf("approved status/block = %s/%v", approved.Status, approved.ScheduleBlockID)
+	}
+	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+approved.ID.String()+"/edit", bookingRequestEditJSON(editedResource, "2026-04-19T22:00:00Z", "2026-04-19T23:00:00Z", "booking-edit-approved@example.com", approved.Version), managerCookie); response.Code != http.StatusConflict {
+		t.Fatalf("approved edit code = %d, want %d body=%s", response.Code, http.StatusConflict, response.Body.String())
+	}
+
+	rebookResource := insertBookingHTTPResource(t, env, "booking-rebook-replacement-court")
+	beforeRebookBlocks := countBookingHTTPScheduleBlocks(t, env)
+	rebookBody := bookingRequestEditJSON(rebookResource, "2026-04-20T20:00:00Z", "2026-04-20T21:00:00Z", "booking-rebook@example.com", approved.Version)
+	rebookHeaders := staffBookingIdempotencyHeaders(env, "booking-rebook-key-001")
+	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/rebook", rebookBody, managerCookie); response.Code != http.StatusBadRequest {
+		t.Fatalf("rebook missing idempotency key code = %d, want %d body=%s", response.Code, http.StatusBadRequest, response.Body.String())
+	}
+	rebook := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/rebook", bytes.NewBufferString(rebookBody), rebookHeaders, managerCookie)
+	if rebook.Code != http.StatusCreated {
+		t.Fatalf("rebook.Code = %d, want %d body=%s", rebook.Code, http.StatusCreated, rebook.Body.String())
+	}
+	replacement := decodeBookingRequest(t, rebook)
+	if replacement.ID == approved.ID || replacement.Status != booking.StatusRequested || replacement.ScheduleBlockID != nil {
+		t.Fatalf("replacement identity/status/block = %s/%s/%v", replacement.ID, replacement.Status, replacement.ScheduleBlockID)
+	}
+	if replacement.ReplacesRequestID == nil || *replacement.ReplacesRequestID != approved.ID {
+		t.Fatalf("replacement ReplacesRequestID = %v, want %s", replacement.ReplacesRequestID, approved.ID)
+	}
+	if afterRebookBlocks := countBookingHTTPScheduleBlocks(t, env); afterRebookBlocks != beforeRebookBlocks {
+		t.Fatalf("schedule block count after rebook = %d, want unchanged %d", afterRebookBlocks, beforeRebookBlocks)
+	}
+
+	duplicate := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/rebook", bytes.NewBufferString(rebookBody), rebookHeaders, managerCookie)
+	if duplicate.Code != http.StatusCreated {
+		t.Fatalf("duplicate rebook code = %d, want %d body=%s", duplicate.Code, http.StatusCreated, duplicate.Body.String())
+	}
+	duplicateReplacement := decodeBookingRequest(t, duplicate)
+	if duplicateReplacement.ID != replacement.ID {
+		t.Fatalf("duplicate rebook ID = %s, want %s", duplicateReplacement.ID, replacement.ID)
+	}
+	changed := strings.Replace(rebookBody, "booking-rebook@example.com", "booking-rebook-changed@example.com", 1)
+	if response := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/rebook", bytes.NewBufferString(changed), rebookHeaders, managerCookie); response.Code != http.StatusConflict {
+		t.Fatalf("changed rebook idempotency code = %d, want %d body=%s", response.Code, http.StatusConflict, response.Body.String())
+	}
+	if count := countBookingHTTPRequestsByEmail(t, env, "booking-rebook@example.com"); count != 1 {
+		t.Fatalf("replacement request count = %d, want 1", count)
+	}
+}
+
+func TestBookingRequestEditUpdatesPublicStatusWindowHTTP(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	optionID := insertPublicBookingHTTPResource(t, env, "booking-public-edit-court", "Editable public court", true, true)
+	start, end := publicBookingWindow(96*time.Hour, time.Hour)
+	submit := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/public/booking/requests", bytes.NewBufferString(publicBookingRequestJSON(optionID, start, end, `"contact_email":"public-edit@example.com"`)), map[string]string{
+		"Idempotency-Key":                "public-edit-key-001",
+		"X-Apollo-Public-Intake-Channel": booking.IntakeChannelPublicWeb,
+	})
+	if submit.Code != http.StatusAccepted {
+		t.Fatalf("public edit submit code = %d, want %d body=%s", submit.Code, http.StatusAccepted, submit.Body.String())
+	}
+	receipt := decodePublicReceipt(t, submit)
+	requestID := bookingHTTPRequestIDByEmail(t, env, "public-edit@example.com")
+
+	managerCookie, manager := createVerifiedSessionViaHTTP(t, env, "student-public-edit-manager", "public-edit-manager@example.com")
+	setUserRole(t, env, manager.ID, authz.RoleManager)
+	updatedStart, updatedEnd := publicBookingWindow(120*time.Hour, 90*time.Minute)
+	edit := env.doJSONRequest(t, http.MethodPost, "/api/v1/booking/requests/"+requestID.String()+"/edit", bookingRequestEditJSON("booking-public-edit-court", updatedStart, updatedEnd, "public-edit@example.com", 1), managerCookie)
+	if edit.Code != http.StatusOK {
+		t.Fatalf("public edit code = %d, want %d body=%s", edit.Code, http.StatusOK, edit.Body.String())
+	}
+
+	statusResponse := env.doRequest(t, http.MethodGet, "/api/v1/public/booking/requests/status?receipt_code="+url.QueryEscape(receipt.ReceiptCode), nil)
+	if statusResponse.Code != http.StatusOK {
+		t.Fatalf("public status after edit code = %d, want %d body=%s", statusResponse.Code, http.StatusOK, statusResponse.Body.String())
+	}
+	publicStatus := decodePublicStatus(t, statusResponse)
+	if publicStatus.RequestedStartAt.Format(time.RFC3339) != updatedStart || publicStatus.RequestedEndAt.Format(time.RFC3339) != updatedEnd {
+		t.Fatalf("public status window = %s/%s, want %s/%s", publicStatus.RequestedStartAt.Format(time.RFC3339), publicStatus.RequestedEndAt.Format(time.RFC3339), updatedStart, updatedEnd)
+	}
+	assertPublicBookingResponseSafe(t, statusResponse)
 }
 
 func TestPublicBookingOptionsExposeOnlySafePublicLabels(t *testing.T) {
@@ -906,6 +1033,23 @@ func bookingRequestJSON(resourceKey string, startsAt string, endsAt string) stri
 
 func bookingRequestJSONWithEmail(resourceKey string, startsAt string, endsAt string, email string) string {
 	return strings.Replace(bookingRequestJSON(resourceKey, startsAt, endsAt), `"contact_email":"casey@example.com"`, `"contact_email":"`+email+`"`, 1)
+}
+
+func bookingRequestEditJSON(resourceKey string, startsAt string, endsAt string, email string, expectedVersion int) string {
+	return `{
+		"expected_version":` + strconv.Itoa(expectedVersion) + `,
+		"facility_key":"ashtonbee",
+		"zone_key":"gym-floor",
+		"resource_key":"` + resourceKey + `",
+		"requested_start_at":"` + startsAt + `",
+		"requested_end_at":"` + endsAt + `",
+		"contact_name":"Casey Booker",
+		"contact_email":"` + email + `",
+		"organization":"Ashton Staff Intake",
+		"purpose":"Court request",
+		"attendee_count":8,
+		"internal_notes":"updated by staff"
+	}`
 }
 
 func assertPublicBookingResponseSafe(t *testing.T, response *httptest.ResponseRecorder) {

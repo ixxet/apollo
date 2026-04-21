@@ -277,4 +277,19 @@ WHERE table_schema = 'apollo'
 	if idempotencyTableCount != 1 {
 		t.Fatalf("booking_request_idempotency_keys table count = %d, want 1", idempotencyTableCount)
 	}
+
+	var replacesRequestColumnCount int
+	if err := postgresEnv.DB.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.columns
+WHERE table_schema = 'apollo'
+  AND table_name = 'booking_requests'
+  AND column_name = 'replaces_request_id'
+`).Scan(&replacesRequestColumnCount); err != nil {
+		t.Fatalf("count booking_requests replaces_request_id column error = %v", err)
+	}
+
+	if replacesRequestColumnCount != 1 {
+		t.Fatalf("replaces_request_id column count = %d, want 1", replacesRequestColumnCount)
+	}
 }

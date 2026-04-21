@@ -24,6 +24,7 @@ sql:
       - "migrations/019_approved_booking_cancellation.up.sql"
       - "migrations/020_public_booking_intake.up.sql"
       - "migrations/021_public_booking_receipts.up.sql"
+      - "migrations/022_booking_request_edit_rebook.up.sql"
     queries: "queries"
     gen:
       go:

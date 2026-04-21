@@ -132,6 +132,8 @@ type BookingManager interface {
 	ListRequests(ctx context.Context, facilityKey string) ([]booking.Request, error)
 	GetRequest(ctx context.Context, requestID uuid.UUID) (booking.Request, error)
 	CreateRequestWithIdempotency(ctx context.Context, actor booking.StaffActor, idempotencyKey string, input booking.RequestInput) (booking.Request, error)
+	UpdateRequest(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.RequestEditInput) (booking.Request, error)
+	RebookRequestWithIdempotency(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, idempotencyKey string, input booking.RequestEditInput) (booking.Request, error)
 	ListPublicOptions(ctx context.Context) ([]booking.PublicOption, error)
 	CreatePublicRequest(ctx context.Context, channel string, idempotencyKey string, input booking.PublicRequestInput) (booking.PublicReceipt, error)
 	GetPublicStatus(ctx context.Context, receiptCode string) (booking.PublicStatus, error)
@@ -1146,6 +1148,66 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, request)
+		}))
+		authenticated.Post("/api/v1/booking/requests/{requestID}/edit", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
+			if deps.Booking == nil {
+				writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+				return
+			}
+
+			requestID, err := parseUUIDParam(r, "requestID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var input booking.RequestEditInput
+			if err := decodeJSONBody(w, r, &input); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if input.ExpectedVersion <= 0 {
+				writeError(w, http.StatusBadRequest, booking.ErrExpectedVersionRequired)
+				return
+			}
+
+			request, err := deps.Booking.UpdateRequest(r.Context(), actor, requestID, input)
+			if err != nil {
+				writeBookingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, request)
+		}))
+		authenticated.Post("/api/v1/booking/requests/{requestID}/rebook", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
+			if deps.Booking == nil {
+				writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+				return
+			}
+
+			requestID, err := parseUUIDParam(r, "requestID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var input booking.RequestEditInput
+			if err := decodeJSONBody(w, r, &input); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if input.ExpectedVersion <= 0 {
+				writeError(w, http.StatusBadRequest, booking.ErrExpectedVersionRequired)
+				return
+			}
+
+			request, err := deps.Booking.RebookRequestWithIdempotency(r.Context(), actor, requestID, r.Header.Get("Idempotency-Key"), input)
+			if err != nil {
+				writeBookingError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, request)
 		}))
 		authenticated.Post("/api/v1/booking/requests/{requestID}/public-message", withBookingAccess(authz.CapabilityBookingManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor booking.StaffActor) {
 			if deps.Booking == nil {

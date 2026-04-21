@@ -90,6 +90,11 @@ type TransitionInput struct {
 	InternalNotes   *string `json:"internal_notes,omitempty"`
 }
 
+type RequestEditInput struct {
+	ExpectedVersion int `json:"expected_version"`
+	RequestInput
+}
+
 type PublicMessageInput struct {
 	ExpectedVersion int     `json:"expected_version"`
 	PublicMessage   *string `json:"public_message,omitempty"`
@@ -117,6 +122,7 @@ type Request struct {
 	Purpose                    *string              `json:"purpose,omitempty"`
 	AttendeeCount              *int                 `json:"attendee_count,omitempty"`
 	InternalNotes              *string              `json:"internal_notes,omitempty"`
+	ReplacesRequestID          *uuid.UUID           `json:"replaces_request_id,omitempty"`
 	RequestSource              string               `json:"request_source"`
 	IntakeChannel              string               `json:"intake_channel"`
 	PublicReceiptCode          *string              `json:"public_receipt_code,omitempty"`
