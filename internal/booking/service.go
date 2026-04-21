@@ -475,7 +475,7 @@ func (s *Service) RebookRequestWithIdempotency(ctx context.Context, actor StaffA
 	}
 
 	keyHash := staffRebookIdempotencyKeyHash(actor, requestID, idempotencyKey)
-	payloadHash := staffCreatePayloadHash(resolved)
+	payloadHash := staffRebookPayloadHash(resolved, input.ExpectedVersion)
 
 	return withBookingQueriesTx(ctx, s.repository.db, func(queries *store.Queries) (Request, error) {
 		if err := queries.LockBookingRequestIdempotencyKey(ctx, keyHash); err != nil {
@@ -1053,6 +1053,13 @@ func staffCreatePayloadHash(input RequestInput) string {
 		optionalStringValue(input.InternalNotes),
 	}
 	return sha256Hex(strings.Join(parts, "\n"))
+}
+
+func staffRebookPayloadHash(input RequestInput, expectedVersion int) string {
+	return sha256Hex(strings.Join([]string{
+		strconv.Itoa(expectedVersion),
+		staffCreatePayloadHash(input),
+	}, "\n"))
 }
 
 func sha256Hex(value string) string {

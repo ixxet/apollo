@@ -270,6 +270,10 @@ func TestBookingRequestEditAndRebookBoundariesHTTP(t *testing.T) {
 	if duplicateReplacement.ID != replacement.ID {
 		t.Fatalf("duplicate rebook ID = %s, want %s", duplicateReplacement.ID, replacement.ID)
 	}
+	changedVersion := strings.Replace(rebookBody, `"expected_version":`+strconv.Itoa(approved.Version), `"expected_version":`+strconv.Itoa(approved.Version+1), 1)
+	if response := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/rebook", bytes.NewBufferString(changedVersion), rebookHeaders, managerCookie); response.Code != http.StatusConflict {
+		t.Fatalf("changed rebook version idempotency code = %d, want %d body=%s", response.Code, http.StatusConflict, response.Body.String())
+	}
 	changed := strings.Replace(rebookBody, "booking-rebook@example.com", "booking-rebook-changed@example.com", 1)
 	if response := env.doRequestWithHeaders(t, http.MethodPost, "/api/v1/booking/requests/"+created.ID.String()+"/rebook", bytes.NewBufferString(changed), rebookHeaders, managerCookie); response.Code != http.StatusConflict {
 		t.Fatalf("changed rebook idempotency code = %d, want %d body=%s", response.Code, http.StatusConflict, response.Body.String())
