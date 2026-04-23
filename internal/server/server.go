@@ -135,6 +135,7 @@ type BookingManager interface {
 	UpdateRequest(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.RequestEditInput) (booking.Request, error)
 	RebookRequestWithIdempotency(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, idempotencyKey string, input booking.RequestEditInput) (booking.Request, error)
 	ListPublicOptions(ctx context.Context) ([]booking.PublicOption, error)
+	GetPublicAvailability(ctx context.Context, input booking.PublicAvailabilityInput) (booking.PublicAvailability, error)
 	CreatePublicRequest(ctx context.Context, channel string, idempotencyKey string, input booking.PublicRequestInput) (booking.PublicReceipt, error)
 	GetPublicStatus(ctx context.Context, receiptCode string) (booking.PublicStatus, error)
 	UpdatePublicMessage(ctx context.Context, actor booking.StaffActor, requestID uuid.UUID, input booking.PublicMessageInput) (booking.Request, error)
@@ -379,6 +380,40 @@ func NewHandler(deps Dependencies) http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, options)
+	})
+	router.Get("/api/v1/public/booking/options/{optionID}/availability", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Booking == nil {
+			writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
+			return
+		}
+
+		optionID, err := parseUUIDParam(r, "optionID")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		from, err := parseScheduleWindowBoundary(r.URL.Query().Get("from"), false)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		until, err := parseScheduleWindowBoundary(r.URL.Query().Get("until"), true)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+
+		availability, err := deps.Booking.GetPublicAvailability(r.Context(), booking.PublicAvailabilityInput{
+			OptionID: optionID,
+			From:     from,
+			Until:    until,
+		})
+		if err != nil {
+			writePublicBookingError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, availability)
 	})
 	router.Post("/api/v1/public/booking/requests", func(w http.ResponseWriter, r *http.Request) {
 		if deps.Booking == nil {
@@ -2407,7 +2442,8 @@ func writePublicBookingError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, booking.ErrPublicOptionNotFound),
 		errors.Is(err, booking.ErrPublicReceiptNotFound),
-		errors.Is(err, schedule.ErrResourceNotFound):
+		errors.Is(err, schedule.ErrResourceNotFound),
+		errors.Is(err, schedule.ErrBlockResourceNotClaimable):
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, booking.ErrIdempotencyConflict):
 		writeError(w, http.StatusConflict, err)
@@ -2419,6 +2455,7 @@ func writePublicBookingError(w http.ResponseWriter, err error) {
 		errors.Is(err, booking.ErrPublicWindowPast),
 		errors.Is(err, booking.ErrPublicWindowTooFar),
 		errors.Is(err, booking.ErrPublicDurationInvalid),
+		errors.Is(err, booking.ErrPublicAvailabilityTooLarge),
 		errors.Is(err, booking.ErrContactNameRequired),
 		errors.Is(err, booking.ErrContactChannelRequired),
 		errors.Is(err, booking.ErrContactEmailInvalid),

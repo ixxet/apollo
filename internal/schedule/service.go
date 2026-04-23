@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -259,6 +260,115 @@ func (s *Service) GetCalendar(ctx context.Context, facilityKey string, window Ca
 	}
 
 	_ = occurrenceIndex
+	return result, nil
+}
+
+func (s *Service) GetPublicAvailability(ctx context.Context, input PublicAvailabilityInput) (PublicAvailability, error) {
+	resolved, err := validatePublicAvailabilityInput(input)
+	if err != nil {
+		return PublicAvailability{}, err
+	}
+
+	queries := store.New(s.repository.db)
+	snapshot, err := s.loadFacilitySnapshot(ctx, queries, resolved.FacilityKey)
+	if err != nil {
+		return PublicAvailability{}, err
+	}
+
+	resource, ok := snapshot.resources[resolved.ResourceKey]
+	if !ok {
+		return PublicAvailability{}, ErrResourceNotFound
+	}
+	if resource.FacilityKey != resolved.FacilityKey {
+		return PublicAvailability{}, ErrResourceFacilityInvalid
+	}
+	if resolved.ZoneKey != nil && (resource.ZoneKey == nil || *resource.ZoneKey != *resolved.ZoneKey) {
+		return PublicAvailability{}, ErrResourceZoneInvalid
+	}
+	if !resourceIsClaimable(resource) {
+		return PublicAvailability{}, ErrBlockResourceNotClaimable
+	}
+
+	activeBlocks := make([]Block, 0, len(snapshot.blocks))
+	for _, block := range snapshot.blocks {
+		if block.Status != StatusCancelled {
+			activeBlocks = append(activeBlocks, block)
+		}
+	}
+
+	window := CalendarWindow{From: resolved.From, Until: resolved.Until}
+	_, occurrences, err := s.expandOccurrences(activeBlocks, snapshot, window)
+	if err != nil {
+		return PublicAvailability{}, err
+	}
+
+	targetCoverage := claimCoverageFromBlock(Block{
+		FacilityKey: resolved.FacilityKey,
+		ZoneKey:     resource.ZoneKey,
+		ResourceKey: &resolved.ResourceKey,
+		Scope:       ScopeResource,
+		Kind:        KindReservation,
+		Effect:      EffectHardReserve,
+		Visibility:  VisibilityInternal,
+	}, snapshot)
+
+	operating := make([]publicAvailabilityInterval, 0)
+	unavailable := make([]PublicUnavailableBlock, 0)
+	timeZone := ""
+	timeZoneAmbiguous := false
+	for _, occurrence := range occurrences {
+		if !publicAvailabilityOccurrenceImpacts(targetCoverage, occurrence, snapshot) {
+			continue
+		}
+
+		startAt, endAt, ok := clippedOccurrenceWindow(occurrence, window)
+		if !ok {
+			continue
+		}
+
+		relevant := false
+		if occurrence.Kind == KindOperatingHours {
+			relevant = true
+			operating = append(operating, publicAvailabilityInterval{startAt: startAt, endAt: endAt})
+		} else if reason := publicUnavailableReason(occurrence); reason != "" {
+			relevant = true
+			unavailable = append(unavailable, PublicUnavailableBlock{
+				StartAt: startAt,
+				EndAt:   endAt,
+				Reason:  reason,
+			})
+		}
+
+		if relevant && occurrence.scheduleType == ScheduleTypeWeekly {
+			nextTimeZone := ""
+			if occurrence.timeZone != nil {
+				nextTimeZone = strings.TrimSpace(*occurrence.timeZone)
+			}
+			if nextTimeZone == "" {
+				timeZoneAmbiguous = true
+				continue
+			}
+			if timeZone == "" {
+				timeZone = nextTimeZone
+			} else if timeZone != nextTimeZone {
+				timeZoneAmbiguous = true
+			}
+		}
+	}
+
+	unavailable = mergePublicUnavailableBlocks(unavailable)
+	blockers := make([]publicAvailabilityInterval, 0, len(unavailable))
+	for _, block := range unavailable {
+		blockers = append(blockers, publicAvailabilityInterval{startAt: block.StartAt, endAt: block.EndAt})
+	}
+
+	result := PublicAvailability{
+		RequestableWindows: publicAvailabilityWindowsFromIntervals(subtractPublicUnavailable(mergePublicAvailabilityIntervals(operating), mergePublicAvailabilityIntervals(blockers))),
+		UnavailableBlocks:  unavailable,
+	}
+	if timeZone != "" && !timeZoneAmbiguous {
+		result.TimeZone = stringPtr(timeZone)
+	}
 	return result, nil
 }
 
@@ -879,6 +989,30 @@ func validateCalendarWindow(window CalendarWindow) error {
 	return nil
 }
 
+func validatePublicAvailabilityInput(input PublicAvailabilityInput) (PublicAvailabilityInput, error) {
+	input.FacilityKey = strings.TrimSpace(input.FacilityKey)
+	input.ResourceKey = strings.TrimSpace(input.ResourceKey)
+	if input.ZoneKey != nil {
+		value := strings.TrimSpace(*input.ZoneKey)
+		input.ZoneKey = &value
+	}
+	input.From = input.From.UTC()
+	input.Until = input.Until.UTC()
+
+	switch {
+	case input.FacilityKey == "":
+		return PublicAvailabilityInput{}, ErrResourceFacilityRequired
+	case input.ResourceKey == "":
+		return PublicAvailabilityInput{}, ErrResourceKeyRequired
+	case input.From.IsZero() || input.Until.IsZero() || !input.From.Before(input.Until):
+		return PublicAvailabilityInput{}, ErrBlockDateWindowInvalid
+	}
+	if err := validateCalendarWindow(CalendarWindow{From: input.From, Until: input.Until}); err != nil {
+		return PublicAvailabilityInput{}, err
+	}
+	return input, nil
+}
+
 func validateStaffActor(actor StaffActor) error {
 	if actor.UserID == uuid.Nil || actor.SessionID == uuid.Nil {
 		return ErrActorAttributionRequired
@@ -934,7 +1068,9 @@ type facilitySnapshot struct {
 
 type blockOccurrence struct {
 	Occurrence
-	coverage map[string]struct{}
+	coverage     map[string]struct{}
+	scheduleType string
+	timeZone     *string
 }
 
 func (s *Service) loadFacilitySnapshotFromRepository(ctx context.Context, facilityKey string) (*facilitySnapshot, error) {
@@ -1132,7 +1268,9 @@ func (s *Service) expandBlockOccurrences(block Block, snapshot *facilitySnapshot
 				EndsAt:         *block.EndAt,
 				OccurrenceDate: block.StartAt.UTC().Format(isoDateLayout),
 			},
-			coverage: coverage,
+			coverage:     coverage,
+			scheduleType: block.ScheduleType,
+			timeZone:     block.Timezone,
 		}}, nil
 	case ScheduleTypeWeekly:
 		if block.Weekday == nil || block.StartTime == nil || block.EndTime == nil || block.Timezone == nil || block.RecurrenceStartDate == nil {
@@ -1202,7 +1340,9 @@ func (s *Service) expandBlockOccurrences(block Block, snapshot *facilitySnapshot
 						EndsAt:         localEnd.UTC(),
 						OccurrenceDate: current.Format(isoDateLayout),
 					},
-					coverage: coverage,
+					coverage:     coverage,
+					scheduleType: block.ScheduleType,
+					timeZone:     block.Timezone,
 				})
 			}
 			current = current.AddDate(0, 0, 7)
@@ -1669,6 +1809,170 @@ func occurrenceCollectionsOverlap(left []blockOccurrence, right []blockOccurrenc
 		}
 	}
 	return false
+}
+
+type publicAvailabilityInterval struct {
+	startAt time.Time
+	endAt   time.Time
+}
+
+func publicAvailabilityOccurrenceImpacts(targetCoverage map[string]struct{}, occurrence blockOccurrence, snapshot *facilitySnapshot) bool {
+	if len(targetCoverage) == 0 || len(occurrence.coverage) == 0 {
+		return false
+	}
+	return coverageConflict(targetCoverage, occurrence.coverage, snapshot)
+}
+
+func clippedOccurrenceWindow(occurrence blockOccurrence, window CalendarWindow) (time.Time, time.Time, bool) {
+	startAt := occurrence.StartsAt.UTC()
+	if window.From.After(startAt) {
+		startAt = window.From.UTC()
+	}
+	endAt := occurrence.EndsAt.UTC()
+	if window.Until.Before(endAt) {
+		endAt = window.Until.UTC()
+	}
+	if !startAt.Before(endAt) {
+		return time.Time{}, time.Time{}, false
+	}
+	return startAt, endAt, true
+}
+
+func publicUnavailableReason(occurrence blockOccurrence) string {
+	if occurrence.Kind == KindClosure || occurrence.Effect == EffectClosed {
+		return "closed"
+	}
+	if occurrence.Kind == KindReservation || (occurrence.Visibility == VisibilityInternal && occurrence.Effect == EffectHardReserve) {
+		return "booked"
+	}
+	if isHardClaimOccurrence(occurrence.Occurrence) || occurrence.Effect == EffectHardReserve || occurrence.Visibility == VisibilityPublicBusy {
+		return "unavailable"
+	}
+	return ""
+}
+
+func mergePublicAvailabilityIntervals(intervals []publicAvailabilityInterval) []publicAvailabilityInterval {
+	if len(intervals) <= 1 {
+		return intervals
+	}
+
+	sorted := append([]publicAvailabilityInterval(nil), intervals...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].startAt.Equal(sorted[j].startAt) {
+			return sorted[i].endAt.Before(sorted[j].endAt)
+		}
+		return sorted[i].startAt.Before(sorted[j].startAt)
+	})
+
+	merged := make([]publicAvailabilityInterval, 0, len(sorted))
+	for _, interval := range sorted {
+		if !interval.startAt.Before(interval.endAt) {
+			continue
+		}
+		if len(merged) == 0 {
+			merged = append(merged, interval)
+			continue
+		}
+		last := &merged[len(merged)-1]
+		if interval.startAt.After(last.endAt) {
+			merged = append(merged, interval)
+			continue
+		}
+		if interval.endAt.After(last.endAt) {
+			last.endAt = interval.endAt
+		}
+	}
+	return merged
+}
+
+func subtractPublicUnavailable(available []publicAvailabilityInterval, blockers []publicAvailabilityInterval) []publicAvailabilityInterval {
+	if len(available) == 0 || len(blockers) == 0 {
+		return available
+	}
+
+	result := make([]publicAvailabilityInterval, 0, len(available))
+	for _, candidate := range available {
+		cursor := candidate.startAt
+		for _, blocker := range blockers {
+			if !blocker.endAt.After(cursor) {
+				continue
+			}
+			if !blocker.startAt.Before(candidate.endAt) {
+				break
+			}
+			if blocker.startAt.After(cursor) {
+				result = append(result, publicAvailabilityInterval{startAt: cursor, endAt: blocker.startAt})
+			}
+			if blocker.endAt.After(cursor) {
+				cursor = blocker.endAt
+			}
+			if !cursor.Before(candidate.endAt) {
+				break
+			}
+		}
+		if cursor.Before(candidate.endAt) {
+			result = append(result, publicAvailabilityInterval{startAt: cursor, endAt: candidate.endAt})
+		}
+	}
+	return result
+}
+
+func publicAvailabilityWindowsFromIntervals(intervals []publicAvailabilityInterval) []PublicAvailabilityWindow {
+	windows := make([]PublicAvailabilityWindow, 0, len(intervals))
+	for _, interval := range intervals {
+		if !interval.startAt.Before(interval.endAt) {
+			continue
+		}
+		windows = append(windows, PublicAvailabilityWindow{
+			StartAt: interval.startAt.UTC(),
+			EndAt:   interval.endAt.UTC(),
+		})
+	}
+	return windows
+}
+
+func mergePublicUnavailableBlocks(blocks []PublicUnavailableBlock) []PublicUnavailableBlock {
+	if len(blocks) <= 1 {
+		return blocks
+	}
+
+	sorted := append([]PublicUnavailableBlock(nil), blocks...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].StartAt.Equal(sorted[j].StartAt) {
+			if sorted[i].EndAt.Equal(sorted[j].EndAt) {
+				return sorted[i].Reason < sorted[j].Reason
+			}
+			return sorted[i].EndAt.Before(sorted[j].EndAt)
+		}
+		return sorted[i].StartAt.Before(sorted[j].StartAt)
+	})
+
+	merged := make([]PublicUnavailableBlock, 0, len(sorted))
+	for _, block := range sorted {
+		if !block.StartAt.Before(block.EndAt) {
+			continue
+		}
+		if len(merged) == 0 {
+			merged = append(merged, block)
+			continue
+		}
+		last := &merged[len(merged)-1]
+		if block.Reason != last.Reason || !publicLabelsEqual(block.Label, last.Label) || block.StartAt.After(last.EndAt) {
+			merged = append(merged, block)
+			continue
+		}
+		if block.EndAt.After(last.EndAt) {
+			last.EndAt = block.EndAt
+		}
+	}
+	return merged
+}
+
+func publicLabelsEqual(left *string, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func occurrenceWindow(occurrence blockOccurrence) CalendarWindow {

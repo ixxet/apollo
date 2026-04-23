@@ -155,6 +155,32 @@ type AvailabilityDecision struct {
 	Conflicts []Conflict `json:"conflicts,omitempty"`
 }
 
+type PublicAvailabilityInput struct {
+	FacilityKey string
+	ZoneKey     *string
+	ResourceKey string
+	From        time.Time
+	Until       time.Time
+}
+
+type PublicAvailability struct {
+	TimeZone           *string                    `json:"time_zone,omitempty"`
+	RequestableWindows []PublicAvailabilityWindow `json:"requestable_windows"`
+	UnavailableBlocks  []PublicUnavailableBlock   `json:"unavailable_blocks"`
+}
+
+type PublicAvailabilityWindow struct {
+	StartAt time.Time `json:"start_at"`
+	EndAt   time.Time `json:"end_at"`
+}
+
+type PublicUnavailableBlock struct {
+	StartAt time.Time `json:"start_at"`
+	EndAt   time.Time `json:"end_at"`
+	Reason  string    `json:"reason"`
+	Label   *string   `json:"label,omitempty"`
+}
+
 type Block struct {
 	ID                           uuid.UUID  `json:"id"`
 	FacilityKey                  string     `json:"facility_key"`

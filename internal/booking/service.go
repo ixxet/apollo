@@ -36,6 +36,7 @@ var (
 	ErrPublicWindowPast           = errors.New("booking request window must be in the future")
 	ErrPublicWindowTooFar         = errors.New("booking request window is too far in the future")
 	ErrPublicDurationInvalid      = errors.New("booking request duration is invalid")
+	ErrPublicAvailabilityTooLarge = errors.New("booking availability window exceeds the maximum range")
 	ErrIdempotencyKeyRequired     = errors.New("idempotency key is required")
 	ErrIdempotencyConflict        = errors.New("idempotency key has already been used for a different request")
 	ErrPublicReceiptRequired      = errors.New("booking receipt code is required")
@@ -62,9 +63,10 @@ const (
 	publicMaxMessageLength      = 1000
 	publicMaxAttendeeCount      = 500
 
-	publicMinDuration = 30 * time.Minute
-	publicMaxDuration = 8 * time.Hour
-	publicMaxHorizon  = 180 * 24 * time.Hour
+	publicMinDuration           = 30 * time.Minute
+	publicMaxDuration           = 8 * time.Hour
+	publicMaxHorizon            = 180 * 24 * time.Hour
+	publicMaxAvailabilityWindow = 14 * 24 * time.Hour
 
 	publicReceiptInsertAttempts = 5
 )
@@ -131,6 +133,46 @@ func (s *Service) ListPublicOptions(ctx context.Context) ([]PublicOption, error)
 		})
 	}
 	return options, nil
+}
+
+func (s *Service) GetPublicAvailability(ctx context.Context, input PublicAvailabilityInput) (PublicAvailability, error) {
+	normalized, err := validatePublicAvailabilityInput(input)
+	if err != nil {
+		return PublicAvailability{}, err
+	}
+	if s.schedule == nil {
+		return PublicAvailability{}, ErrScheduleServiceUnavailable
+	}
+
+	resource, err := store.New(s.repository.db).GetPublicBookingResourceByOptionID(ctx, normalized.OptionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PublicAvailability{}, ErrPublicOptionNotFound
+	}
+	if err != nil {
+		return PublicAvailability{}, err
+	}
+	if resource.PublicLabel == nil {
+		return PublicAvailability{}, ErrPublicOptionNotFound
+	}
+
+	availability, err := s.schedule.GetPublicAvailability(ctx, schedule.PublicAvailabilityInput{
+		FacilityKey: resource.FacilityKey,
+		ZoneKey:     resource.ZoneKey,
+		ResourceKey: resource.ResourceKey,
+		From:        normalized.From,
+		Until:       normalized.Until,
+	})
+	if err != nil {
+		if errors.Is(err, schedule.ErrResourceNotFound) ||
+			errors.Is(err, schedule.ErrBlockResourceNotClaimable) ||
+			errors.Is(err, schedule.ErrResourceFacilityInvalid) ||
+			errors.Is(err, schedule.ErrResourceZoneInvalid) {
+			return PublicAvailability{}, ErrPublicOptionNotFound
+		}
+		return PublicAvailability{}, err
+	}
+
+	return publicAvailabilityFromSchedule(normalized, availability), nil
 }
 
 func (s *Service) CreatePublicRequest(ctx context.Context, channel string, idempotencyKey string, input PublicRequestInput) (PublicReceipt, error) {
@@ -923,6 +965,21 @@ func validatePublicRequestInput(input PublicRequestInput, now time.Time) (Public
 	return input, nil
 }
 
+func validatePublicAvailabilityInput(input PublicAvailabilityInput) (PublicAvailabilityInput, error) {
+	input.From = input.From.UTC()
+	input.Until = input.Until.UTC()
+
+	switch {
+	case input.OptionID == uuid.Nil:
+		return PublicAvailabilityInput{}, ErrPublicOptionRequired
+	case input.From.IsZero() || input.Until.IsZero() || !input.From.Before(input.Until):
+		return PublicAvailabilityInput{}, ErrWindowInvalid
+	case input.Until.Sub(input.From) > publicMaxAvailabilityWindow:
+		return PublicAvailabilityInput{}, ErrPublicAvailabilityTooLarge
+	}
+	return input, nil
+}
+
 func validPublicPhone(value string) bool {
 	digits := 0
 	for _, r := range value {
@@ -997,6 +1054,35 @@ func publicStatusFromRow(receiptCode string, internalStatus string, message *str
 		RequestedStartAt: requestedStartAt.Time.UTC(),
 		RequestedEndAt:   requestedEndAt.Time.UTC(),
 		UpdatedAt:        updatedAt.Time.UTC(),
+	}
+}
+
+func publicAvailabilityFromSchedule(input PublicAvailabilityInput, availability schedule.PublicAvailability) PublicAvailability {
+	requestable := make([]PublicAvailabilityWindow, 0, len(availability.RequestableWindows))
+	for _, window := range availability.RequestableWindows {
+		requestable = append(requestable, PublicAvailabilityWindow{
+			StartAt: window.StartAt.UTC(),
+			EndAt:   window.EndAt.UTC(),
+		})
+	}
+
+	unavailable := make([]PublicUnavailableBlock, 0, len(availability.UnavailableBlocks))
+	for _, block := range availability.UnavailableBlocks {
+		unavailable = append(unavailable, PublicUnavailableBlock{
+			StartAt: block.StartAt.UTC(),
+			EndAt:   block.EndAt.UTC(),
+			Reason:  block.Reason,
+			Label:   block.Label,
+		})
+	}
+
+	return PublicAvailability{
+		OptionID:           input.OptionID,
+		From:               input.From.UTC(),
+		Until:              input.Until.UTC(),
+		TimeZone:           availability.TimeZone,
+		RequestableWindows: requestable,
+		UnavailableBlocks:  unavailable,
 	}
 }
 

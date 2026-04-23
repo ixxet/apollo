@@ -85,6 +85,33 @@ type PublicStatus struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
+type PublicAvailabilityInput struct {
+	OptionID uuid.UUID
+	From     time.Time
+	Until    time.Time
+}
+
+type PublicAvailability struct {
+	OptionID           uuid.UUID                  `json:"option_id"`
+	From               time.Time                  `json:"from"`
+	Until              time.Time                  `json:"until"`
+	TimeZone           *string                    `json:"time_zone,omitempty"`
+	RequestableWindows []PublicAvailabilityWindow `json:"requestable_windows"`
+	UnavailableBlocks  []PublicUnavailableBlock   `json:"unavailable_blocks"`
+}
+
+type PublicAvailabilityWindow struct {
+	StartAt time.Time `json:"start_at"`
+	EndAt   time.Time `json:"end_at"`
+}
+
+type PublicUnavailableBlock struct {
+	StartAt time.Time `json:"start_at"`
+	EndAt   time.Time `json:"end_at"`
+	Reason  string    `json:"reason"`
+	Label   *string   `json:"label,omitempty"`
+}
+
 type TransitionInput struct {
 	ExpectedVersion int     `json:"expected_version"`
 	InternalNotes   *string `json:"internal_notes,omitempty"`
