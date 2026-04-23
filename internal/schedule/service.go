@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/store"
 )
 
@@ -41,6 +42,7 @@ var (
 	ErrBlockClaimableScopeEmpty    = errors.New("schedule block requires at least one active and bookable resource in scope")
 	ErrBlockOperatingHoursOverlap  = errors.New("operating hours overlap on the same scope")
 	ErrBlockCancelled              = errors.New("schedule block is cancelled")
+	ErrBlockBookingLinked          = errors.New("linked booking reservation must be cancelled through the booking request lifecycle")
 	ErrBlockReservationMismatch    = errors.New("schedule reservation does not match expected booking request")
 	ErrExceptionDateRequired       = errors.New("exception_date is required")
 	ErrExceptionNotAllowed         = errors.New("date exception is only supported for weekly recurring blocks")
@@ -589,6 +591,9 @@ func (s *Service) CancelBlockWithQueries(ctx context.Context, queries *store.Que
 	}
 	if current.Status == StatusCancelled {
 		return Block{}, ErrBlockCancelled
+	}
+	if current.Kind == KindReservation && current.CreatedByCapability == string(authz.CapabilityBookingManage) {
+		return Block{}, ErrBlockBookingLinked
 	}
 
 	return s.cancelLockedBlock(ctx, queries, actor, current)

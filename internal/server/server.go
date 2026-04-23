@@ -2052,6 +2052,7 @@ func withScheduleAccess(required authz.Capability, requireTrustedSurface bool, v
 			writeError(w, http.StatusForbidden, authz.ErrCapabilityDenied)
 			return
 		}
+		w.Header().Set("X-Apollo-Schedule-Can-Manage", strconv.FormatBool(authz.HasCapability(principal.Capabilities, authz.CapabilityScheduleManage)))
 
 		if requireTrustedSurface {
 			surface, err := verifier.VerifyRequest(r)
@@ -2354,6 +2355,7 @@ func writeScheduleError(w http.ResponseWriter, err error) {
 		errors.Is(err, schedule.ErrBlockClaimableScopeEmpty),
 		errors.Is(err, schedule.ErrBlockOperatingHoursOverlap),
 		errors.Is(err, schedule.ErrBlockCancelled),
+		errors.Is(err, schedule.ErrBlockBookingLinked),
 		errors.Is(err, schedule.ErrBlockReservationMismatch):
 		writeError(w, http.StatusConflict, err)
 	case errors.Is(err, schedule.ErrResourceKeyRequired),
