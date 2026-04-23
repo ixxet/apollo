@@ -350,6 +350,123 @@ func TestPublicBookingOptionsExposeOnlySafePublicLabels(t *testing.T) {
 	}
 }
 
+func TestPublicBookingAvailabilityReadIsSanitizedAndReadOnly(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	managerCookie, manager := createVerifiedSessionViaHTTP(t, env, "student-booking-availability-manager", "booking-availability-manager@example.com")
+	setUserRole(t, env, manager.ID, authz.RoleManager)
+	optionID := insertPublicBookingHTTPResource(t, env, "booking-public-availability-court", "Availability Court", true, true)
+
+	operating := createAvailabilityScheduleBlock(t, env, managerCookie, publicAvailabilityWeeklyBlockJSON("booking-public-availability-court", schedule.KindOperatingHours, schedule.EffectInformational, schedule.VisibilityPublicLabeled, 1, "09:00", "17:00", "America/Toronto", "2026-05-04", "2026-05-11"))
+	closure := createAvailabilityScheduleBlock(t, env, managerCookie, publicAvailabilityOneOffBlockJSON("booking-public-availability-court", schedule.KindClosure, schedule.EffectClosed, schedule.VisibilityInternal, "2026-05-04T16:00:00Z", "2026-05-04T17:00:00Z"))
+	reservation := createAvailabilityScheduleBlock(t, env, managerCookie, publicAvailabilityOneOffBlockJSON("booking-public-availability-court", schedule.KindReservation, schedule.EffectHardReserve, schedule.VisibilityInternal, "2026-05-04T18:00:00Z", "2026-05-04T19:00:00Z"))
+	publicBusy := createAvailabilityScheduleBlock(t, env, managerCookie, publicAvailabilityOneOffBlockJSON("booking-public-availability-court", schedule.KindEvent, schedule.EffectInformational, schedule.VisibilityPublicBusy, "2026-05-04T19:30:00Z", "2026-05-04T20:00:00Z"))
+
+	beforeBlocks := countBookingHTTPScheduleBlocks(t, env)
+	beforeRequests := countBookingHTTPRequests(t, env)
+	response := env.doRequest(t, http.MethodGet, publicAvailabilityURL(optionID, "2026-05-04T13:00:00Z", "2026-05-04T21:00:00Z"), nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("public availability code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if afterBlocks := countBookingHTTPScheduleBlocks(t, env); afterBlocks != beforeBlocks {
+		t.Fatalf("availability read schedule block count = %d, want unchanged %d", afterBlocks, beforeBlocks)
+	}
+	if afterRequests := countBookingHTTPRequests(t, env); afterRequests != beforeRequests {
+		t.Fatalf("availability read booking request count = %d, want unchanged %d", afterRequests, beforeRequests)
+	}
+
+	availability := decodePublicAvailability(t, response)
+	if availability.OptionID != optionID {
+		t.Fatalf("availability.OptionID = %s, want %s", availability.OptionID, optionID)
+	}
+	if availability.From.Format(time.RFC3339) != "2026-05-04T13:00:00Z" || availability.Until.Format(time.RFC3339) != "2026-05-04T21:00:00Z" {
+		t.Fatalf("availability window = %s/%s", availability.From.Format(time.RFC3339), availability.Until.Format(time.RFC3339))
+	}
+	if availability.TimeZone == nil || *availability.TimeZone != "America/Toronto" {
+		t.Fatalf("availability.TimeZone = %v, want America/Toronto", availability.TimeZone)
+	}
+	assertAvailabilityWindows(t, availability.RequestableWindows, []availabilityWindowExpectation{
+		{startAt: "2026-05-04T13:00:00Z", endAt: "2026-05-04T16:00:00Z"},
+		{startAt: "2026-05-04T17:00:00Z", endAt: "2026-05-04T18:00:00Z"},
+		{startAt: "2026-05-04T19:00:00Z", endAt: "2026-05-04T19:30:00Z"},
+		{startAt: "2026-05-04T20:00:00Z", endAt: "2026-05-04T21:00:00Z"},
+	})
+	assertUnavailableBlocks(t, availability.UnavailableBlocks, []unavailableBlockExpectation{
+		{startAt: "2026-05-04T16:00:00Z", endAt: "2026-05-04T17:00:00Z", reason: "closed"},
+		{startAt: "2026-05-04T18:00:00Z", endAt: "2026-05-04T19:00:00Z", reason: "booked"},
+		{startAt: "2026-05-04T19:30:00Z", endAt: "2026-05-04T20:00:00Z", reason: "unavailable"},
+	})
+
+	assertPublicBookingResponseSafe(t, response)
+	for _, forbidden := range []string{
+		operating.ID.String(),
+		closure.ID.String(),
+		reservation.ID.String(),
+		publicBusy.ID.String(),
+		"booking-public-availability-court",
+		"Availability Court",
+		"ashtonbee",
+		"gym-floor",
+		"reservation",
+		"public_busy",
+		"internal",
+		"label",
+	} {
+		if strings.Contains(response.Body.String(), forbidden) {
+			t.Fatalf("public availability leaked %q in body %s", forbidden, response.Body.String())
+		}
+	}
+}
+
+func TestPublicBookingAvailabilityValidationAndOptionFiltering(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	optionID := insertPublicBookingHTTPResource(t, env, "booking-public-availability-validation-court", "Availability Validation Court", true, true)
+	inactiveOptionID := insertPublicBookingHTTPResource(t, env, "booking-public-availability-validation-inactive", "Inactive Availability Court", true, false)
+	unbookableOptionID := insertPublicBookingHTTPResource(t, env, "booking-public-availability-validation-unbookable", "Unbookable Availability Court", false, true)
+	unlabeledOptionID := insertPrivateBookingHTTPResourceWithOption(t, env, "booking-public-availability-validation-unlabeled")
+	from := "2026-05-05T13:00:00Z"
+	until := "2026-05-05T15:00:00Z"
+
+	valid := env.doRequest(t, http.MethodGet, publicAvailabilityURL(optionID, from, until), nil)
+	if valid.Code != http.StatusOK {
+		t.Fatalf("valid availability code = %d, want %d body=%s", valid.Code, http.StatusOK, valid.Body.String())
+	}
+	availability := decodePublicAvailability(t, valid)
+	if availability.RequestableWindows == nil || availability.UnavailableBlocks == nil {
+		t.Fatalf("availability slices should be empty arrays, got requestable=%#v unavailable=%#v", availability.RequestableWindows, availability.UnavailableBlocks)
+	}
+
+	testCases := []struct {
+		name string
+		path string
+		code int
+	}{
+		{name: "missing from", path: "/api/v1/public/booking/options/" + optionID.String() + "/availability?until=" + url.QueryEscape(until), code: http.StatusBadRequest},
+		{name: "missing until", path: "/api/v1/public/booking/options/" + optionID.String() + "/availability?from=" + url.QueryEscape(from), code: http.StatusBadRequest},
+		{name: "date only", path: publicAvailabilityURL(optionID, "2026-05-05", until), code: http.StatusBadRequest},
+		{name: "equal window", path: publicAvailabilityURL(optionID, from, from), code: http.StatusBadRequest},
+		{name: "reversed window", path: publicAvailabilityURL(optionID, until, from), code: http.StatusBadRequest},
+		{name: "oversized window", path: publicAvailabilityURL(optionID, from, "2026-05-19T13:00:01Z"), code: http.StatusBadRequest},
+		{name: "inactive option", path: publicAvailabilityURL(inactiveOptionID, from, until), code: http.StatusNotFound},
+		{name: "unbookable option", path: publicAvailabilityURL(unbookableOptionID, from, until), code: http.StatusNotFound},
+		{name: "unlabeled option", path: publicAvailabilityURL(unlabeledOptionID, from, until), code: http.StatusNotFound},
+		{name: "unknown option", path: publicAvailabilityURL(uuid.New(), from, until), code: http.StatusNotFound},
+		{name: "invalid option id", path: "/api/v1/public/booking/options/not-a-uuid/availability?from=" + url.QueryEscape(from) + "&until=" + url.QueryEscape(until), code: http.StatusBadRequest},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			response := env.doRequest(t, http.MethodGet, testCase.path, nil)
+			if response.Code != testCase.code {
+				t.Fatalf("code = %d, want %d body=%s", response.Code, testCase.code, response.Body.String())
+			}
+			assertPublicBookingResponseSafe(t, response)
+		})
+	}
+}
+
 func TestPublicBookingSubmitCreatesRequestedRequestWithoutReservationAndIsIdempotent(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
@@ -913,6 +1030,110 @@ func decodePublicStatus(t *testing.T, response *httptest.ResponseRecorder) booki
 	return status
 }
 
+func decodePublicAvailability(t *testing.T, response *httptest.ResponseRecorder) booking.PublicAvailability {
+	t.Helper()
+
+	var availability booking.PublicAvailability
+	if err := json.Unmarshal(response.Body.Bytes(), &availability); err != nil {
+		t.Fatalf("json.Unmarshal(public availability) error = %v body=%s", err, response.Body.String())
+	}
+	return availability
+}
+
+func createAvailabilityScheduleBlock(t *testing.T, env *authProfileServerEnv, cookie *http.Cookie, body string) schedule.Block {
+	t.Helper()
+
+	response := env.doJSONRequest(t, http.MethodPost, "/api/v1/schedule/blocks", body, cookie)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create availability schedule block code = %d, want %d body=%s", response.Code, http.StatusCreated, response.Body.String())
+	}
+	var block schedule.Block
+	if err := json.Unmarshal(response.Body.Bytes(), &block); err != nil {
+		t.Fatalf("json.Unmarshal(schedule block) error = %v body=%s", err, response.Body.String())
+	}
+	return block
+}
+
+func publicAvailabilityURL(optionID uuid.UUID, from string, until string) string {
+	return "/api/v1/public/booking/options/" + optionID.String() + "/availability?from=" + url.QueryEscape(from) + "&until=" + url.QueryEscape(until)
+}
+
+func publicAvailabilityOneOffBlockJSON(resourceKey string, kind string, effect string, visibility string, startsAt string, endsAt string) string {
+	return `{
+		"facility_key":"ashtonbee",
+		"zone_key":"gym-floor",
+		"resource_key":"` + resourceKey + `",
+		"scope":"resource",
+		"kind":"` + kind + `",
+		"effect":"` + effect + `",
+		"visibility":"` + visibility + `",
+		"one_off":{
+			"starts_at":"` + startsAt + `",
+			"ends_at":"` + endsAt + `"
+		}
+	}`
+}
+
+func publicAvailabilityWeeklyBlockJSON(resourceKey string, kind string, effect string, visibility string, weekday int, startTime string, endTime string, timezone string, recurrenceStartDate string, recurrenceEndDate string) string {
+	return `{
+		"facility_key":"ashtonbee",
+		"zone_key":"gym-floor",
+		"resource_key":"` + resourceKey + `",
+		"scope":"resource",
+		"kind":"` + kind + `",
+		"effect":"` + effect + `",
+		"visibility":"` + visibility + `",
+		"weekly":{
+			"weekday":` + strconv.Itoa(weekday) + `,
+			"start_time":"` + startTime + `",
+			"end_time":"` + endTime + `",
+			"timezone":"` + timezone + `",
+			"recurrence_start_date":"` + recurrenceStartDate + `",
+			"recurrence_end_date":"` + recurrenceEndDate + `"
+		}
+	}`
+}
+
+type availabilityWindowExpectation struct {
+	startAt string
+	endAt   string
+}
+
+type unavailableBlockExpectation struct {
+	startAt string
+	endAt   string
+	reason  string
+}
+
+func assertAvailabilityWindows(t *testing.T, got []booking.PublicAvailabilityWindow, want []availabilityWindowExpectation) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("requestable window count = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for index, expected := range want {
+		if got[index].StartAt.Format(time.RFC3339) != expected.startAt || got[index].EndAt.Format(time.RFC3339) != expected.endAt {
+			t.Fatalf("requestable window %d = %s/%s, want %s/%s", index, got[index].StartAt.Format(time.RFC3339), got[index].EndAt.Format(time.RFC3339), expected.startAt, expected.endAt)
+		}
+	}
+}
+
+func assertUnavailableBlocks(t *testing.T, got []booking.PublicUnavailableBlock, want []unavailableBlockExpectation) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("unavailable block count = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for index, expected := range want {
+		if got[index].StartAt.Format(time.RFC3339) != expected.startAt || got[index].EndAt.Format(time.RFC3339) != expected.endAt || got[index].Reason != expected.reason {
+			t.Fatalf("unavailable block %d = %s/%s/%s, want %s/%s/%s", index, got[index].StartAt.Format(time.RFC3339), got[index].EndAt.Format(time.RFC3339), got[index].Reason, expected.startAt, expected.endAt, expected.reason)
+		}
+		if got[index].Label != nil {
+			t.Fatalf("unavailable block %d label = %q, want omitted", index, *got[index].Label)
+		}
+	}
+}
+
 func assertPublicStatus(t *testing.T, env *authProfileServerEnv, receiptCode string, wantStatus string, wantMessage string, forbiddenText string) {
 	t.Helper()
 
@@ -1165,6 +1386,16 @@ func countBookingHTTPRequestsByEmail(t *testing.T, env *authProfileServerEnv, em
 
 	var count int
 	if err := env.db.DB.QueryRow(context.Background(), `SELECT COUNT(*) FROM apollo.booking_requests WHERE contact_email = $1`, email).Scan(&count); err != nil {
+		t.Fatalf("QueryRow(booking request count) error = %v", err)
+	}
+	return count
+}
+
+func countBookingHTTPRequests(t *testing.T, env *authProfileServerEnv) int {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `SELECT COUNT(*) FROM apollo.booking_requests`).Scan(&count); err != nil {
 		t.Fatalf("QueryRow(booking request count) error = %v", err)
 	}
 	return count
