@@ -7,12 +7,12 @@ jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3B.9 public availability/request calendar
+Current repo/runtime working line on `main`: Phase 3B.10 bounded staff schedule controls
 over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
-Phase 3B.7 customer status/communication and Phase 3B.8 booking edit/replacement
-lines
+Phase 3B.7 customer status/communication, Phase 3B.8 booking edit/replacement,
+and Phase 3B.9 public availability/request calendar lines
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -135,6 +135,12 @@ lines
   generic closed/booked/unavailable blocks only; public submit remains
   request-only, creates no reservation, and staff approval remains the only
   confirmed booking path
+- Phase 3B.10 bounded staff schedule-control support is now real in
+  repo/runtime on `main`: APOLLO remains schedule authority, schedule reads
+  return a manage hint for Themis role-aware controls, manager/owner schedule
+  writes stay trusted-surface gated, generic schedule-block cancel uses
+  `expected_version`, and booking-linked reservations can only be cancelled
+  through the booking request lifecycle
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -146,10 +152,11 @@ lines
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime working line on
-`main` is Phase 3B.9 public availability/request calendar over the closed
+`main` is Phase 3B.10 bounded staff schedule controls over the closed
 Tracer 28 authz/staff-boundary truth, Milestone 2.0 hardening follow-up,
 scheduling substrate, member-safe calendar, ops-read, approved booking
-lifecycle, public request/status lines, and staff-side edit/replacement line.
+lifecycle, public request/status/availability lines, and staff-side
+edit/replacement line.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -161,22 +168,22 @@ lifecycle, public request/status lines, and staff-side edit/replacement line.
 | `v0.18.0` | member presence, tap-link, and streak substrate over explicit visit truth | keep presence explicit and auditable | do not invent fake streak counters or silent visit inference |
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
-| later than `Phase 3B.1` | `Phase 3B.9 public availability/request calendar` on `main`: APOLLO-owned staff and public request persistence, staff APIs, public-safe options, public-safe option availability hints, idempotent public submit, opaque receipt/status lookup, separate public-safe customer messages, source/channel truth, availability decisions, approval-created linked schedule reservations, approved cancellation of those reservations, pending request edit, and approved replacement request lineage | keep members denied, supervisor read-only, manager/owner managed, trusted-surface gated for staff mutations, idempotency-keyed for public submit and staff rebook, versioned, request-first, and APOLLO-authoritative for public availability hints, conflict truth, receipt/status mapping, public messages, linked reservation cancellation, pending edit, and replacement lineage | do not widen into instant booking, public self-edit/rebook, broader customer self-service/status portals, quotes/payments, in-place approved booking mutation, direct staff schedule controls, owner policy writes, admin role widening, AI/LLM negotiation, HERMES widening, gateway widening, or deploy claims |
+| later than `Phase 3B.1` | `Phase 3B.10 bounded staff schedule controls` on `main`: APOLLO-owned booking request truth plus bounded internal schedule-control support over typed schedule blocks | keep members denied, supervisors read-only, manager/owner writes trusted-surface gated, public availability sanitized, and booking-linked reservations cancellable only through booking requests | do not widen into instant booking, public self-edit/rebook, broader customer self-service/status portals, quotes/payments, in-place approved booking mutation through schedule controls, recurring schedule rules, broad hours policy editing, owner policy writes, admin role widening, AI/LLM negotiation, HERMES widening, gateway widening, or deploy claims |
 
 ## Current Phase 3B Line
 
-Phase 3B.9 public availability/request calendar is now real in repo/runtime on
-`main`, with deployed truth still separate and unchanged. Customers can read
-public-safe requestable windows and unavailable time hints for public booking
-options before submitting a request. Public submit remains request-only, and
-staff approval remains the only path that creates a confirmed reservation.
+Phase 3B.10 bounded staff schedule controls are now real in repo/runtime on
+`main`, with deployed truth still separate and unchanged. APOLLO keeps schedule
+authority while Themis consumes schedule reads and trusted manager/owner
+one-off block writes. Booking-linked reservations still belong to booking
+request approval/cancellation, not generic schedule mutation.
 
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
 - public self-edit/rebook, broader customer self-service/status portal, and instant booking
 - in-place approved-booking editing
-- direct staff schedule controls unless a separate schedule-control line earns them
+- recurring schedule rules, broad operating-hours editing, and owner policy controls
 - public competition, rivalry, or social presentation
 - staff shell, HERMES widening, gateway coupling, and deploy work
 
