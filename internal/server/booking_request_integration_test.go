@@ -882,6 +882,11 @@ func TestBookingRequestApprovedCancellationCancelsLinkedReservationHTTP(t *testi
 	}
 	assertBookingHTTPReservationScheduled(t, env, *managerApproved.ScheduleBlockID)
 
+	if response := env.doJSONRequest(t, http.MethodPost, "/api/v1/schedule/blocks/"+managerApproved.ScheduleBlockID.String()+"/cancel", `{"expected_version":1}`, managerCookie); response.Code != http.StatusConflict {
+		t.Fatalf("schedule linked reservation cancel code = %d, want %d body=%s", response.Code, http.StatusConflict, response.Body.String())
+	}
+	assertBookingHTTPReservationScheduled(t, env, *managerApproved.ScheduleBlockID)
+
 	if response := env.doRequestWithoutTrustedSurface(t, http.MethodPost, "/api/v1/booking/requests/"+managerApproved.ID.String()+"/cancel", bytes.NewBufferString(`{"expected_version":2}`), managerCookie); response.Code != http.StatusForbidden {
 		t.Fatalf("missing trusted approved cancel code = %d, want %d body=%s", response.Code, http.StatusForbidden, response.Body.String())
 	}

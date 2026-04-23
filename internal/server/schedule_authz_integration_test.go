@@ -29,6 +29,13 @@ func TestScheduleAuthzEnforcesReadWriteMatrixAndTrustedSurface(t *testing.T) {
 	}
 	if response := env.doRequest(t, http.MethodGet, "/api/v1/schedule/blocks?facility_key=ashtonbee", nil, supervisorCookie); response.Code != http.StatusOK {
 		t.Fatalf("supervisor read code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
+	} else if response.Header().Get("X-Apollo-Schedule-Can-Manage") != "false" {
+		t.Fatalf("supervisor schedule manage header = %q, want false", response.Header().Get("X-Apollo-Schedule-Can-Manage"))
+	}
+	if response := env.doRequest(t, http.MethodGet, "/api/v1/schedule/blocks?facility_key=ashtonbee", nil, managerCookie); response.Code != http.StatusOK {
+		t.Fatalf("manager read code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
+	} else if response.Header().Get("X-Apollo-Schedule-Can-Manage") != "true" {
+		t.Fatalf("manager schedule manage header = %q, want true", response.Header().Get("X-Apollo-Schedule-Can-Manage"))
 	}
 
 	writeBody := `{
