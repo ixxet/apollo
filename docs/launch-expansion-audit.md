@@ -1003,7 +1003,8 @@ xp_bonus capped at 0.10
 Ruling:
 
 - CP is a display score, not rating truth.
-- Rating truth remains OpenSkill mu/sigma plus policy metadata.
+- Current 3B.13 rating truth remains legacy APOLLO mu/sigma plus policy metadata;
+  any OpenSkill rating truth waits for a later approved dual-run/cutover.
 - XP/badges can never let a low-skill grinder outrank a high-skill player in pure skill comparison.
 
 ### Frontend Contract
