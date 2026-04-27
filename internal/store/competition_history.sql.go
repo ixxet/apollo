@@ -378,6 +378,98 @@ func (q *Queries) CreateCompetitionMatchResultSide(ctx context.Context, arg Crea
 	return i, err
 }
 
+const createCompetitionRatingEvent = `-- name: CreateCompetitionRatingEvent :one
+INSERT INTO apollo.competition_rating_events (
+  event_type,
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  user_id,
+  source_result_id,
+  mu,
+  sigma,
+  delta_mu,
+  delta_sigma,
+  projection_watermark,
+  occurred_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+RETURNING id,
+          event_type,
+          rating_engine,
+          engine_version,
+          policy_version,
+          sport_key,
+          mode_key,
+          user_id,
+          source_result_id,
+          mu,
+          sigma,
+          delta_mu,
+          delta_sigma,
+          projection_watermark,
+          occurred_at,
+          created_at
+`
+
+type CreateCompetitionRatingEventParams struct {
+	EventType           string
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SportKey            string
+	ModeKey             *string
+	UserID              pgtype.UUID
+	SourceResultID      pgtype.UUID
+	Mu                  pgtype.Numeric
+	Sigma               pgtype.Numeric
+	DeltaMu             pgtype.Numeric
+	DeltaSigma          pgtype.Numeric
+	ProjectionWatermark string
+	OccurredAt          pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionRatingEvent(ctx context.Context, arg CreateCompetitionRatingEventParams) (ApolloCompetitionRatingEvent, error) {
+	row := q.db.QueryRow(ctx, createCompetitionRatingEvent,
+		arg.EventType,
+		arg.RatingEngine,
+		arg.EngineVersion,
+		arg.PolicyVersion,
+		arg.SportKey,
+		arg.ModeKey,
+		arg.UserID,
+		arg.SourceResultID,
+		arg.Mu,
+		arg.Sigma,
+		arg.DeltaMu,
+		arg.DeltaSigma,
+		arg.ProjectionWatermark,
+		arg.OccurredAt,
+	)
+	var i ApolloCompetitionRatingEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.RatingEngine,
+		&i.EngineVersion,
+		&i.PolicyVersion,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.UserID,
+		&i.SourceResultID,
+		&i.Mu,
+		&i.Sigma,
+		&i.DeltaMu,
+		&i.DeltaSigma,
+		&i.ProjectionWatermark,
+		&i.OccurredAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const deleteCompetitionMemberRatingsBySportKey = `-- name: DeleteCompetitionMemberRatingsBySportKey :execrows
 DELETE FROM apollo.competition_member_ratings
 WHERE sport_key = $1
@@ -600,15 +692,26 @@ WHERE user_id = $1
 ORDER BY sport_key ASC, mode_key ASC
 `
 
-func (q *Queries) ListCompetitionMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]ApolloCompetitionMemberRating, error) {
+type ListCompetitionMemberRatingsByUserIDRow struct {
+	UserID        uuid.UUID
+	SportKey      string
+	ModeKey       string
+	Mu            pgtype.Numeric
+	Sigma         pgtype.Numeric
+	MatchesPlayed int32
+	LastPlayed    pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
+func (q *Queries) ListCompetitionMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]ListCompetitionMemberRatingsByUserIDRow, error) {
 	rows, err := q.db.Query(ctx, listCompetitionMemberRatingsByUserID, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ApolloCompetitionMemberRating
+	var items []ListCompetitionMemberRatingsByUserIDRow
 	for rows.Next() {
-		var i ApolloCompetitionMemberRating
+		var i ListCompetitionMemberRatingsByUserIDRow
 		if err := rows.Scan(
 			&i.UserID,
 			&i.SportKey,
@@ -896,6 +999,128 @@ func (q *Queries) UpdateCompetitionMatchResultStatus(ctx context.Context, arg Up
 	return i, err
 }
 
+const upsertCompetitionLegacyRatingEvent = `-- name: UpsertCompetitionLegacyRatingEvent :one
+INSERT INTO apollo.competition_rating_events (
+  event_type,
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  user_id,
+  source_result_id,
+  mu,
+  sigma,
+  delta_mu,
+  delta_sigma,
+  projection_watermark,
+  occurred_at
+)
+VALUES (
+  'competition.rating.legacy_computed',
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13
+)
+ON CONFLICT (
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  source_result_id,
+  user_id
+)
+WHERE event_type = 'competition.rating.legacy_computed'
+DO UPDATE SET
+  mu = EXCLUDED.mu,
+  sigma = EXCLUDED.sigma,
+  delta_mu = EXCLUDED.delta_mu,
+  delta_sigma = EXCLUDED.delta_sigma,
+  projection_watermark = EXCLUDED.projection_watermark,
+  occurred_at = EXCLUDED.occurred_at
+RETURNING id,
+          event_type,
+          rating_engine,
+          engine_version,
+          policy_version,
+          sport_key,
+          mode_key,
+          user_id,
+          source_result_id,
+          mu,
+          sigma,
+          delta_mu,
+          delta_sigma,
+          projection_watermark,
+          occurred_at,
+          created_at
+`
+
+type UpsertCompetitionLegacyRatingEventParams struct {
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SportKey            string
+	ModeKey             *string
+	UserID              pgtype.UUID
+	SourceResultID      pgtype.UUID
+	Mu                  pgtype.Numeric
+	Sigma               pgtype.Numeric
+	DeltaMu             pgtype.Numeric
+	DeltaSigma          pgtype.Numeric
+	ProjectionWatermark string
+	OccurredAt          pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertCompetitionLegacyRatingEvent(ctx context.Context, arg UpsertCompetitionLegacyRatingEventParams) (ApolloCompetitionRatingEvent, error) {
+	row := q.db.QueryRow(ctx, upsertCompetitionLegacyRatingEvent,
+		arg.RatingEngine,
+		arg.EngineVersion,
+		arg.PolicyVersion,
+		arg.SportKey,
+		arg.ModeKey,
+		arg.UserID,
+		arg.SourceResultID,
+		arg.Mu,
+		arg.Sigma,
+		arg.DeltaMu,
+		arg.DeltaSigma,
+		arg.ProjectionWatermark,
+		arg.OccurredAt,
+	)
+	var i ApolloCompetitionRatingEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.RatingEngine,
+		&i.EngineVersion,
+		&i.PolicyVersion,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.UserID,
+		&i.SourceResultID,
+		&i.Mu,
+		&i.Sigma,
+		&i.DeltaMu,
+		&i.DeltaSigma,
+		&i.ProjectionWatermark,
+		&i.OccurredAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const upsertCompetitionMemberRating = `-- name: UpsertCompetitionMemberRating :one
 INSERT INTO apollo.competition_member_ratings (
   user_id,
@@ -905,16 +1130,28 @@ INSERT INTO apollo.competition_member_ratings (
   sigma,
   matches_played,
   last_played,
-  updated_at
+  updated_at,
+  rating_engine,
+  engine_version,
+  policy_version,
+  source_result_id,
+  rating_event_id,
+  projection_watermark
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (user_id, sport_key, mode_key)
 DO UPDATE SET
   mu = EXCLUDED.mu,
   sigma = EXCLUDED.sigma,
   matches_played = EXCLUDED.matches_played,
   last_played = EXCLUDED.last_played,
-  updated_at = EXCLUDED.updated_at
+  updated_at = EXCLUDED.updated_at,
+  rating_engine = EXCLUDED.rating_engine,
+  engine_version = EXCLUDED.engine_version,
+  policy_version = EXCLUDED.policy_version,
+  source_result_id = EXCLUDED.source_result_id,
+  rating_event_id = EXCLUDED.rating_event_id,
+  projection_watermark = EXCLUDED.projection_watermark
 RETURNING user_id,
           sport_key,
           mode_key,
@@ -922,18 +1159,30 @@ RETURNING user_id,
           sigma,
           matches_played,
           last_played,
-          updated_at
+          updated_at,
+          rating_engine,
+          engine_version,
+          policy_version,
+          source_result_id,
+          rating_event_id,
+          projection_watermark
 `
 
 type UpsertCompetitionMemberRatingParams struct {
-	UserID        uuid.UUID
-	SportKey      string
-	ModeKey       string
-	Mu            pgtype.Numeric
-	Sigma         pgtype.Numeric
-	MatchesPlayed int32
-	LastPlayed    pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
+	UserID              uuid.UUID
+	SportKey            string
+	ModeKey             string
+	Mu                  pgtype.Numeric
+	Sigma               pgtype.Numeric
+	MatchesPlayed       int32
+	LastPlayed          pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SourceResultID      pgtype.UUID
+	RatingEventID       pgtype.UUID
+	ProjectionWatermark string
 }
 
 func (q *Queries) UpsertCompetitionMemberRating(ctx context.Context, arg UpsertCompetitionMemberRatingParams) (ApolloCompetitionMemberRating, error) {
@@ -946,6 +1195,12 @@ func (q *Queries) UpsertCompetitionMemberRating(ctx context.Context, arg UpsertC
 		arg.MatchesPlayed,
 		arg.LastPlayed,
 		arg.UpdatedAt,
+		arg.RatingEngine,
+		arg.EngineVersion,
+		arg.PolicyVersion,
+		arg.SourceResultID,
+		arg.RatingEventID,
+		arg.ProjectionWatermark,
 	)
 	var i ApolloCompetitionMemberRating
 	err := row.Scan(
@@ -957,6 +1212,12 @@ func (q *Queries) UpsertCompetitionMemberRating(ctx context.Context, arg UpsertC
 		&i.MatchesPlayed,
 		&i.LastPlayed,
 		&i.UpdatedAt,
+		&i.RatingEngine,
+		&i.EngineVersion,
+		&i.PolicyVersion,
+		&i.SourceResultID,
+		&i.RatingEventID,
+		&i.ProjectionWatermark,
 	)
 	return i, err
 }

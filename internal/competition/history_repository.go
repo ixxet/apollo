@@ -3,7 +3,6 @@ package competition
 import (
 	"context"
 	"errors"
-	"math"
 	"strconv"
 	"time"
 
@@ -11,17 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/ixxet/apollo/internal/rating"
 	"github.com/ixxet/apollo/internal/store"
-	"slices"
-)
-
-const (
-	initialRatingMu    = 25.0
-	initialRatingSigma = 8.3333
-	minRatingSigma     = 2.5
-	ratingSigmaDecay   = 0.96
-	ratingKFactor      = 4.0
-	ratingScale        = 8.0
 )
 
 func (r *Repository) GetMatchResultByMatchID(ctx context.Context, matchID uuid.UUID) (*matchResultRecord, error) {
@@ -397,27 +387,6 @@ func (r *Repository) CorrectMatchResult(ctx context.Context, actor StaffActor, s
 	return corrected, nil
 }
 
-type ratingMatchRecord struct {
-	CompetitionMatchID uuid.UUID
-	ModeKey            string
-	RecordedAt         time.Time
-	Sides              []*ratingSideRecord
-}
-
-type ratingSideRecord struct {
-	CompetitionSessionTeamID uuid.UUID
-	SideIndex                int
-	Outcome                  string
-	UserIDs                  []uuid.UUID
-}
-
-type ratingState struct {
-	Mu            float64
-	Sigma         float64
-	MatchesPlayed int
-	LastPlayedAt  *time.Time
-}
-
 type lifecycleEventRecord struct {
 	Actor                StaffActor
 	CompetitionSessionID uuid.UUID
@@ -493,7 +462,7 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 		return err
 	}
 
-	matches := make([]ratingMatchRecord, 0, len(rows))
+	matches := make([]rating.Match, 0, len(rows))
 	matchIndex := make(map[uuid.UUID]int, len(rows))
 	sideIndexByMatch := make(map[uuid.UUID]map[uuid.UUID]int, len(rows))
 	for _, row := range rows {
@@ -501,8 +470,9 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 		if !exists {
 			index = len(matches)
 			matchIndex[row.CompetitionMatchID] = index
-			matches = append(matches, ratingMatchRecord{
+			matches = append(matches, rating.Match{
 				CompetitionMatchID: row.CompetitionMatchID,
+				SourceResultID:     row.CompetitionMatchResultID,
 				ModeKey:            buildModeKey(row.CompetitionMode, int(row.SidesPerMatch), int(row.ParticipantsPerSide)),
 				RecordedAt:         row.RecordedAt.Time.UTC(),
 				Sides:              nil,
@@ -515,7 +485,7 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 		if !sideExists {
 			sidePosition = len(matches[index].Sides)
 			sideMap[row.CompetitionSessionTeamID] = sidePosition
-			matches[index].Sides = append(matches[index].Sides, &ratingSideRecord{
+			matches[index].Sides = append(matches[index].Sides, rating.Side{
 				CompetitionSessionTeamID: row.CompetitionSessionTeamID,
 				SideIndex:                int(row.SideIndex),
 				Outcome:                  row.Outcome,
@@ -526,138 +496,153 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 		matches[index].Sides[sidePosition].UserIDs = append(matches[index].Sides[sidePosition].UserIDs, row.UserID)
 	}
 
+	projection := rating.RebuildLegacy(matches)
+	if err := recordRatingPolicySelectedEventTx(ctx, queries, sportKey, projection.Watermark, updatedAt); err != nil {
+		return err
+	}
+
 	if _, err := queries.DeleteCompetitionMemberRatingsBySportKey(ctx, sportKey); err != nil {
 		return err
 	}
+
+	eventIDsByState := make(map[ratingEventStateKey]uuid.UUID, len(projection.Events))
+	for _, event := range projection.Events {
+		eventID, err := recordLegacyRatingComputedEventTx(ctx, queries, sportKey, event)
+		if err != nil {
+			return err
+		}
+		eventIDsByState[ratingEventStateKey{
+			modeKey:        event.ModeKey,
+			userID:         event.UserID,
+			sourceResultID: event.SourceResultID,
+		}] = eventID
+	}
+
+	for _, state := range projection.States {
+		mu, err := numericFromFloat64(state.Mu)
+		if err != nil {
+			return err
+		}
+		sigma, err := numericFromFloat64(state.Sigma)
+		if err != nil {
+			return err
+		}
+
+		var lastPlayed pgtype.Timestamptz
+		if state.LastPlayedAt != nil {
+			lastPlayed = timestamptz(*state.LastPlayedAt)
+		}
+
+		eventID, exists := eventIDsByState[ratingEventStateKey{
+			modeKey:        state.ModeKey,
+			userID:         state.UserID,
+			sourceResultID: state.SourceResultID,
+		}]
+		if !exists {
+			return errors.New("legacy rating event missing for projection state")
+		}
+
+		if _, err := queries.UpsertCompetitionMemberRating(ctx, store.UpsertCompetitionMemberRatingParams{
+			UserID:              state.UserID,
+			SportKey:            sportKey,
+			ModeKey:             state.ModeKey,
+			Mu:                  mu,
+			Sigma:               sigma,
+			MatchesPlayed:       int32(state.MatchesPlayed),
+			LastPlayed:          lastPlayed,
+			UpdatedAt:           timestamptz(updatedAt),
+			RatingEngine:        rating.EngineLegacyEloLike,
+			EngineVersion:       rating.EngineVersionLegacy,
+			PolicyVersion:       rating.PolicyVersionLegacy,
+			SourceResultID:      optionalUUID(&state.SourceResultID),
+			RatingEventID:       optionalUUID(&eventID),
+			ProjectionWatermark: projection.Watermark,
+		}); err != nil {
+			return err
+		}
+	}
+
+	return recordRatingProjectionRebuiltEventTx(ctx, queries, sportKey, projection.Watermark, projectionSourceResultID(matches), updatedAt)
+}
+
+type ratingEventStateKey struct {
+	modeKey        string
+	userID         uuid.UUID
+	sourceResultID uuid.UUID
+}
+
+func recordRatingPolicySelectedEventTx(ctx context.Context, queries *store.Queries, sportKey string, projectionWatermark string, occurredAt time.Time) error {
+	_, err := queries.CreateCompetitionRatingEvent(ctx, store.CreateCompetitionRatingEventParams{
+		EventType:           rating.EventPolicySelected,
+		RatingEngine:        rating.EngineLegacyEloLike,
+		EngineVersion:       rating.EngineVersionLegacy,
+		PolicyVersion:       rating.PolicyVersionLegacy,
+		SportKey:            sportKey,
+		ProjectionWatermark: projectionWatermark,
+		OccurredAt:          timestamptz(occurredAt),
+	})
+	return err
+}
+
+func recordRatingProjectionRebuiltEventTx(ctx context.Context, queries *store.Queries, sportKey string, projectionWatermark string, sourceResultID *uuid.UUID, occurredAt time.Time) error {
+	_, err := queries.CreateCompetitionRatingEvent(ctx, store.CreateCompetitionRatingEventParams{
+		EventType:           rating.EventProjectionRebuilt,
+		RatingEngine:        rating.EngineLegacyEloLike,
+		EngineVersion:       rating.EngineVersionLegacy,
+		PolicyVersion:       rating.PolicyVersionLegacy,
+		SportKey:            sportKey,
+		SourceResultID:      optionalUUID(sourceResultID),
+		ProjectionWatermark: projectionWatermark,
+		OccurredAt:          timestamptz(occurredAt),
+	})
+	return err
+}
+
+func recordLegacyRatingComputedEventTx(ctx context.Context, queries *store.Queries, sportKey string, event rating.ComputedEvent) (uuid.UUID, error) {
+	mu, err := numericFromFloat64(event.Mu)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	sigma, err := numericFromFloat64(event.Sigma)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	deltaMu, err := numericFromFloat64(event.DeltaMu)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	deltaSigma, err := numericFromFloat64(event.DeltaSigma)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	modeKey := event.ModeKey
+	row, err := queries.UpsertCompetitionLegacyRatingEvent(ctx, store.UpsertCompetitionLegacyRatingEventParams{
+		RatingEngine:        rating.EngineLegacyEloLike,
+		EngineVersion:       rating.EngineVersionLegacy,
+		PolicyVersion:       rating.PolicyVersionLegacy,
+		SportKey:            sportKey,
+		ModeKey:             &modeKey,
+		UserID:              optionalUUID(&event.UserID),
+		SourceResultID:      optionalUUID(&event.SourceResultID),
+		Mu:                  mu,
+		Sigma:               sigma,
+		DeltaMu:             deltaMu,
+		DeltaSigma:          deltaSigma,
+		ProjectionWatermark: event.Watermark,
+		OccurredAt:          timestamptz(event.OccurredAt),
+	})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return row.ID, nil
+}
+
+func projectionSourceResultID(matches []rating.Match) *uuid.UUID {
 	if len(matches) == 0 {
 		return nil
 	}
-
-	ratingsByMode := make(map[string]map[uuid.UUID]*ratingState, len(matches))
-	for _, match := range matches {
-		states, exists := ratingsByMode[match.ModeKey]
-		if !exists {
-			states = make(map[uuid.UUID]*ratingState)
-			ratingsByMode[match.ModeKey] = states
-		}
-		applyRatingMatch(states, match)
-	}
-
-	modeKeys := make([]string, 0, len(ratingsByMode))
-	for modeKey := range ratingsByMode {
-		modeKeys = append(modeKeys, modeKey)
-	}
-	slices.Sort(modeKeys)
-
-	for _, modeKey := range modeKeys {
-		userIDs := make([]uuid.UUID, 0, len(ratingsByMode[modeKey]))
-		for userID := range ratingsByMode[modeKey] {
-			userIDs = append(userIDs, userID)
-		}
-		slices.SortFunc(userIDs, func(left, right uuid.UUID) int {
-			return slices.Compare(left[:], right[:])
-		})
-
-		for _, userID := range userIDs {
-			state := ratingsByMode[modeKey][userID]
-			mu, err := numericFromFloat64(state.Mu)
-			if err != nil {
-				return err
-			}
-			sigma, err := numericFromFloat64(state.Sigma)
-			if err != nil {
-				return err
-			}
-
-			var lastPlayed pgtype.Timestamptz
-			if state.LastPlayedAt != nil {
-				lastPlayed = timestamptz(*state.LastPlayedAt)
-			}
-
-			if _, err := queries.UpsertCompetitionMemberRating(ctx, store.UpsertCompetitionMemberRatingParams{
-				UserID:        userID,
-				SportKey:      sportKey,
-				ModeKey:       modeKey,
-				Mu:            mu,
-				Sigma:         sigma,
-				MatchesPlayed: int32(state.MatchesPlayed),
-				LastPlayed:    lastPlayed,
-				UpdatedAt:     timestamptz(updatedAt),
-			}); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func applyRatingMatch(states map[uuid.UUID]*ratingState, match ratingMatchRecord) {
-	teamMus := make(map[uuid.UUID]float64, len(match.Sides))
-	for _, side := range match.Sides {
-		totalMu := 0.0
-		for _, userID := range side.UserIDs {
-			state := ensureRatingState(states, userID)
-			totalMu += state.Mu
-		}
-		teamMus[side.CompetitionSessionTeamID] = totalMu / float64(len(side.UserIDs))
-	}
-
-	deltasByTeam := make(map[uuid.UUID]float64, len(match.Sides))
-	for _, side := range match.Sides {
-		expectedTotal := 0.0
-		opponentCount := 0
-		for _, opponent := range match.Sides {
-			if opponent.CompetitionSessionTeamID == side.CompetitionSessionTeamID {
-				continue
-			}
-			expectedTotal += logisticExpectation(teamMus[side.CompetitionSessionTeamID], teamMus[opponent.CompetitionSessionTeamID])
-			opponentCount++
-		}
-		if opponentCount == 0 {
-			continue
-		}
-
-		expected := expectedTotal / float64(opponentCount)
-		actual := 0.0
-		switch side.Outcome {
-		case matchOutcomeWin:
-			actual = 1.0
-		case matchOutcomeDraw:
-			actual = 0.5
-		case matchOutcomeLoss:
-			actual = 0.0
-		}
-		deltasByTeam[side.CompetitionSessionTeamID] = ratingKFactor * (actual - expected)
-	}
-
-	for _, side := range match.Sides {
-		delta := deltasByTeam[side.CompetitionSessionTeamID]
-		for _, userID := range side.UserIDs {
-			state := ensureRatingState(states, userID)
-			state.Mu += delta
-			state.Sigma = math.Max(minRatingSigma, state.Sigma*ratingSigmaDecay)
-			state.MatchesPlayed++
-			recordedAt := match.RecordedAt.UTC()
-			state.LastPlayedAt = &recordedAt
-		}
-	}
-}
-
-func ensureRatingState(states map[uuid.UUID]*ratingState, userID uuid.UUID) *ratingState {
-	state, exists := states[userID]
-	if !exists {
-		state = &ratingState{
-			Mu:    initialRatingMu,
-			Sigma: initialRatingSigma,
-		}
-		states[userID] = state
-	}
-	return state
-}
-
-func logisticExpectation(leftMu float64, rightMu float64) float64 {
-	return 1.0 / (1.0 + math.Exp((rightMu-leftMu)/ratingScale))
+	return &matches[len(matches)-1].SourceResultID
 }
 
 func float64FromNumeric(value pgtype.Numeric) (float64, error) {

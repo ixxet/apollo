@@ -152,14 +152,39 @@ type ApolloCompetitionMatchSideSlot struct {
 }
 
 type ApolloCompetitionMemberRating struct {
-	UserID        uuid.UUID
-	SportKey      string
-	ModeKey       string
-	Mu            pgtype.Numeric
-	Sigma         pgtype.Numeric
-	MatchesPlayed int32
-	LastPlayed    pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
+	UserID              uuid.UUID
+	SportKey            string
+	ModeKey             string
+	Mu                  pgtype.Numeric
+	Sigma               pgtype.Numeric
+	MatchesPlayed       int32
+	LastPlayed          pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SourceResultID      pgtype.UUID
+	RatingEventID       pgtype.UUID
+	ProjectionWatermark string
+}
+
+type ApolloCompetitionRatingEvent struct {
+	ID                  uuid.UUID
+	EventType           string
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SportKey            string
+	ModeKey             *string
+	UserID              pgtype.UUID
+	SourceResultID      pgtype.UUID
+	Mu                  pgtype.Numeric
+	Sigma               pgtype.Numeric
+	DeltaMu             pgtype.Numeric
+	DeltaSigma          pgtype.Numeric
+	ProjectionWatermark string
+	OccurredAt          pgtype.Timestamptz
+	CreatedAt           pgtype.Timestamptz
 }
 
 type ApolloCompetitionSession struct {

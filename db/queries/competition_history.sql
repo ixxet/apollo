@@ -171,6 +171,108 @@ ORDER BY r.recorded_at ASC, m.id ASC, rs.side_index ASC, rm.user_id ASC;
 DELETE FROM apollo.competition_member_ratings
 WHERE sport_key = $1;
 
+-- name: CreateCompetitionRatingEvent :one
+INSERT INTO apollo.competition_rating_events (
+  event_type,
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  user_id,
+  source_result_id,
+  mu,
+  sigma,
+  delta_mu,
+  delta_sigma,
+  projection_watermark,
+  occurred_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+RETURNING id,
+          event_type,
+          rating_engine,
+          engine_version,
+          policy_version,
+          sport_key,
+          mode_key,
+          user_id,
+          source_result_id,
+          mu,
+          sigma,
+          delta_mu,
+          delta_sigma,
+          projection_watermark,
+          occurred_at,
+          created_at;
+
+-- name: UpsertCompetitionLegacyRatingEvent :one
+INSERT INTO apollo.competition_rating_events (
+  event_type,
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  user_id,
+  source_result_id,
+  mu,
+  sigma,
+  delta_mu,
+  delta_sigma,
+  projection_watermark,
+  occurred_at
+)
+VALUES (
+  'competition.rating.legacy_computed',
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13
+)
+ON CONFLICT (
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  source_result_id,
+  user_id
+)
+WHERE event_type = 'competition.rating.legacy_computed'
+DO UPDATE SET
+  mu = EXCLUDED.mu,
+  sigma = EXCLUDED.sigma,
+  delta_mu = EXCLUDED.delta_mu,
+  delta_sigma = EXCLUDED.delta_sigma,
+  projection_watermark = EXCLUDED.projection_watermark,
+  occurred_at = EXCLUDED.occurred_at
+RETURNING id,
+          event_type,
+          rating_engine,
+          engine_version,
+          policy_version,
+          sport_key,
+          mode_key,
+          user_id,
+          source_result_id,
+          mu,
+          sigma,
+          delta_mu,
+          delta_sigma,
+          projection_watermark,
+          occurred_at,
+          created_at;
+
 -- name: UpsertCompetitionMemberRating :one
 INSERT INTO apollo.competition_member_ratings (
   user_id,
@@ -180,16 +282,28 @@ INSERT INTO apollo.competition_member_ratings (
   sigma,
   matches_played,
   last_played,
-  updated_at
+  updated_at,
+  rating_engine,
+  engine_version,
+  policy_version,
+  source_result_id,
+  rating_event_id,
+  projection_watermark
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (user_id, sport_key, mode_key)
 DO UPDATE SET
   mu = EXCLUDED.mu,
   sigma = EXCLUDED.sigma,
   matches_played = EXCLUDED.matches_played,
   last_played = EXCLUDED.last_played,
-  updated_at = EXCLUDED.updated_at
+  updated_at = EXCLUDED.updated_at,
+  rating_engine = EXCLUDED.rating_engine,
+  engine_version = EXCLUDED.engine_version,
+  policy_version = EXCLUDED.policy_version,
+  source_result_id = EXCLUDED.source_result_id,
+  rating_event_id = EXCLUDED.rating_event_id,
+  projection_watermark = EXCLUDED.projection_watermark
 RETURNING user_id,
           sport_key,
           mode_key,
@@ -197,7 +311,13 @@ RETURNING user_id,
           sigma,
           matches_played,
           last_played,
-          updated_at;
+          updated_at,
+          rating_engine,
+          engine_version,
+          policy_version,
+          source_result_id,
+          rating_event_id,
+          projection_watermark;
 
 -- name: ListCompetitionMemberRatingsByUserID :many
 SELECT user_id,
