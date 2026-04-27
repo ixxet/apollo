@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/config"
 	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/testutil"
@@ -82,6 +83,91 @@ func TestNewRootCmdIncludesScheduleCommand(t *testing.T) {
 
 	if _, _, err := rootCmd.Find([]string{"schedule"}); err != nil {
 		t.Fatalf("rootCmd.Find(schedule) error = %v", err)
+	}
+}
+
+func TestNewRootCmdIncludesCompetitionCommand(t *testing.T) {
+	rootCmd := newRootCmd()
+
+	if _, _, err := rootCmd.Find([]string{"competition"}); err != nil {
+		t.Fatalf("rootCmd.Find(competition) error = %v", err)
+	}
+}
+
+func TestCompetitionCommandCLIDryRunAndCreateSession(t *testing.T) {
+	ctx := context.Background()
+	postgresEnv, err := testutil.StartPostgres(ctx)
+	if err != nil {
+		t.Fatalf("StartPostgres() error = %v", err)
+	}
+	defer func() {
+		if closeErr := postgresEnv.Close(); closeErr != nil {
+			t.Fatalf("Close() error = %v", closeErr)
+		}
+	}()
+
+	if err := testutil.ApplyApolloSchema(ctx, postgresEnv.DB); err != nil {
+		t.Fatalf("ApplyApolloSchema() error = %v", err)
+	}
+
+	t.Setenv("APOLLO_DATABASE_URL", postgresEnv.DatabaseURL)
+
+	actorUserID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	actorSessionID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	if _, err := postgresEnv.DB.Exec(ctx, `INSERT INTO apollo.users (id, student_id, display_name, email, role) VALUES ($1, $2, $3, $4, $5)`, actorUserID, "competition-cli-manager", "Competition CLI Manager", "competition-cli-manager@example.com", "manager"); err != nil {
+		t.Fatalf("insert actor user error = %v", err)
+	}
+	if _, err := postgresEnv.DB.Exec(ctx, `INSERT INTO apollo.sessions (id, user_id, expires_at, revoked_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour', NULL)`, actorSessionID, actorUserID); err != nil {
+		t.Fatalf("insert actor session error = %v", err)
+	}
+
+	input := `{"create_session":{"display_name":"CLI Command Session","sport_key":"badminton","facility_key":"ashtonbee","zone_key":"gym-floor","participants_per_side":1}}`
+	dryRunOutput := runRootCommand(t,
+		"competition", "command", "run",
+		"--name", "create_session",
+		"--dry-run",
+		"--actor-role", "manager",
+		"--input-json", input,
+		"--format", "json",
+	)
+	var dryRunOutcome competition.CompetitionCommandOutcome
+	if err := json.Unmarshal([]byte(dryRunOutput), &dryRunOutcome); err != nil {
+		t.Fatalf("json.Unmarshal(dryRunOutput) error = %v output=%s", err, dryRunOutput)
+	}
+	if dryRunOutcome.Status != competition.CommandStatusPlanned || dryRunOutcome.Mutated {
+		t.Fatalf("dryRunOutcome = %#v, want planned non-mutating", dryRunOutcome)
+	}
+
+	sessionList := runRootCommand(t, "competition", "session", "list", "--format", "json")
+	var sessions []competition.SessionSummary
+	if err := json.Unmarshal([]byte(sessionList), &sessions); err != nil {
+		t.Fatalf("json.Unmarshal(sessionList) error = %v output=%s", err, sessionList)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("len(sessions) = %d, want 0 after dry-run", len(sessions))
+	}
+
+	createOutput := runRootCommand(t,
+		"competition", "command", "run",
+		"--name", "create_session",
+		"--actor-user-id", actorUserID.String(),
+		"--actor-session-id", actorSessionID.String(),
+		"--actor-role", "manager",
+		"--trusted-surface-key", "staff-console",
+		"--input-json", input,
+		"--format", "json",
+	)
+	var createOutcome competition.CompetitionCommandOutcome
+	if err := json.Unmarshal([]byte(createOutput), &createOutcome); err != nil {
+		t.Fatalf("json.Unmarshal(createOutput) error = %v output=%s", err, createOutput)
+	}
+	if createOutcome.Status != competition.CommandStatusSucceeded || !createOutcome.Mutated {
+		t.Fatalf("createOutcome = %#v, want succeeded mutating", createOutcome)
+	}
+
+	sessionList = runRootCommand(t, "competition", "session", "list", "--format", "text")
+	if !strings.Contains(sessionList, "CLI Command Session") {
+		t.Fatalf("sessionList = %q, want CLI-created session", sessionList)
 	}
 }
 
