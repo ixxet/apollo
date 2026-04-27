@@ -21,8 +21,10 @@ recommendations, and the ARES matchmaking subsystem.
 > explicit workout-history create/update/finish behavior, one narrow member
 > shell, a deterministic coaching recommendation runtime, a deterministic match
 > preview, one bounded competition substrate, and one bounded competition
-> execution substrate without widening into results, ratings, standings, or
-> public competition reads. Tracer 23 adds APOLLO-local exercise and equipment
+> execution substrate. Tracer 22 then adds internal result capture, sport-and-
+> mode-separated ratings, session-scoped standings, and self-scoped member
+> stats without widening into public competition reads. Tracer 23 adds
+> APOLLO-local exercise and equipment
 > catalog truth, owner-scoped templates/loadouts, week-rooted planner truth,
 > and typed non-medical `coaching_profile` inputs through authenticated
 > internal HTTP while keeping workouts, visits, membership, competition
@@ -70,6 +72,7 @@ stays deferred through all of Phase 2.
 | Recruiter or interviewer | [`Runtime Surfaces`](#runtime-surfaces), [`Current State Block`](#current-state-block), [`Why APOLLO Matters`](#why-apollo-matters) | These sections show the real backend slice quickly |
 | Engineer | [`Architecture`](#architecture), [`Ownership And Boundaries`](#ownership-and-boundaries), [`Known Caveats`](#known-caveats) | These sections explain what APOLLO owns and where the product is still incomplete |
 | Maintainer | [`docs/README.md`](docs/README.md), [`docs/glossary.md`](docs/glossary.md), [`docs/runbooks/member-state.md`](docs/runbooks/member-state.md) | These docs explain the current line, vocabulary, and member-state rules |
+| Launch expansion planner | [`docs/launch-expansion-audit.md`](docs/launch-expansion-audit.md), then [`docs/roadmap.md`](docs/roadmap.md) | The audit is the active source of truth for post-current competition/rating/tournament/social expansion sequencing and gates |
 
 ## Architecture
 
@@ -180,7 +183,7 @@ flowchart LR
 | sport registry, facility-sport capability, and static sport rules/config | ATHENA-owned facility hours, closures, and raw live availability until a later APOLLO scheduling substrate composes over those inputs |
 | competition session / team / roster / match containers, queue/assignment/lifecycle truth, result capture, ratings, standings, self-scoped member stats, and the bounded competition staff authz substrate | public competition reads, role-management product flows, facility-scoped staffing, persistent approval objects, rivalry/badge logic, and broad social competition surfaces |
 | read-only ops composition over APOLLO schedule truth and ATHENA occupancy/analytics truth plus internal request-first booking runtime truth, bounded public intake, public-safe availability hints, and public-safe receipt/status/message lookup | raw tap identities, identity-level presence search, ATHENA analytics semantics, HERMES staff UX, customer self-booking, quotes/payments, broad customer self-service, and deploy orchestration |
-| explicit matchmaking intent and deterministic ARES preview | tool routing, invites, notifications, and global approval policy |
+| explicit matchmaking intent and deterministic ARES preview | tool routing, invites, notification delivery, and reusable approval/proposal workflow |
 
 APOLLO owns member intent. That is the key boundary. Presence can affect member
 context, but tap-in alone must not create workout logs, matchmaking lobby
@@ -210,7 +213,8 @@ eligibility, or any social state.
 | `apollo.booking_requests` | Real in repo/runtime | Stores staff-entered and public-submitted booking request truth with contact/purpose/scope/window fields, state/version truth, source/channel truth, staff attribution where applicable, conflict-aware availability at read time, and a nullable linked schedule block retained after approval and approved cancellation |
 | `apollo.booking_request_idempotency_keys` | Real in repo/runtime | Stores hashed public idempotency keys, normalized payload hashes, and linked request IDs so duplicate public submits cannot create duplicate requests |
 | `apollo.public_booking_receipts` | Real in repo/runtime | Stores opaque public receipt codes and optional public-safe customer messages linked internally to booking requests without exposing request UUIDs or internal notes |
-| `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth separate from downstream result, rating, and standing projections |
+| `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth |
+| `apollo.competition_match_results`, `apollo.competition_match_result_sides`, and `apollo.competition_member_ratings` | Real in repo/runtime | Stores immutable internal result truth plus current legacy rating projections derived from completed competition results; OpenSkill is not active yet |
 | `apollo.competition_staff_action_attributions` | Real in repo/runtime | Stores durable actor/session/role/capability/trusted-surface attribution for successful staff-sensitive competition mutations |
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
 | `apollo.recommendations` | Schema authored | Tracer 7 recommendation reads are derived at read time; persisted recommendation records remain deferred |
@@ -247,6 +251,25 @@ supervisors can read schedule blocks, managers and owners can create typed
 schedule blocks and cancel eligible schedule-managed blocks through existing
 trusted-surface schedule APIs, and booking-linked reservations remain owned by
 the booking request lifecycle rather than the generic schedule-control path.
+
+## Launch Expansion Source Of Truth
+
+The active source of truth for the next APOLLO competition/rating/tournament/
+social expansion is [`docs/launch-expansion-audit.md`](docs/launch-expansion-audit.md).
+It supersedes informal post-Tracer 22 ideas when sequencing conflicts arise.
+
+Current ruling:
+
+- keep the existing legacy Elo-like rating projection as characterization and
+  rollback baseline
+- extract rating behavior into `internal/rating` before changing math
+- migrate toward OpenSkill as the durable math kernel under APOLLO policy
+- build CLI/capability/dry-run/command-layer substrate before public stakes
+- add consensus, dispute/correction, telemetry, privacy, scale, frontend
+  contract, and cross-repo compatibility gates before public ratings,
+  leaderboards, tournaments, badges, rivalry, CP, or squads
+- keep internal Themis competition ops separate from public tournament/social
+  surfaces
 
 ## Technology Stack
 
@@ -635,6 +658,7 @@ homelab substrate.
 ## Docs Map
 
 - [Docs index](docs/README.md)
+- [Launch expansion audit](docs/launch-expansion-audit.md)
 - [Glossary](docs/glossary.md)
 - [APOLLO diagram](docs/diagrams/apollo-visit-ingest.mmd)
 - [Roadmap](docs/roadmap.md)

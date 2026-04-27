@@ -5,6 +5,7 @@
 | If you want to understand... | Read this first | Then read |
 | --- | --- | --- |
 | what APOLLO is today | [`../README.md`](../README.md) | [`roadmap.md`](roadmap.md) |
+| what governs launch expansion | [`launch-expansion-audit.md`](launch-expansion-audit.md) | [`roadmap.md`](roadmap.md) and platform planning docs |
 | terminology such as `Tracer`, `ATHENA`, `ARES`, or `claimed_tags` | [`glossary.md`](glossary.md) | [`runbooks/member-state.md`](runbooks/member-state.md) |
 | current member-state rules and constraints | [`runbooks/member-state.md`](runbooks/member-state.md) | ADRs in `adr/` |
 | how the tracer line hardened over time | [`hardening/README.md`](hardening/README.md) | tracer-specific hardening notes |
@@ -15,6 +16,7 @@
 | Path | Purpose |
 | --- | --- |
 | `roadmap.md` | active line and planned release lines |
+| `launch-expansion-audit.md` | active source of truth for post-current competition/rating/tournament/social expansion gates, sequencing, and viability rulings |
 | `glossary.md` | short definitions for internal APOLLO vocabulary |
 | `runbooks/` | operator and maintainer rules for the active member-state slice |
 | `hardening/` | tracer-specific hardening evidence |

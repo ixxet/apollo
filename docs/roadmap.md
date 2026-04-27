@@ -148,6 +148,29 @@ and Phase 3B.9 public availability/request calendar lines
   caps per-workout exercise writes without widening the product surface
 - deployment truth is still narrower than the full product surface
 
+## Launch Expansion Source Of Truth
+
+The current roadmap describes shipped repo/runtime lines and the bounded
+Phase 3B schedule/booking fork. For APOLLO's next competition/rating/tournament
+expansion, [`launch-expansion-audit.md`](launch-expansion-audit.md) is the
+active operating doc.
+
+That audit consolidates the older public competition, rivalry, badge, and
+tournament ideas into one gated plan:
+
+- docs truth, CLI parity, capabilities/dry-run, and application commands first
+- rating extraction, policy versioning, audit events, and OpenSkill dual-run
+  before ARES v2 or public stakes
+- match tiers, consensus voting, and disputes before public ratings, badges,
+  leaderboards, tournaments, rivalry, CP, or squads
+- internal Themis competition ops can move earlier only as a staff/internal
+  surface over real APOLLO contracts
+- recurring schedule policy and court/resource splitting are reusable substrate
+  packets, not ad hoc tournament logic
+
+Historical tracer entries in this roadmap remain evidence of what shipped.
+They should not be used as permission to skip the launch-expansion gates.
+
 ## Release Lines
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
@@ -169,6 +192,7 @@ edit/replacement line.
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
 | later than `Phase 3B.1` | `Phase 3B.10 bounded staff schedule controls` on `main`: APOLLO-owned booking request truth plus bounded internal schedule-control support over typed schedule blocks | keep members denied, supervisors read-only, manager/owner writes trusted-surface gated, public availability sanitized, and booking-linked reservations cancellable only through booking requests | do not widen into instant booking, public self-edit/rebook, broader customer self-service/status portals, quotes/payments, in-place approved booking mutation through schedule controls, recurring schedule rules, broad hours policy editing, owner policy writes, admin role widening, AI/LLM negotiation, HERMES widening, gateway widening, or deploy claims |
+| launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, CP, badges, squads, public rivalry, or public leaderboards |
 
 ## Current Phase 3B Line
 
@@ -185,6 +209,7 @@ Any later widening should stay separate:
 - in-place approved-booking editing
 - recurring schedule rules, broad operating-hours editing, and owner policy controls
 - public competition, rivalry, or social presentation
+- public competition expansion must follow `launch-expansion-audit.md`
 - staff shell, HERMES widening, gateway coupling, and deploy work
 
 ## Verified Audit Carry-Forward
@@ -256,3 +281,6 @@ APOLLO now follows formal pre-`1.0.0` semantic versioning.
 - `Tracer 26`: explanation and thin agent-facing helper surfaces
 - `Tracer 27`: member presence / tap-link / streak substrate
 - `Tracer 28`: role/authz and staff runtime boundary substrate
+- post-current launch expansion: see `launch-expansion-audit.md`; its T18a-T57
+  packet labels are launch-expansion labels, not replacements for the
+  historical Tracer 18-T28 closure records above
