@@ -13,6 +13,7 @@ import (
 
 	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/competition"
+	"github.com/ixxet/apollo/internal/rating"
 )
 
 func TestCompetitionHistoryRuntimeRecordsResultsCompletesSessionsAndExposesDerivedReads(t *testing.T) {
@@ -85,6 +86,10 @@ func TestCompetitionHistoryRuntimeRecordsResultsCompletesSessionsAndExposesDeriv
 	if ownerStats[0].CurrentRatingMu <= 0 || ownerStats[0].CurrentRatingSigma <= 0 {
 		t.Fatalf("ownerStats[0] = %+v, want positive rating values", ownerStats[0])
 	}
+	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p1", completedSession.Matches[0].Result.ID)
+	assertRatingEventCount(t, env, rating.EventLegacyComputed, completedSession.Matches[0].Result.ID, 2)
+	assertRatingEventCount(t, env, rating.EventProjectionRebuilt, completedSession.Matches[0].Result.ID, 1)
+	assertRatingPolicySelectedEventCount(t, env, "badminton", 1)
 
 	memberTwoStatsResponse := env.doRequest(t, http.MethodGet, "/api/v1/competition/member-stats", nil, memberTwoCookie)
 	if memberTwoStatsResponse.Code != http.StatusOK {
@@ -287,6 +292,8 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("recorded result = %#v, want recorded status", recordedMatch.Result)
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 0)
+	assertRatingProjectionCount(t, env, owner.ID, 0)
+	assertRatingEventCount(t, env, rating.EventLegacyComputed, recordedMatch.Result.ID, 0)
 
 	finalizeResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/finalize", session.ID, match.ID), fmt.Sprintf(`{"expected_result_version":%d}`, recordedMatch.ResultVersion), ownerCookie)
 	if finalizeResponse.Code != http.StatusOK {
@@ -298,6 +305,7 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("finalized result = %#v, want finalized status and timestamp", finalizedMatch.Result)
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 1)
+	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p1", finalizedMatch.Result.ID)
 
 	disputeResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/dispute", session.ID, match.ID), fmt.Sprintf(`{"expected_result_version":%d}`, finalizedMatch.ResultVersion), ownerCookie)
 	if disputeResponse.Code != http.StatusOK {
@@ -309,6 +317,7 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("disputed result = %#v, want disputed status", disputedMatch.Result)
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 0)
+	assertRatingProjectionCount(t, env, owner.ID, 0)
 
 	correctResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/correct", session.ID, match.ID), buildResultRequestBodyWithVersion(disputedMatch.SideSlots, []string{"loss", "win"}, disputedMatch.ResultVersion), ownerCookie)
 	if correctResponse.Code != http.StatusOK {
@@ -326,6 +335,10 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 	if len(stats) != 1 || stats[0].Losses != 1 || stats[0].Wins != 0 {
 		t.Fatalf("corrected stats = %+v, want corrected loss only", stats)
 	}
+	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p1", correctedMatch.Result.ID)
+	assertRatingProjectionSourceCount(t, env, finalizedMatch.Result.ID, 0)
+	assertRatingEventCount(t, env, rating.EventLegacyComputed, finalizedMatch.Result.ID, 2)
+	assertRatingEventCount(t, env, rating.EventLegacyComputed, correctedMatch.Result.ID, 2)
 
 	voidResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/void", session.ID, match.ID), fmt.Sprintf(`{"expected_result_version":%d}`, correctedMatch.ResultVersion), ownerCookie)
 	if voidResponse.Code != http.StatusOK {
@@ -337,6 +350,8 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("voided result = %#v, want voided status", voidedMatch.Result)
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 0)
+	assertRatingProjectionCount(t, env, owner.ID, 0)
+	assertRatingProjectionSourceCount(t, env, correctedMatch.Result.ID, 0)
 
 	var resultCount int
 	if err := env.db.DB.QueryRow(context.Background(), `SELECT count(*) FROM apollo.competition_match_results WHERE competition_match_id = $1`, match.ID).Scan(&resultCount); err != nil {
@@ -464,6 +479,148 @@ func assertCompetitionStatsCount(t *testing.T, env *authProfileServerEnv, cookie
 	stats := readCompetitionStats(t, env, cookie)
 	if len(stats) != want {
 		t.Fatalf("len(stats) = %d, want %d; stats=%+v", len(stats), want, stats)
+	}
+}
+
+func assertRatingProjectionCount(t *testing.T, env *authProfileServerEnv, userID uuid.UUID, want int) {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT count(*)
+FROM apollo.competition_member_ratings
+WHERE user_id = $1
+`, userID).Scan(&count); err != nil {
+		t.Fatalf("count competition_member_ratings error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("rating projection count = %d, want %d", count, want)
+	}
+}
+
+func assertLegacyRatingProjection(t *testing.T, env *authProfileServerEnv, userID uuid.UUID, sportKey string, modeKey string, sourceResultID uuid.UUID) {
+	t.Helper()
+
+	var ratingEngine string
+	var engineVersion string
+	var policyVersion string
+	var projectedSourceResultID uuid.UUID
+	var ratingEventID uuid.UUID
+	var projectionWatermark string
+	var mu float64
+	var sigma float64
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT rating_engine,
+       engine_version,
+       policy_version,
+       source_result_id,
+       rating_event_id,
+       projection_watermark,
+       mu::double precision,
+       sigma::double precision
+FROM apollo.competition_member_ratings
+WHERE user_id = $1
+  AND sport_key = $2
+  AND mode_key = $3
+`, userID, sportKey, modeKey).Scan(&ratingEngine, &engineVersion, &policyVersion, &projectedSourceResultID, &ratingEventID, &projectionWatermark, &mu, &sigma); err != nil {
+		t.Fatalf("read legacy rating projection error = %v", err)
+	}
+
+	if ratingEngine != rating.EngineLegacyEloLike || engineVersion != rating.EngineVersionLegacy || policyVersion != rating.PolicyVersionLegacy {
+		t.Fatalf("rating policy = %s/%s/%s, want %s/%s/%s", ratingEngine, engineVersion, policyVersion, rating.EngineLegacyEloLike, rating.EngineVersionLegacy, rating.PolicyVersionLegacy)
+	}
+	if projectedSourceResultID != sourceResultID {
+		t.Fatalf("projection source_result_id = %s, want %s", projectedSourceResultID, sourceResultID)
+	}
+	if ratingEventID == uuid.Nil {
+		t.Fatal("rating_event_id is nil, want auditable event id")
+	}
+	if !strings.Contains(projectionWatermark, sourceResultID.String()) {
+		t.Fatalf("projection_watermark = %q, want source result id %s", projectionWatermark, sourceResultID)
+	}
+	if mu <= 0 || sigma <= 0 {
+		t.Fatalf("rating projection mu/sigma = %.4f/%.4f, want positive values", mu, sigma)
+	}
+
+	var eventType string
+	var eventEngine string
+	var eventPolicy string
+	var eventSourceResultID uuid.UUID
+	var deltaMu float64
+	var deltaSigma float64
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT event_type,
+       rating_engine,
+       policy_version,
+       source_result_id,
+       delta_mu::double precision,
+       delta_sigma::double precision
+FROM apollo.competition_rating_events
+WHERE id = $1
+`, ratingEventID).Scan(&eventType, &eventEngine, &eventPolicy, &eventSourceResultID, &deltaMu, &deltaSigma); err != nil {
+		t.Fatalf("read rating event error = %v", err)
+	}
+	if eventType != rating.EventLegacyComputed || eventEngine != rating.EngineLegacyEloLike || eventPolicy != rating.PolicyVersionLegacy {
+		t.Fatalf("rating event = %s/%s/%s, want legacy computed policy", eventType, eventEngine, eventPolicy)
+	}
+	if eventSourceResultID != sourceResultID {
+		t.Fatalf("event source_result_id = %s, want %s", eventSourceResultID, sourceResultID)
+	}
+	if deltaMu == 0 && deltaSigma == 0 {
+		t.Fatalf("rating event deltas = %.4f/%.4f, want computed audit deltas", deltaMu, deltaSigma)
+	}
+}
+
+func assertRatingEventCount(t *testing.T, env *authProfileServerEnv, eventType string, sourceResultID uuid.UUID, want int) {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT count(*)
+FROM apollo.competition_rating_events
+WHERE event_type = $1
+  AND source_result_id = $2
+`, eventType, sourceResultID).Scan(&count); err != nil {
+		t.Fatalf("count rating events error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("rating event %s count = %d, want %d for source result %s", eventType, count, want, sourceResultID)
+	}
+}
+
+func assertRatingPolicySelectedEventCount(t *testing.T, env *authProfileServerEnv, sportKey string, want int) {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT count(*)
+FROM apollo.competition_rating_events
+WHERE event_type = $1
+  AND sport_key = $2
+  AND rating_engine = $3
+  AND engine_version = $4
+  AND policy_version = $5
+`, rating.EventPolicySelected, sportKey, rating.EngineLegacyEloLike, rating.EngineVersionLegacy, rating.PolicyVersionLegacy).Scan(&count); err != nil {
+		t.Fatalf("count policy selected events error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("policy selected event count = %d, want %d", count, want)
+	}
+}
+
+func assertRatingProjectionSourceCount(t *testing.T, env *authProfileServerEnv, sourceResultID uuid.UUID, want int) {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT count(*)
+FROM apollo.competition_member_ratings
+WHERE source_result_id = $1
+`, sourceResultID).Scan(&count); err != nil {
+		t.Fatalf("count rating projection source error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("rating projection source count = %d, want %d for source result %s", count, want, sourceResultID)
 	}
 }
 
