@@ -21,10 +21,10 @@ The correct strategic pattern is:
 7. Add social safety before public surfaces.
 8. Add retention mechanics after public trust is durable.
 
-Phase 3B.12 has now closed the immediate lifecycle/result trust packet after
-3B.11, and 3B.12.1 found no cohesion drift across APOLLO, Themis, platform
-docs, or Hestia untouched status. The next packet should be rating foundation,
-not badges, tournaments, public pages, or OpenSkill hard swap.
+Phase 3B.13 has now closed the immediate legacy rating foundation packet after
+3B.12 result trust and 3B.12.1 cohesion verification. The next rating packet
+should be OpenSkill dual-run against the stable legacy baseline, not badges,
+tournaments, public pages, or an OpenSkill hard swap.
 
 ## Evidence Anchors
 
@@ -144,6 +144,10 @@ APOLLO currently has:
   for started, recorded, finalized, disputed, corrected, and voided facts.
 - Rating paths consume only finalized or corrected canonical results; recorded,
   disputed, voided, and non-canonical results are excluded.
+- Versioned legacy rating foundation: `legacy_elo_like` engine/policy
+  identifiers, golden characterization cases, auditable rating compute/policy/
+  rebuild events, source result IDs, rating event IDs, and deterministic
+  projection watermarks over finalized/corrected canonical result truth.
 - Schedule substrate, booking request lifecycle, public-safe booking intake/status/availability.
 - Presence, visit, tap-link, facility streak, and ATHENA-backed ops overview surfaces.
 - Minimal member shell with existing API-backed routes.
@@ -157,7 +161,7 @@ These are easy to misread as real runtime because the schema exists:
 | `apollo.ares_ratings`, `apollo.ares_matches`, `apollo.ares_match_players` | Authored in the initial migration, but not the active competition rating/result runtime. | Do not build new rating behavior on these without a deliberate migration decision. |
 | `apollo.recommendations` | Authored table; current recommendation/coaching reads are primarily deterministic read-time surfaces. | Do not treat the table as evidence of a persisted recommendation engine. |
 
-The active competition rating projection is `apollo.competition_member_ratings`, created by the competition-history runtime.
+The active competition rating projection is `apollo.competition_member_ratings`, created by the competition-history runtime. Phase 3B.13 adds explicit legacy rating metadata to that projection and writes rating audit events in `apollo.competition_rating_events`.
 
 ### Not Real Yet
 
@@ -167,7 +171,6 @@ APOLLO does not yet have:
 - Universal command/dry-run coverage outside the supported Phase 3B.11
   competition command surface.
 - OpenSkill.
-- Rating policy versioning, rating events, or rating audit log.
 - Match tier classification.
 - Player consensus result voting.
 - Full proposal/approval workflow for disputes or corrections.
@@ -311,7 +314,11 @@ No tracer should ship without passing the gates relevant to it.
 
 Use OpenSkill underneath with custom APOLLO policy wrapped on top. Keep the current Elo-like behavior only as a legacy baseline and migration fallback.
 
-OpenSkill is not implemented today. Current APOLLO rating behavior is a legacy APOLLO projection: custom logistic expectation, fixed K factor, synthetic sigma shrink, and synchronous full-sport recompute after result capture.
+OpenSkill is not implemented today. Since Phase 3B.13, current APOLLO rating
+behavior is a versioned legacy APOLLO projection: custom logistic expectation,
+fixed K factor, synthetic sigma shrink, synchronous full-sport recompute after
+finalized/corrected canonical result changes, golden characterization tests,
+and auditable legacy compute/policy/rebuild events.
 
 This should not become "average Elo and OpenSkill forever." The durable hybrid is:
 
@@ -365,7 +372,21 @@ APOLLO policy gives:
 - Decay and comeback rules.
 - Facility/sport/mode-specific policy.
 
-### Recommended Rating Module
+### Current Rating Module
+
+Phase 3B.13 starts the module as:
+
+```text
+internal/rating/
+  legacy.go
+  legacy_test.go
+```
+
+OpenSkill dual-run in 3B.14 should attach beside this baseline, not replace it
+in place. The public/member read path should stay on the legacy projection until
+the dual-run comparison proves the switch.
+
+### Recommended Future Rating Module
 
 ```text
 internal/rating/
@@ -384,11 +405,19 @@ internal/rating/
 
 ### Required Rating Tables
 
-Minimum durable additions:
+Minimum durable additions after 3B.13:
+
+- `apollo.competition_rating_events` (real in 3B.13)
+- `apollo.competition_member_ratings.rating_engine` (real in 3B.13)
+- `apollo.competition_member_ratings.engine_version` (real in 3B.13)
+- `apollo.competition_member_ratings.policy_version` (real in 3B.13)
+- `apollo.competition_member_ratings.source_result_id` (real in 3B.13)
+- `apollo.competition_member_ratings.rating_event_id` (real in 3B.13)
+- `apollo.competition_member_ratings.projection_watermark` (real in 3B.13)
+
+Still deferred until policy/cutover packets:
 
 - `apollo.rating_policy_versions`
-- `apollo.competition_rating_events`
-- `apollo.competition_member_ratings.policy_version`
 - `apollo.competition_member_ratings.calibration_status`
 - `apollo.competition_member_ratings.peak_mu`
 - `apollo.competition_member_ratings.seeded_from_sport`
@@ -403,7 +432,8 @@ Optional after scale gate:
 
 ### Rating Contract
 
-Any OpenSkill migration must define this contract before code changes:
+Phase 3B.13 now implements the legacy half of this contract. Any OpenSkill
+migration must attach to it without hiding engine/policy versions:
 
 | Field / concept | Requirement |
 | --- | --- |
@@ -442,11 +472,11 @@ Required cases:
 
 ### Dual-Run Migration
 
-1. Extract existing Elo-like logic unchanged into `internal/rating/policy/elo_legacy.go`.
-2. Add golden characterization tests for current behavior.
-3. Add rating event audit table.
-4. Add OpenSkill policy implementation.
-5. Dual-run Elo legacy and OpenSkill for internal matches.
+1. Done in 3B.13: extract existing Elo-like logic unchanged into `internal/rating`.
+2. Done in 3B.13: add golden characterization tests for current behavior.
+3. Done in 3B.13: add legacy rating event audit table and projection metadata.
+4. 3B.14 attaches here: add OpenSkill policy implementation beside legacy.
+5. 3B.14: dual-run Elo legacy and OpenSkill for internal matches.
 6. Compare deltas by scenario and telemetry.
 7. Switch read path to OpenSkill once acceptable.
 8. Keep legacy fallback for one release.
@@ -566,7 +596,7 @@ Unlock after Phase 1:
 
 ### Phase 2: Parallel-Safe Additions
 
-These are not public-stakes features. They can begin alongside Phase 1 when write scopes are isolated and relevant dependency gates are explicit. Rating-dependent rows still wait for rating extraction.
+These are not public-stakes features. They can begin alongside Phase 1 when write scopes are isolated and relevant dependency gates are explicit. Rating-dependent rows still wait for OpenSkill dual-run or an explicit legacy-rating-only ruling.
 
 | Tracer | Module | Adds | Constraints |
 | --- | --- | --- | --- |
@@ -1165,6 +1195,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-27 | Phase 3B.11 shipped only command/readiness/CLI/Themis ops foundation; result trust, OpenSkill, analytics, tournament runtime, public competition surfaces, and game identity remain deferred. | 3B.11 closeout. |
 | 2026-04-27 | Phase 3B.12 shipped lifecycle/result trust only: canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, and finalized/corrected-only rating consumption. Rating extraction, OpenSkill, analytics, tournament runtime, public surfaces, and game identity remain deferred. | 3B.12 closeout. |
 | 2026-04-27 | Phase 3B.12.1 cohesion hardening found no runtime, Themis, Hestia, or docs truth drift; no patch worker changes were required. | 3B.12.1 hardening closeout. |
+| 2026-04-27 | Phase 3B.13 shipped legacy rating foundation only: current rating math is explicit, versioned, golden-tested, auditable, bound to finalized/corrected canonical results, and stored with deterministic projection watermarks. OpenSkill remains deferred to 3B.14. | 3B.13 closeout. |
 
 ## Kill Criteria
 
@@ -1187,8 +1218,10 @@ Kill or defer a tracer if any of these are true:
 1. Closed by 3B.12 and re-verified by 3B.12.1: APOLLO canonical lifecycle/result trust, correction
    supersession, and finalized/corrected-only rating consumption boundary;
    Themis renders APOLLO-backed result states without owning result truth.
-2. Next: 3B.13 rating extraction/policy/audit.
-3. Then: OpenSkill dual-run/cutover only after extraction.
+2. Closed by 3B.13: APOLLO legacy rating extraction, policy/audit metadata,
+   golden cases, rating events, source result binding, and deterministic
+   projection watermarks.
+3. Next: OpenSkill dual-run/cutover only after baseline comparison.
 4. Later: analytics, tournament runtime, public competition surfaces, and game
    identity only after their gates are met.
 
@@ -1327,7 +1360,6 @@ Verification notes:
 
 Still deferred:
 
-- Rating engine extraction: Phase 3B.13.
 - OpenSkill: Phase 3B.14.
 - ARES v2: Phase 3B.15.
 - Analytics: Phase 3B.16.
@@ -1339,7 +1371,7 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Next packet if launch expansion continues: 3B.13 Rating Foundation.
+Next packet if launch expansion continues: 3B.14 OpenSkill Dual-Run.
 
 ## 3B.12.1 Cohesion Hardening Addendum
 
@@ -1374,7 +1406,6 @@ Verification notes:
 
 Still deferred:
 
-- Rating engine extraction: Phase 3B.13.
 - OpenSkill: Phase 3B.14.
 - ARES v2: Phase 3B.15.
 - Analytics: Phase 3B.16.
@@ -1386,4 +1417,44 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Next packet if launch expansion continues: 3B.13 Rating Foundation.
+Next packet if launch expansion continues: 3B.14 OpenSkill Dual-Run.
+
+## 3B.13 Rating Foundation Addendum
+
+Date: 2026-04-27
+
+Phase 3B.13 `Rating Foundation` is closed in APOLLO repo/runtime truth, with no
+Themis or Hestia runtime changes. It shipped only the legacy rating foundation:
+
+- APOLLO current rating math is extracted into `internal/rating` as the
+  versioned `legacy_elo_like` baseline.
+- APOLLO records explicit `rating_engine`, `engine_version`, and
+  `policy_version` values on active member rating projections.
+- APOLLO records auditable `competition.rating.legacy_computed`,
+  `competition.rating.policy_selected`, and
+  `competition.rating.projection_rebuilt` events.
+- APOLLO rating projections store `source_result_id`, `rating_event_id`, and
+  deterministic `projection_watermark` values.
+- Golden legacy rating cases preserve current `mu`, `sigma`, `delta_mu`, and
+  `delta_sigma` behavior.
+- Rating projections continue to consume only finalized or corrected canonical
+  results; recorded, disputed, voided, superseded, and non-canonical results
+  stay out of the active rating projection.
+
+OpenSkill attaches in 3B.14 beside this legacy baseline as a dual-run
+comparison. It must not replace the read path, remove legacy events, or hide
+engine/policy versions until a later packet explicitly proves the cutover.
+
+Still deferred:
+
+- OpenSkill: Phase 3B.14.
+- ARES v2: Phase 3B.15.
+- Analytics: Phase 3B.16.
+- Tournament runtime: Phase 3B.17.
+- Social safety: Phase 3B.18.
+- Public competition surfaces: Phase 3B.19.
+- CP, badges, rivalry, and squads: Phase 3B.20.
+- Project-wide SemVer governance, proposal workflow, recurring schedule, court
+  splitting, booking/commercial work, browser trusted-surface token, and
+  public/Hestia competition expansion remain out of scope until separately
+  reopened.

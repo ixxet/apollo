@@ -7,7 +7,7 @@ jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3B.12 competition lifecycle/result trust
+Current repo/runtime working line on `main`: Phase 3B.13 rating foundation
 over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
@@ -150,6 +150,14 @@ schedule-control lines
   paths; privileged live commands still require role capability plus
   trusted-surface proof, idempotency remains reported unsupported until a
   durable substrate exists, and deployed truth is unchanged
+- Phase 3B.13 rating foundation is now real in repo/runtime on `main`:
+  APOLLO extracts the current legacy rating math behind explicit
+  `rating_engine`, `engine_version`, and `policy_version` identifiers, writes
+  auditable legacy compute/policy/rebuild rating events, records
+  `source_result_id`, `rating_event_id`, and deterministic
+  `projection_watermark` data on rating projections, and preserves existing
+  member rating read behavior while still consuming finalized/corrected
+  canonical results only
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -168,8 +176,8 @@ That audit consolidates the older public competition, rivalry, badge, and
 tournament ideas into one gated plan:
 
 - docs truth, CLI parity, capabilities/dry-run, and application commands first
-- rating extraction, policy versioning, audit events, and OpenSkill dual-run
-  before ARES v2 or public stakes
+- versioned legacy rating foundation, then OpenSkill dual-run before ARES v2 or
+  public stakes
 - match tiers, consensus voting, and disputes before public ratings, badges,
   leaderboards, tournaments, rivalry, CP, or squads
 - internal Themis competition ops can move earlier only as a staff/internal
@@ -184,7 +192,7 @@ They should not be used as permission to skip the launch-expansion gates.
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime working line on
-`main` is Phase 3B.12 competition lifecycle/result trust over the closed
+`main` is Phase 3B.13 rating foundation over the closed
 Tracer 28 authz/staff-boundary truth, Milestone 2.0 hardening follow-up,
 scheduling substrate, member-safe calendar, ops-read, approved booking
 lifecycle, public request/status/availability lines, and staff-side
@@ -203,22 +211,22 @@ edit/replacement plus bounded staff schedule-control lines.
 | later than `Phase 3B.1` | `Phase 3B.10 bounded staff schedule controls` on `main`: APOLLO-owned booking request truth plus bounded internal schedule-control support over typed schedule blocks | keep members denied, supervisors read-only, manager/owner writes trusted-surface gated, public availability sanitized, and booking-linked reservations cancellable only through booking requests | do not widen into instant booking, public self-edit/rebook, broader customer self-service/status portals, quotes/payments, in-place approved booking mutation through schedule controls, recurring schedule rules, broad hours policy editing, owner policy writes, admin role widening, AI/LLM negotiation, HERMES widening, gateway widening, or deploy claims |
 | `Phase 3B.11` | competition command foundation on `main`: shared APOLLO competition command/outcome DTOs, readiness/capability checks, dry-run plan shape, and service-backed CLI parity over existing competition behavior | keep APOLLO as competition truth, keep Themis as a consumer, preserve existing authz/trusted-surface boundaries, and report unsupported idempotency/version behavior explicitly | closed by 3B.12 result trust; do not widen into OpenSkill, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, browser trusted-surface tokens, proposal workflow, booking, or deploy claims |
 | `Phase 3B.12` | competition lifecycle/result trust on `main`: canonical result identity, result statuses, dispute status, correction supersession, direct and command-backed result transitions, lifecycle events, and finalized/corrected-only rating guards | keep APOLLO as canonical result truth, keep Themis as a consumer, preserve authz/trusted-surface/version boundaries, and keep corrections additive/auditable | do not widen into rating engine extraction, OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, browser trusted-surface tokens, proposal workflow, booking, or deploy claims |
+| `Phase 3B.13` | legacy rating foundation on `main`: current APOLLO rating math extracted behind explicit engine/policy versions, golden cases, rating compute/policy/rebuild events, source result binding, rating event IDs, and deterministic projection watermarks | keep current public/member rating reads unchanged, keep APOLLO as rating truth, and derive projections only from finalized/corrected canonical results | do not widen into OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, proposal workflow, booking, or deploy claims |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, CP, badges, squads, public rivalry, or public leaderboards |
 
 ## Current Phase 3B Line
 
-Phase 3B.12 competition lifecycle/result trust is now real in repo/runtime on
-`main`, with deployed truth still separate and unchanged. APOLLO now exposes the
-canonical result identity, lifecycle/result facts, correction supersession, and
-finalized/corrected-only rating boundary needed by later rating extraction,
-analytics, tournaments, and public surface work. It does not extract the rating
-engine, run OpenSkill, expose public competition pages, or move competition
-truth into Themis.
+Phase 3B.13 rating foundation is now real in repo/runtime on `main`, with
+deployed truth still separate and unchanged. APOLLO now exposes the legacy
+rating baseline as versioned, golden-tested, auditable rating math over
+finalized/corrected canonical result truth. It does not run OpenSkill, switch
+the rating read path to a new algorithm, expose public competition pages, or
+move competition/rating truth into Themis.
 
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
-- rating extraction in Phase 3B.13 and OpenSkill migration in Phase 3B.14
+- OpenSkill dual-run in Phase 3B.14
 - analytics, tournament runtime, public competition surfaces, and game identity
 - public self-edit/rebook, broader customer self-service/status portal, and instant booking
 - in-place approved-booking editing
