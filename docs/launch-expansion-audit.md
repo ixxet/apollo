@@ -131,6 +131,10 @@ APOLLO currently has:
 - Custom per-sport/per-mode rating projection from completed competition results.
 - Role/capability authz with trusted-surface proof for privileged staff mutations.
 - Staff action attribution for competition mutations.
+- Shared APOLLO competition command and command outcome DTOs for existing
+  competition behavior.
+- Competition command readiness/capability checks, dry-run plan output, and
+  service-backed CLI parity through `apollo competition command`.
 - Schedule substrate, booking request lifecycle, public-safe booking intake/status/availability.
 - Presence, visit, tap-link, facility streak, and ATHENA-backed ops overview surfaces.
 - Minimal member shell with existing API-backed routes.
@@ -150,8 +154,10 @@ The active competition rating projection is `apollo.competition_member_ratings`,
 
 APOLLO does not yet have:
 
-- Competition CLI parity.
-- Capability discovery or universal dry-run.
+- Durable command idempotency storage or replay.
+- Universal command/dry-run coverage outside the supported Phase 3B.11
+  competition command surface.
+- Command-surface result finalization beyond dry-run planning.
 - OpenSkill.
 - Rating policy versioning, rating events, or rating audit log.
 - Match tier classification.
@@ -270,7 +276,11 @@ The repository owns:
 
 - Persistence only.
 
-Ruling: build T18b as thin service-backed CLI first. Evolve toward a shared application command layer as dry-run and outcome enums land. Do not build an independent CLI domain model.
+Ruling: Phase 3B.11 built the shared command layer first for competition
+commands, then mapped HTTP and the service-backed CLI into that shared
+command/outcome path. Do not build an independent CLI domain model. Durable
+command idempotency remains deferred until a storage substrate is deliberately
+chosen.
 
 ## Ten Gates
 
@@ -459,10 +469,10 @@ Likelihood columns mean "likelihood of succeeding without damaging system agilit
 | Feature | Current fit | Success likelihood if sequenced | Failure likelihood if rushed | Durability | Best approach |
 | --- | --- | ---: | ---: | --- | --- |
 | Docs truth cleanup | Direct docs fix | Very high | Medium | High | Do first; no product widening |
-| Competition CLI parity | Good fit over existing services | High | Medium | High | Thin service wrapper now, command layer later |
-| Capability discovery | Good fit near authz/server | High | Medium | High | `GET /api/v1/capabilities`; role/capability read model |
-| Universal dry-run | Medium fit | Medium-high | High | High | Add command planning layer; do not fake write success |
-| Internal Themis competition ops shell | Good fit over existing competition APIs | High if tightly scoped | High if it becomes public tournaments/social | High | Staff-only ops shell; no public surface, no browser trusted token |
+| Competition CLI parity | Shipped for supported existing competition commands in 3B.11 | High | Medium | High | Shared command/outcome path; no independent CLI domain model |
+| Capability discovery | Shipped as competition command readiness in 3B.11; broader capability discovery remains later | High | Medium | High | Keep role/capability read model explicit |
+| Universal dry-run | Shipped only for the supported 3B.11 competition command surface | Medium-high | High | High | Add command planning layer per surface; do not fake write success |
+| Internal Themis competition ops shell | First APOLLO-backed shell shipped in 3B.11 | High if tightly scoped | High if it becomes public tournaments/social | High | Staff-only ops shell; no public surface, no browser trusted token |
 | Approval/proposal workflow primitive | Fits booking, schedule, disputes, result corrections, social actions | Medium-high | High if generalized too early | Very high | Reusable propose/approve/reject/expire state machine with attribution |
 | Match lifecycle state machine | Direct fit for consensus and disputes | High | Very high if skipped | Very high | Canonical states before finalization or rating writes |
 | Notification substrate | Fits approval prompts, score votes, dispute alerts | Medium-high | Medium-high if it becomes messaging | High | One-way notifications/outbox only; no chat, DMs, or guild messaging |
@@ -650,14 +660,20 @@ Ruling: these packets are not public surfaces. They are substrate work. They may
 
 ### Internal Themis Competition Ops Shell
 
-The audit now separates internal staff competition operations from public tournaments. Internal Themis competition ops can ship earlier because it is a staff/admin control surface over existing APOLLO behavior, not a public bracket/social product.
+The audit now separates internal staff competition operations from public
+tournaments. Internal Themis competition ops can ship earlier because it is a
+staff control surface over existing APOLLO behavior, not a public bracket/social
+product. Phase 3B.11 shipped the first internal Themis shell over APOLLO
+readiness/command/session contracts only.
 
 Initial allowed scope:
 
 - Competition session list/detail.
 - Queue membership view.
 - Existing staff actions already represented by APOLLO APIs.
-- Match preview, assignment, start/archive, and result capture only where backend contracts are real.
+- Match preview, assignment, start/archive, and result capture only where
+  backend contracts are real. In Phase 3B.11, result command apply remains
+  dry-run-only until result trust work reopens it.
 - Error, empty, loading, and denied states for every route.
 
 Hard stops:
@@ -1138,6 +1154,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-26 | Hybrid OpenSkill means OpenSkill kernel plus APOLLO policy plus legacy Elo characterization/fallback, not two permanent competing ratings. | This audit consolidation. |
 | 2026-04-26 | CLI should start as a service-backed wrapper and evolve toward a shared application command layer; no independent CLI domain model. | This audit consolidation. |
 | 2026-04-27 | Substrate decomposition accepted: internal Themis ops shell, approval/proposal workflow, match lifecycle, notifications, schedule policy, and resource splitting are reusable primitives, not public surfaces. | This audit consolidation. |
+| 2026-04-27 | Phase 3B.11 shipped only command/readiness/CLI/Themis ops foundation; result trust, OpenSkill, analytics, tournament runtime, public competition surfaces, and game identity remain deferred. | 3B.11 closeout. |
 
 ## Kill Criteria
 
@@ -1157,14 +1174,13 @@ Kill or defer a tracer if any of these are true:
 
 ## Immediate Action List
 
-1. T18a: Fix docs truth in APOLLO README/roadmap/hardening references.
-2. T18b design: Decide CLI architecture as service-backed now, application command layer next.
-3. T18c design: Define capability discovery schema and mutation outcome enum.
-4. T18e-h design: Lock packet boundaries for internal Themis ops, approval/proposal, match lifecycle, and notifications.
-5. T19a design: Extract current rating behavior unchanged into `internal/rating`.
-6. T19b design: Add golden tests and policy interface.
-7. T19c design: Add rating events before OpenSkill.
-8. Gate docs: Add Frontend Contract Gate and Cross-Repo Compatibility Gate to platform docs.
+1. Closed by 3B.11: APOLLO command/outcome/readiness DTOs, service-backed
+   competition CLI parity, and first internal Themis ops shell over APOLLO
+   contracts.
+2. Next: 3B.12 competition lifecycle and result trust.
+3. Then: rating extraction/policy/audit before OpenSkill.
+4. Later: analytics, tournament runtime, public competition surfaces, and game
+   identity only after their gates are met.
 
 ## Proof Commands
 

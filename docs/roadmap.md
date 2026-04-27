@@ -7,12 +7,13 @@ jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3B.10 bounded staff schedule controls
+Current repo/runtime working line on `main`: Phase 3B.11 competition command foundation
 over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
 Phase 3B.7 customer status/communication, Phase 3B.8 booking edit/replacement,
-and Phase 3B.9 public availability/request calendar lines
+Phase 3B.9 public availability/request calendar, and Phase 3B.10 bounded staff
+schedule-control lines
 
 - first-party auth and session-backed profile state are real
 - visit ingest and close are real
@@ -141,6 +142,13 @@ and Phase 3B.9 public availability/request calendar lines
   writes stay trusted-surface gated, generic schedule-block cancel uses
   `expected_version`, and booking-linked reservations can only be cancelled
   through the booking request lifecycle
+- Phase 3B.11 competition command foundation is now real in repo/runtime on
+  `main`: APOLLO exposes shared competition command and command outcome DTOs,
+  readiness/capability truth, dry-run plan output, and a service-backed
+  competition CLI command runner over existing competition behavior; privileged
+  live commands still require role capability plus trusted-surface proof,
+  idempotency is reported unsupported until a durable substrate exists, and
+  result finalization remains deferred beyond dry-run command planning
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -175,11 +183,11 @@ They should not be used as permission to skip the launch-expansion gates.
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime working line on
-`main` is Phase 3B.10 bounded staff schedule controls over the closed
+`main` is Phase 3B.11 competition command foundation over the closed
 Tracer 28 authz/staff-boundary truth, Milestone 2.0 hardening follow-up,
 scheduling substrate, member-safe calendar, ops-read, approved booking
 lifecycle, public request/status/availability lines, and staff-side
-edit/replacement line.
+edit/replacement plus bounded staff schedule-control lines.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -192,19 +200,24 @@ edit/replacement line.
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
 | later than `Phase 3B.1` | `Phase 3B.10 bounded staff schedule controls` on `main`: APOLLO-owned booking request truth plus bounded internal schedule-control support over typed schedule blocks | keep members denied, supervisors read-only, manager/owner writes trusted-surface gated, public availability sanitized, and booking-linked reservations cancellable only through booking requests | do not widen into instant booking, public self-edit/rebook, broader customer self-service/status portals, quotes/payments, in-place approved booking mutation through schedule controls, recurring schedule rules, broad hours policy editing, owner policy writes, admin role widening, AI/LLM negotiation, HERMES widening, gateway widening, or deploy claims |
+| `Phase 3B.11` | competition command foundation on `main`: shared APOLLO competition command/outcome DTOs, readiness/capability checks, dry-run plan shape, and service-backed CLI parity over existing competition behavior | keep APOLLO as competition truth, keep Themis as a consumer, preserve existing authz/trusted-surface boundaries, report unsupported idempotency/version behavior explicitly, and keep result command apply dry-run-only | do not widen into OpenSkill, result disputes/corrections/finalization, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, browser trusted-surface tokens, proposal workflow, booking, or deploy claims |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, CP, badges, squads, public rivalry, or public leaderboards |
 
 ## Current Phase 3B Line
 
-Phase 3B.10 bounded staff schedule controls are now real in repo/runtime on
-`main`, with deployed truth still separate and unchanged. APOLLO keeps schedule
-authority while Themis consumes schedule reads and trusted manager/owner
-one-off block writes. Booking-linked reservations still belong to booking
-request approval/cancellation, not generic schedule mutation.
+Phase 3B.11 competition command foundation is now real in repo/runtime on
+`main`, with deployed truth still separate and unchanged. APOLLO now exposes the
+shared command/outcome/readiness contract and CLI entrypoint needed by later
+competition lifecycle, result trust, ratings, analytics, tournaments, and public
+surface work. It does not finalize canonical results, run OpenSkill, expose
+public competition pages, or move competition truth into Themis.
 
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
+- result lifecycle and trust in Phase 3B.12
+- rating extraction and OpenSkill migration in later 3B lines
+- analytics, tournament runtime, public competition surfaces, and game identity
 - public self-edit/rebook, broader customer self-service/status portal, and instant booking
 - in-place approved-booking editing
 - recurring schedule rules, broad operating-hours editing, and owner policy controls
