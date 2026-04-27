@@ -568,7 +568,7 @@ func newCompetitionCommandRunCmd() *cobra.Command {
 			if strings.TrimSpace(idempotencyKey) != "" {
 				command.IdempotencyKey = strings.TrimSpace(idempotencyKey)
 			}
-			if expectedVersion > 0 {
+			if cmd.Flags().Changed("expected-version") {
 				command.ExpectedVersion = &expectedVersion
 			}
 			if err := applyCompetitionCommandIDFlags(&command, sessionID, teamID, matchID, userID); err != nil {

@@ -98,6 +98,10 @@ type CompetitionManager interface {
 	CreateMatch(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, input competition.CreateMatchInput) (competition.Match, error)
 	ArchiveMatch(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID) (competition.Match, error)
 	RecordMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, input competition.RecordMatchResultInput) (competition.Session, error)
+	FinalizeMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, expectedResultVersion int) (competition.Session, error)
+	DisputeMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, expectedResultVersion int) (competition.Session, error)
+	CorrectMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, input competition.RecordMatchResultInput) (competition.Session, error)
+	VoidMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, expectedResultVersion int) (competition.Session, error)
 }
 
 type CompetitionHistoryReader interface {
@@ -264,7 +268,12 @@ type createCompetitionMatchRequest struct {
 }
 
 type recordCompetitionMatchResultRequest struct {
-	Sides []competition.MatchResultSideInput `json:"sides"`
+	ExpectedResultVersion *int                               `json:"expected_result_version"`
+	Sides                 []competition.MatchResultSideInput `json:"sides"`
+}
+
+type competitionMatchResultTransitionRequest struct {
+	ExpectedResultVersion *int `json:"expected_result_version"`
 }
 
 type scheduleBlockMutationRequest struct {
@@ -1118,10 +1127,123 @@ func NewHandler(deps Dependencies) http.Handler {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
+			if request.ExpectedResultVersion == nil || *request.ExpectedResultVersion < 0 {
+				writeError(w, http.StatusBadRequest, competition.ErrMatchResultVersion)
+				return
+			}
 
 			session, err := deps.Competition.RecordMatchResult(r.Context(), actor, sessionID, matchID, competition.RecordMatchResultInput{
-				Sides: request.Sides,
+				ExpectedResultVersion: *request.ExpectedResultVersion,
+				Sides:                 request.Sides,
 			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/result/finalize", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			matchID, err := parseUUIDParam(r, "matchID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			expectedVersion, ok := decodeCompetitionResultExpectedVersion(w, r)
+			if !ok {
+				return
+			}
+
+			session, err := deps.Competition.FinalizeMatchResult(r.Context(), actor, sessionID, matchID, expectedVersion)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/result/dispute", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			matchID, err := parseUUIDParam(r, "matchID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			expectedVersion, ok := decodeCompetitionResultExpectedVersion(w, r)
+			if !ok {
+				return
+			}
+
+			session, err := deps.Competition.DisputeMatchResult(r.Context(), actor, sessionID, matchID, expectedVersion)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/result/correct", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			matchID, err := parseUUIDParam(r, "matchID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request recordCompetitionMatchResultRequest
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if request.ExpectedResultVersion == nil || *request.ExpectedResultVersion < 0 {
+				writeError(w, http.StatusBadRequest, competition.ErrMatchResultVersion)
+				return
+			}
+
+			session, err := deps.Competition.CorrectMatchResult(r.Context(), actor, sessionID, matchID, competition.RecordMatchResultInput{
+				ExpectedResultVersion: *request.ExpectedResultVersion,
+				Sides:                 request.Sides,
+			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, session)
+		}))
+		authenticated.Post("/api/v1/competition/sessions/{sessionID}/matches/{matchID}/result/void", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			sessionID, err := parseUUIDParam(r, "sessionID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			matchID, err := parseUUIDParam(r, "matchID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			expectedVersion, ok := decodeCompetitionResultExpectedVersion(w, r)
+			if !ok {
+				return
+			}
+
+			session, err := deps.Competition.VoidMatchResult(r.Context(), actor, sessionID, matchID, expectedVersion)
 			if err != nil {
 				writeCompetitionError(w, err)
 				return
@@ -2271,6 +2393,19 @@ func decodeJSONBodyAllowEmpty(w http.ResponseWriter, r *http.Request, target any
 	return nil
 }
 
+func decodeCompetitionResultExpectedVersion(w http.ResponseWriter, r *http.Request) (int, bool) {
+	var request competitionMatchResultTransitionRequest
+	if err := decodeJSONBody(w, r, &request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return 0, false
+	}
+	if request.ExpectedResultVersion == nil || *request.ExpectedResultVersion < 0 {
+		writeError(w, http.StatusBadRequest, competition.ErrMatchResultVersion)
+		return 0, false
+	}
+	return *request.ExpectedResultVersion, true
+}
+
 func normalizeDecodeError(err error) error {
 	var maxBytesErr *http.MaxBytesError
 	if errors.As(err, &maxBytesErr) {
@@ -2381,6 +2516,7 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 		errors.Is(err, competition.ErrMatchIndexInvalid),
 		errors.Is(err, competition.ErrMatchSideCountMismatch),
 		errors.Is(err, competition.ErrMatchSideIndexInvalid),
+		errors.Is(err, competition.ErrMatchResultVersion),
 		errors.Is(err, competition.ErrMatchResultSideCount),
 		errors.Is(err, competition.ErrMatchResultSideIndex),
 		errors.Is(err, competition.ErrMatchResultOutcome),
@@ -2412,6 +2548,12 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 		errors.Is(err, competition.ErrMatchArchived),
 		errors.Is(err, competition.ErrMatchNotInProgress),
 		errors.Is(err, competition.ErrMatchResultRecorded),
+		errors.Is(err, competition.ErrMatchResultNotFound),
+		errors.Is(err, competition.ErrMatchResultStateStale),
+		errors.Is(err, competition.ErrMatchResultNotRecorded),
+		errors.Is(err, competition.ErrMatchResultNotCanonical),
+		errors.Is(err, competition.ErrMatchResultNotFinal),
+		errors.Is(err, competition.ErrMatchResultVoided),
 		errors.Is(err, competition.ErrMatchResultTeamMismatch):
 		return http.StatusConflict
 	default:
@@ -2427,6 +2569,7 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 	case errors.Is(err, competition.ErrSessionNotFound),
 		errors.Is(err, competition.ErrTeamNotFound),
 		errors.Is(err, competition.ErrMatchNotFound),
+		errors.Is(err, competition.ErrMatchResultNotFound),
 		errors.Is(err, competition.ErrRosterMemberNotFound),
 		errors.Is(err, competition.ErrUserNotFound),
 		errors.Is(err, competition.ErrSportNotFound):
@@ -2447,6 +2590,7 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrMatchIndexInvalid),
 		errors.Is(err, competition.ErrMatchSideCountMismatch),
 		errors.Is(err, competition.ErrMatchSideIndexInvalid),
+		errors.Is(err, competition.ErrMatchResultVersion),
 		errors.Is(err, competition.ErrMatchResultSideCount),
 		errors.Is(err, competition.ErrMatchResultSideIndex),
 		errors.Is(err, competition.ErrMatchResultOutcome),
@@ -2477,6 +2621,11 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrMatchArchived),
 		errors.Is(err, competition.ErrMatchNotInProgress),
 		errors.Is(err, competition.ErrMatchResultRecorded),
+		errors.Is(err, competition.ErrMatchResultStateStale),
+		errors.Is(err, competition.ErrMatchResultNotRecorded),
+		errors.Is(err, competition.ErrMatchResultNotCanonical),
+		errors.Is(err, competition.ErrMatchResultNotFinal),
+		errors.Is(err, competition.ErrMatchResultVoided),
 		errors.Is(err, competition.ErrMatchResultTeamMismatch):
 		writeError(w, http.StatusConflict, err)
 	default:

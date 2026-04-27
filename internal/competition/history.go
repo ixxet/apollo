@@ -16,6 +16,10 @@ const (
 )
 
 func (s *Service) RecordMatchResult(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchID uuid.UUID, input RecordMatchResultInput) (Session, error) {
+	if input.ExpectedResultVersion < 0 {
+		return Session{}, ErrMatchResultVersion
+	}
+
 	session, err := s.repository.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return Session{}, err
@@ -42,6 +46,9 @@ func (s *Service) RecordMatchResult(ctx context.Context, actor StaffActor, sessi
 	}
 	if match.Status != MatchStatusInProgress {
 		return Session{}, ErrMatchNotInProgress
+	}
+	if match.ResultVersion != input.ExpectedResultVersion {
+		return Session{}, ErrMatchResultStateStale
 	}
 
 	recorded, err := s.repository.GetMatchResultByMatchID(ctx, match.ID)
@@ -74,12 +81,12 @@ func (s *Service) RecordMatchResult(ctx context.Context, actor StaffActor, sessi
 		return Session{}, err
 	}
 
-	if err := s.repository.RecordMatchResult(ctx, actor, *session, *sport, *match, input, s.now().UTC()); err != nil {
+	if _, err := s.repository.RecordMatchResult(ctx, actor, *session, *sport, *match, input, input.ExpectedResultVersion, s.now().UTC()); err != nil {
 		switch {
 		case isUniqueViolation(err):
 			return Session{}, ErrMatchResultRecorded
 		case errors.Is(err, pgx.ErrNoRows):
-			return Session{}, ErrMatchNotInProgress
+			return Session{}, ErrMatchResultStateStale
 		default:
 			return Session{}, err
 		}
@@ -94,6 +101,198 @@ func (s *Service) RecordMatchResult(ctx context.Context, actor StaffActor, sessi
 	}
 
 	return s.loadSessionDetail(ctx, *refreshed)
+}
+
+func (s *Service) FinalizeMatchResult(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchID uuid.UUID, expectedResultVersion int) (Session, error) {
+	session, sport, match, result, err := s.loadResultMutationContext(ctx, sessionID, matchID, expectedResultVersion)
+	if err != nil {
+		return Session{}, err
+	}
+	if result == nil {
+		return Session{}, ErrMatchResultNotFound
+	}
+	if result.ResultStatus == ResultStatusVoided {
+		return Session{}, ErrMatchResultVoided
+	}
+	if result.ResultStatus != ResultStatusRecorded && result.ResultStatus != ResultStatusDisputed {
+		return Session{}, ErrMatchResultNotRecorded
+	}
+
+	if _, err := s.repository.FinalizeMatchResult(ctx, actor, session, sport, match, *result, expectedResultVersion, s.now().UTC()); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Session{}, ErrMatchResultStateStale
+		}
+		return Session{}, err
+	}
+
+	refreshed, err := s.repository.GetSessionByID(ctx, session.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	if refreshed == nil {
+		return Session{}, ErrSessionNotFound
+	}
+	return s.loadSessionDetail(ctx, *refreshed)
+}
+
+func (s *Service) DisputeMatchResult(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchID uuid.UUID, expectedResultVersion int) (Session, error) {
+	session, sport, match, result, err := s.loadResultMutationContext(ctx, sessionID, matchID, expectedResultVersion)
+	if err != nil {
+		return Session{}, err
+	}
+	if result == nil {
+		return Session{}, ErrMatchResultNotFound
+	}
+	if result.ResultStatus == ResultStatusVoided {
+		return Session{}, ErrMatchResultVoided
+	}
+	if result.ResultStatus == ResultStatusDisputed {
+		return Session{}, ErrMatchResultNotFinal
+	}
+
+	if _, err := s.repository.DisputeMatchResult(ctx, actor, session, sport, match, *result, expectedResultVersion, s.now().UTC()); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Session{}, ErrMatchResultStateStale
+		}
+		return Session{}, err
+	}
+
+	refreshed, err := s.repository.GetSessionByID(ctx, session.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	if refreshed == nil {
+		return Session{}, ErrSessionNotFound
+	}
+	return s.loadSessionDetail(ctx, *refreshed)
+}
+
+func (s *Service) CorrectMatchResult(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchID uuid.UUID, input RecordMatchResultInput) (Session, error) {
+	if input.ExpectedResultVersion < 0 {
+		return Session{}, ErrMatchResultVersion
+	}
+
+	session, sport, match, result, err := s.loadResultMutationContext(ctx, sessionID, matchID, input.ExpectedResultVersion)
+	if err != nil {
+		return Session{}, err
+	}
+	if result == nil {
+		return Session{}, ErrMatchResultNotFound
+	}
+	if result.ResultStatus == ResultStatusVoided {
+		return Session{}, ErrMatchResultVoided
+	}
+
+	sideSlots, err := s.repository.ListMatchSideSlotsBySessionID(ctx, session.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	expectedSlots := make([]matchSideSlotRecord, 0, len(input.Sides))
+	for _, sideSlot := range sideSlots {
+		if sideSlot.MatchID == match.ID {
+			expectedSlots = append(expectedSlots, sideSlot)
+		}
+	}
+	if err := validateMatchResultInput(input.Sides, expectedSlots); err != nil {
+		return Session{}, err
+	}
+
+	if _, err := s.repository.CorrectMatchResult(ctx, actor, session, sport, match, *result, input, input.ExpectedResultVersion, s.now().UTC()); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Session{}, ErrMatchResultStateStale
+		}
+		return Session{}, err
+	}
+
+	refreshed, err := s.repository.GetSessionByID(ctx, session.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	if refreshed == nil {
+		return Session{}, ErrSessionNotFound
+	}
+	return s.loadSessionDetail(ctx, *refreshed)
+}
+
+func (s *Service) VoidMatchResult(ctx context.Context, actor StaffActor, sessionID uuid.UUID, matchID uuid.UUID, expectedResultVersion int) (Session, error) {
+	session, sport, match, result, err := s.loadResultMutationContext(ctx, sessionID, matchID, expectedResultVersion)
+	if err != nil {
+		return Session{}, err
+	}
+	if result == nil {
+		return Session{}, ErrMatchResultNotFound
+	}
+	if result.ResultStatus == ResultStatusVoided {
+		return Session{}, ErrMatchResultVoided
+	}
+
+	if _, err := s.repository.VoidMatchResult(ctx, actor, session, sport, match, *result, expectedResultVersion, s.now().UTC()); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Session{}, ErrMatchResultStateStale
+		}
+		return Session{}, err
+	}
+
+	refreshed, err := s.repository.GetSessionByID(ctx, session.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	if refreshed == nil {
+		return Session{}, ErrSessionNotFound
+	}
+	return s.loadSessionDetail(ctx, *refreshed)
+}
+
+func (s *Service) loadResultMutationContext(ctx context.Context, sessionID uuid.UUID, matchID uuid.UUID, expectedResultVersion int) (sessionRecord, SportConfig, matchRecord, *matchResultRecord, error) {
+	if expectedResultVersion < 0 {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, ErrMatchResultVersion
+	}
+
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, err
+	}
+	if session == nil {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, ErrSessionNotFound
+	}
+	if session.Status == SessionStatusArchived {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, ErrSessionArchived
+	}
+
+	match, err := s.repository.GetMatchByID(ctx, matchID)
+	if err != nil {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, err
+	}
+	if match == nil || match.SessionID != session.ID {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, ErrMatchNotFound
+	}
+	if match.Status == MatchStatusArchived {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, ErrMatchArchived
+	}
+	if match.Status != MatchStatusCompleted {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, ErrMatchResultNotFound
+	}
+	if match.ResultVersion != expectedResultVersion {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, ErrMatchResultStateStale
+	}
+
+	sport, err := s.repository.GetSportConfig(ctx, session.SportKey)
+	if err != nil {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, err
+	}
+	if sport == nil {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, ErrSportNotFound
+	}
+
+	result, err := s.repository.GetMatchResultByMatchID(ctx, match.ID)
+	if err != nil {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, err
+	}
+	if result != nil && match.CanonicalResultID != nil && result.ID != *match.CanonicalResultID {
+		return sessionRecord{}, SportConfig{}, matchRecord{}, nil, ErrMatchResultNotCanonical
+	}
+
+	return *session, *sport, *match, result, nil
 }
 
 func (s *Service) ListMemberStats(ctx context.Context, userID uuid.UUID) ([]MemberStat, error) {
@@ -194,6 +393,8 @@ func (s *Service) ListMemberHistory(ctx context.Context, userID uuid.UUID) ([]Me
 	for _, row := range rows {
 		history = append(history, MemberHistoryEntry{
 			CompetitionMatchID: row.CompetitionMatchID,
+			SourceResultID:     row.CompetitionResultID,
+			CanonicalResultID:  row.CompetitionResultID,
 			DisplayName:        row.DisplayName,
 			SportKey:           row.SportKey,
 			ModeKey:            buildModeKey(row.CompetitionMode, row.SidesPerMatch, row.ParticipantsPerSide),
@@ -285,10 +486,19 @@ func buildMatchResults(rows []matchResultSideRecord) map[uuid.UUID]*MatchResult 
 		result, exists := results[row.CompetitionMatchID]
 		if !exists {
 			recordedAt := row.RecordedAt.UTC()
+			canonicalResultID := row.CompetitionMatchResultID
 			result = &MatchResult{
+				ID:                 row.CompetitionMatchResultID,
 				CompetitionMatchID: row.CompetitionMatchID,
+				CanonicalResultID:  canonicalResultID,
+				ResultStatus:       row.ResultStatus,
+				DisputeStatus:      row.DisputeStatus,
+				CorrectionID:       row.CorrectionID,
+				SupersedesResultID: row.SupersedesResultID,
 				RecordedByUserID:   row.RecordedByUserID,
 				RecordedAt:         recordedAt,
+				FinalizedAt:        row.FinalizedAt,
+				CorrectedAt:        row.CorrectedAt,
 				Sides:              make([]MatchResultSide, 0, 2),
 			}
 			results[row.CompetitionMatchID] = result

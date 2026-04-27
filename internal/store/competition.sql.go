@@ -23,6 +23,8 @@ RETURNING id,
           competition_session_id,
           match_index,
           status,
+          result_version,
+          canonical_result_id,
           created_at,
           updated_at,
           archived_at
@@ -33,14 +35,28 @@ type ArchiveCompetitionMatchParams struct {
 	ArchivedAt pgtype.Timestamptz
 }
 
-func (q *Queries) ArchiveCompetitionMatch(ctx context.Context, arg ArchiveCompetitionMatchParams) (ApolloCompetitionMatch, error) {
+type ArchiveCompetitionMatchRow struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	MatchIndex           int32
+	Status               string
+	ResultVersion        int32
+	CanonicalResultID    pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	ArchivedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) ArchiveCompetitionMatch(ctx context.Context, arg ArchiveCompetitionMatchParams) (ArchiveCompetitionMatchRow, error) {
 	row := q.db.QueryRow(ctx, archiveCompetitionMatch, arg.ID, arg.ArchivedAt)
-	var i ApolloCompetitionMatch
+	var i ArchiveCompetitionMatchRow
 	err := row.Scan(
 		&i.ID,
 		&i.CompetitionSessionID,
 		&i.MatchIndex,
 		&i.Status,
+		&i.ResultVersion,
+		&i.CanonicalResultID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
@@ -268,6 +284,8 @@ RETURNING id,
           competition_session_id,
           match_index,
           status,
+          result_version,
+          canonical_result_id,
           created_at,
           updated_at,
           archived_at
@@ -279,14 +297,28 @@ type CreateCompetitionMatchParams struct {
 	Status               string
 }
 
-func (q *Queries) CreateCompetitionMatch(ctx context.Context, arg CreateCompetitionMatchParams) (ApolloCompetitionMatch, error) {
+type CreateCompetitionMatchRow struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	MatchIndex           int32
+	Status               string
+	ResultVersion        int32
+	CanonicalResultID    pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	ArchivedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionMatch(ctx context.Context, arg CreateCompetitionMatchParams) (CreateCompetitionMatchRow, error) {
 	row := q.db.QueryRow(ctx, createCompetitionMatch, arg.CompetitionSessionID, arg.MatchIndex, arg.Status)
-	var i ApolloCompetitionMatch
+	var i CreateCompetitionMatchRow
 	err := row.Scan(
 		&i.ID,
 		&i.CompetitionSessionID,
 		&i.MatchIndex,
 		&i.Status,
+		&i.ResultVersion,
+		&i.CanonicalResultID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
@@ -645,6 +677,8 @@ SELECT id,
        competition_session_id,
        match_index,
        status,
+       result_version,
+       canonical_result_id,
        created_at,
        updated_at,
        archived_at
@@ -653,14 +687,28 @@ WHERE id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetCompetitionMatchByID(ctx context.Context, id uuid.UUID) (ApolloCompetitionMatch, error) {
+type GetCompetitionMatchByIDRow struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	MatchIndex           int32
+	Status               string
+	ResultVersion        int32
+	CanonicalResultID    pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	ArchivedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) GetCompetitionMatchByID(ctx context.Context, id uuid.UUID) (GetCompetitionMatchByIDRow, error) {
 	row := q.db.QueryRow(ctx, getCompetitionMatchByID, id)
-	var i ApolloCompetitionMatch
+	var i GetCompetitionMatchByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.CompetitionSessionID,
 		&i.MatchIndex,
 		&i.Status,
+		&i.ResultVersion,
+		&i.CanonicalResultID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
@@ -785,6 +833,8 @@ SELECT id,
        competition_session_id,
        match_index,
        status,
+       result_version,
+       canonical_result_id,
        created_at,
        updated_at,
        archived_at
@@ -793,20 +843,34 @@ WHERE competition_session_id = $1
 ORDER BY match_index ASC, id ASC
 `
 
-func (q *Queries) ListCompetitionMatchesBySessionID(ctx context.Context, competitionSessionID uuid.UUID) ([]ApolloCompetitionMatch, error) {
+type ListCompetitionMatchesBySessionIDRow struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	MatchIndex           int32
+	Status               string
+	ResultVersion        int32
+	CanonicalResultID    pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	ArchivedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) ListCompetitionMatchesBySessionID(ctx context.Context, competitionSessionID uuid.UUID) ([]ListCompetitionMatchesBySessionIDRow, error) {
 	rows, err := q.db.Query(ctx, listCompetitionMatchesBySessionID, competitionSessionID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ApolloCompetitionMatch
+	var items []ListCompetitionMatchesBySessionIDRow
 	for rows.Next() {
-		var i ApolloCompetitionMatch
+		var i ListCompetitionMatchesBySessionIDRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.CompetitionSessionID,
 			&i.MatchIndex,
 			&i.Status,
+			&i.ResultVersion,
+			&i.CanonicalResultID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ArchivedAt,

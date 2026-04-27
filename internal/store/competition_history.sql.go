@@ -12,34 +12,60 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const completeCompetitionMatch = `-- name: CompleteCompetitionMatch :one
+const completeCompetitionMatchWithResult = `-- name: CompleteCompetitionMatchWithResult :one
 UPDATE apollo.competition_matches
 SET status = 'completed',
-    updated_at = $2
+    canonical_result_id = $2,
+    result_version = result_version + 1,
+    updated_at = $4
 WHERE id = $1
   AND status = 'in_progress'
+  AND result_version = $3
 RETURNING id,
           competition_session_id,
           match_index,
           status,
+          result_version,
+          canonical_result_id,
           created_at,
           updated_at,
           archived_at
 `
 
-type CompleteCompetitionMatchParams struct {
-	ID        uuid.UUID
-	UpdatedAt pgtype.Timestamptz
+type CompleteCompetitionMatchWithResultParams struct {
+	ID                uuid.UUID
+	CanonicalResultID pgtype.UUID
+	ResultVersion     int32
+	UpdatedAt         pgtype.Timestamptz
 }
 
-func (q *Queries) CompleteCompetitionMatch(ctx context.Context, arg CompleteCompetitionMatchParams) (ApolloCompetitionMatch, error) {
-	row := q.db.QueryRow(ctx, completeCompetitionMatch, arg.ID, arg.UpdatedAt)
-	var i ApolloCompetitionMatch
+type CompleteCompetitionMatchWithResultRow struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	MatchIndex           int32
+	Status               string
+	ResultVersion        int32
+	CanonicalResultID    pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	ArchivedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) CompleteCompetitionMatchWithResult(ctx context.Context, arg CompleteCompetitionMatchWithResultParams) (CompleteCompetitionMatchWithResultRow, error) {
+	row := q.db.QueryRow(ctx, completeCompetitionMatchWithResult,
+		arg.ID,
+		arg.CanonicalResultID,
+		arg.ResultVersion,
+		arg.UpdatedAt,
+	)
+	var i CompleteCompetitionMatchWithResultRow
 	err := row.Scan(
 		&i.ID,
 		&i.CompetitionSessionID,
 		&i.MatchIndex,
 		&i.Status,
+		&i.ResultVersion,
+		&i.CanonicalResultID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
@@ -123,61 +149,227 @@ func (q *Queries) CountCompetitionIncompleteActiveMatchesBySessionID(ctx context
 	return count, err
 }
 
+const createCompetitionLifecycleEvent = `-- name: CreateCompetitionLifecycleEvent :one
+INSERT INTO apollo.competition_lifecycle_events (
+  competition_session_id,
+  competition_match_id,
+  competition_match_result_id,
+  event_type,
+  actor_user_id,
+  actor_role,
+  actor_session_id,
+  capability,
+  trusted_surface_key,
+  trusted_surface_label,
+  previous_result_status,
+  result_status,
+  dispute_status,
+  correction_id,
+  supersedes_result_id,
+  occurred_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+RETURNING id,
+          competition_session_id,
+          competition_match_id,
+          competition_match_result_id,
+          event_type,
+          actor_user_id,
+          actor_role,
+          actor_session_id,
+          capability,
+          trusted_surface_key,
+          trusted_surface_label,
+          previous_result_status,
+          result_status,
+          dispute_status,
+          correction_id,
+          supersedes_result_id,
+          occurred_at
+`
+
+type CreateCompetitionLifecycleEventParams struct {
+	CompetitionSessionID     uuid.UUID
+	CompetitionMatchID       pgtype.UUID
+	CompetitionMatchResultID pgtype.UUID
+	EventType                string
+	ActorUserID              pgtype.UUID
+	ActorRole                *string
+	ActorSessionID           pgtype.UUID
+	Capability               *string
+	TrustedSurfaceKey        *string
+	TrustedSurfaceLabel      *string
+	PreviousResultStatus     *string
+	ResultStatus             *string
+	DisputeStatus            *string
+	CorrectionID             pgtype.UUID
+	SupersedesResultID       pgtype.UUID
+	OccurredAt               pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionLifecycleEvent(ctx context.Context, arg CreateCompetitionLifecycleEventParams) (ApolloCompetitionLifecycleEvent, error) {
+	row := q.db.QueryRow(ctx, createCompetitionLifecycleEvent,
+		arg.CompetitionSessionID,
+		arg.CompetitionMatchID,
+		arg.CompetitionMatchResultID,
+		arg.EventType,
+		arg.ActorUserID,
+		arg.ActorRole,
+		arg.ActorSessionID,
+		arg.Capability,
+		arg.TrustedSurfaceKey,
+		arg.TrustedSurfaceLabel,
+		arg.PreviousResultStatus,
+		arg.ResultStatus,
+		arg.DisputeStatus,
+		arg.CorrectionID,
+		arg.SupersedesResultID,
+		arg.OccurredAt,
+	)
+	var i ApolloCompetitionLifecycleEvent
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionSessionID,
+		&i.CompetitionMatchID,
+		&i.CompetitionMatchResultID,
+		&i.EventType,
+		&i.ActorUserID,
+		&i.ActorRole,
+		&i.ActorSessionID,
+		&i.Capability,
+		&i.TrustedSurfaceKey,
+		&i.TrustedSurfaceLabel,
+		&i.PreviousResultStatus,
+		&i.ResultStatus,
+		&i.DisputeStatus,
+		&i.CorrectionID,
+		&i.SupersedesResultID,
+		&i.OccurredAt,
+	)
+	return i, err
+}
+
 const createCompetitionMatchResult = `-- name: CreateCompetitionMatchResult :one
 INSERT INTO apollo.competition_match_results (
   competition_match_id,
   recorded_by_user_id,
-  recorded_at
+  recorded_at,
+  result_status,
+  dispute_status,
+  correction_id,
+  supersedes_result_id,
+  finalized_at,
+  corrected_at
 )
-VALUES ($1, $2, $3)
-RETURNING competition_match_id,
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id,
+          competition_match_id,
           recorded_by_user_id,
-          recorded_at
+          recorded_at,
+          result_status,
+          dispute_status,
+          correction_id,
+          supersedes_result_id,
+          finalized_at,
+          corrected_at
 `
 
 type CreateCompetitionMatchResultParams struct {
 	CompetitionMatchID uuid.UUID
 	RecordedByUserID   uuid.UUID
 	RecordedAt         pgtype.Timestamptz
+	ResultStatus       string
+	DisputeStatus      string
+	CorrectionID       pgtype.UUID
+	SupersedesResultID pgtype.UUID
+	FinalizedAt        pgtype.Timestamptz
+	CorrectedAt        pgtype.Timestamptz
 }
 
-func (q *Queries) CreateCompetitionMatchResult(ctx context.Context, arg CreateCompetitionMatchResultParams) (ApolloCompetitionMatchResult, error) {
-	row := q.db.QueryRow(ctx, createCompetitionMatchResult, arg.CompetitionMatchID, arg.RecordedByUserID, arg.RecordedAt)
-	var i ApolloCompetitionMatchResult
-	err := row.Scan(&i.CompetitionMatchID, &i.RecordedByUserID, &i.RecordedAt)
+type CreateCompetitionMatchResultRow struct {
+	ID                 uuid.UUID
+	CompetitionMatchID uuid.UUID
+	RecordedByUserID   uuid.UUID
+	RecordedAt         pgtype.Timestamptz
+	ResultStatus       string
+	DisputeStatus      string
+	CorrectionID       pgtype.UUID
+	SupersedesResultID pgtype.UUID
+	FinalizedAt        pgtype.Timestamptz
+	CorrectedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionMatchResult(ctx context.Context, arg CreateCompetitionMatchResultParams) (CreateCompetitionMatchResultRow, error) {
+	row := q.db.QueryRow(ctx, createCompetitionMatchResult,
+		arg.CompetitionMatchID,
+		arg.RecordedByUserID,
+		arg.RecordedAt,
+		arg.ResultStatus,
+		arg.DisputeStatus,
+		arg.CorrectionID,
+		arg.SupersedesResultID,
+		arg.FinalizedAt,
+		arg.CorrectedAt,
+	)
+	var i CreateCompetitionMatchResultRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionMatchID,
+		&i.RecordedByUserID,
+		&i.RecordedAt,
+		&i.ResultStatus,
+		&i.DisputeStatus,
+		&i.CorrectionID,
+		&i.SupersedesResultID,
+		&i.FinalizedAt,
+		&i.CorrectedAt,
+	)
 	return i, err
 }
 
 const createCompetitionMatchResultSide = `-- name: CreateCompetitionMatchResultSide :one
 INSERT INTO apollo.competition_match_result_sides (
+  competition_match_result_id,
   competition_match_id,
   side_index,
   competition_session_team_id,
   outcome
 )
-VALUES ($1, $2, $3, $4)
-RETURNING competition_match_id,
+VALUES ($1, $2, $3, $4, $5)
+RETURNING competition_match_result_id,
+          competition_match_id,
           side_index,
           competition_session_team_id,
           outcome
 `
 
 type CreateCompetitionMatchResultSideParams struct {
+	CompetitionMatchResultID uuid.UUID
 	CompetitionMatchID       uuid.UUID
 	SideIndex                int32
 	CompetitionSessionTeamID uuid.UUID
 	Outcome                  string
 }
 
-func (q *Queries) CreateCompetitionMatchResultSide(ctx context.Context, arg CreateCompetitionMatchResultSideParams) (ApolloCompetitionMatchResultSide, error) {
+type CreateCompetitionMatchResultSideRow struct {
+	CompetitionMatchResultID uuid.UUID
+	CompetitionMatchID       uuid.UUID
+	SideIndex                int32
+	CompetitionSessionTeamID uuid.UUID
+	Outcome                  string
+}
+
+func (q *Queries) CreateCompetitionMatchResultSide(ctx context.Context, arg CreateCompetitionMatchResultSideParams) (CreateCompetitionMatchResultSideRow, error) {
 	row := q.db.QueryRow(ctx, createCompetitionMatchResultSide,
+		arg.CompetitionMatchResultID,
 		arg.CompetitionMatchID,
 		arg.SideIndex,
 		arg.CompetitionSessionTeamID,
 		arg.Outcome,
 	)
-	var i ApolloCompetitionMatchResultSide
+	var i CreateCompetitionMatchResultSideRow
 	err := row.Scan(
+		&i.CompetitionMatchResultID,
 		&i.CompetitionMatchID,
 		&i.SideIndex,
 		&i.CompetitionSessionTeamID,
@@ -199,42 +391,89 @@ func (q *Queries) DeleteCompetitionMemberRatingsBySportKey(ctx context.Context, 
 	return result.RowsAffected(), nil
 }
 
-const getCompetitionMatchResultByMatchID = `-- name: GetCompetitionMatchResultByMatchID :one
-SELECT competition_match_id,
+const getCompetitionCanonicalMatchResultByMatchID = `-- name: GetCompetitionCanonicalMatchResultByMatchID :one
+SELECT r.id,
+       r.competition_match_id,
        recorded_by_user_id,
-       recorded_at
-FROM apollo.competition_match_results
-WHERE competition_match_id = $1
+       recorded_at,
+       result_status,
+       dispute_status,
+       correction_id,
+       supersedes_result_id,
+       finalized_at,
+       corrected_at
+FROM apollo.competition_matches AS m
+INNER JOIN apollo.competition_match_results AS r
+  ON r.id = m.canonical_result_id
+WHERE m.id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetCompetitionMatchResultByMatchID(ctx context.Context, competitionMatchID uuid.UUID) (ApolloCompetitionMatchResult, error) {
-	row := q.db.QueryRow(ctx, getCompetitionMatchResultByMatchID, competitionMatchID)
-	var i ApolloCompetitionMatchResult
-	err := row.Scan(&i.CompetitionMatchID, &i.RecordedByUserID, &i.RecordedAt)
+type GetCompetitionCanonicalMatchResultByMatchIDRow struct {
+	ID                 uuid.UUID
+	CompetitionMatchID uuid.UUID
+	RecordedByUserID   uuid.UUID
+	RecordedAt         pgtype.Timestamptz
+	ResultStatus       string
+	DisputeStatus      string
+	CorrectionID       pgtype.UUID
+	SupersedesResultID pgtype.UUID
+	FinalizedAt        pgtype.Timestamptz
+	CorrectedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) GetCompetitionCanonicalMatchResultByMatchID(ctx context.Context, id uuid.UUID) (GetCompetitionCanonicalMatchResultByMatchIDRow, error) {
+	row := q.db.QueryRow(ctx, getCompetitionCanonicalMatchResultByMatchID, id)
+	var i GetCompetitionCanonicalMatchResultByMatchIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionMatchID,
+		&i.RecordedByUserID,
+		&i.RecordedAt,
+		&i.ResultStatus,
+		&i.DisputeStatus,
+		&i.CorrectionID,
+		&i.SupersedesResultID,
+		&i.FinalizedAt,
+		&i.CorrectedAt,
+	)
 	return i, err
 }
 
 const listCompetitionMatchResultRowsBySessionID = `-- name: ListCompetitionMatchResultRowsBySessionID :many
 SELECT m.id AS competition_match_id,
+       r.id AS competition_match_result_id,
        r.recorded_by_user_id,
        r.recorded_at,
+       r.result_status,
+       r.dispute_status,
+       r.correction_id,
+       r.supersedes_result_id,
+       r.finalized_at,
+       r.corrected_at,
        rs.side_index,
        rs.competition_session_team_id,
        rs.outcome
 FROM apollo.competition_matches AS m
 INNER JOIN apollo.competition_match_results AS r
-  ON r.competition_match_id = m.id
+  ON r.id = m.canonical_result_id
 INNER JOIN apollo.competition_match_result_sides AS rs
-  ON rs.competition_match_id = m.id
+  ON rs.competition_match_result_id = r.id
 WHERE m.competition_session_id = $1
 ORDER BY m.match_index ASC, rs.side_index ASC
 `
 
 type ListCompetitionMatchResultRowsBySessionIDRow struct {
 	CompetitionMatchID       uuid.UUID
+	CompetitionMatchResultID uuid.UUID
 	RecordedByUserID         uuid.UUID
 	RecordedAt               pgtype.Timestamptz
+	ResultStatus             string
+	DisputeStatus            string
+	CorrectionID             pgtype.UUID
+	SupersedesResultID       pgtype.UUID
+	FinalizedAt              pgtype.Timestamptz
+	CorrectedAt              pgtype.Timestamptz
 	SideIndex                int32
 	CompetitionSessionTeamID uuid.UUID
 	Outcome                  string
@@ -251,8 +490,15 @@ func (q *Queries) ListCompetitionMatchResultRowsBySessionID(ctx context.Context,
 		var i ListCompetitionMatchResultRowsBySessionIDRow
 		if err := rows.Scan(
 			&i.CompetitionMatchID,
+			&i.CompetitionMatchResultID,
 			&i.RecordedByUserID,
 			&i.RecordedAt,
+			&i.ResultStatus,
+			&i.DisputeStatus,
+			&i.CorrectionID,
+			&i.SupersedesResultID,
+			&i.FinalizedAt,
+			&i.CorrectedAt,
 			&i.SideIndex,
 			&i.CompetitionSessionTeamID,
 			&i.Outcome,
@@ -269,6 +515,7 @@ func (q *Queries) ListCompetitionMatchResultRowsBySessionID(ctx context.Context,
 
 const listCompetitionMemberHistoryByUserID = `-- name: ListCompetitionMemberHistoryByUserID :many
 SELECT m.id AS competition_match_id,
+       r.id AS competition_match_result_id,
        s.display_name,
        s.sport_key,
        s.facility_key,
@@ -283,27 +530,29 @@ INNER JOIN apollo.sports AS sp
 INNER JOIN apollo.competition_matches AS m
   ON m.competition_session_id = s.id
 INNER JOIN apollo.competition_match_results AS r
-  ON r.competition_match_id = m.id
+  ON r.id = m.canonical_result_id
 INNER JOIN apollo.competition_match_result_sides AS rs
-  ON rs.competition_match_id = m.id
+  ON rs.competition_match_result_id = r.id
 INNER JOIN apollo.competition_team_roster_members AS rm
   ON rm.competition_session_id = s.id
  AND rm.competition_session_team_id = rs.competition_session_team_id
 WHERE rm.user_id = $1
   AND m.status = 'completed'
+  AND r.result_status IN ('finalized', 'corrected')
 ORDER BY r.recorded_at DESC, m.id DESC
 `
 
 type ListCompetitionMemberHistoryByUserIDRow struct {
-	CompetitionMatchID  uuid.UUID
-	DisplayName         string
-	SportKey            string
-	FacilityKey         string
-	CompetitionMode     string
-	SidesPerMatch       int32
-	ParticipantsPerSide int32
-	RecordedAt          pgtype.Timestamptz
-	Outcome             string
+	CompetitionMatchID       uuid.UUID
+	CompetitionMatchResultID uuid.UUID
+	DisplayName              string
+	SportKey                 string
+	FacilityKey              string
+	CompetitionMode          string
+	SidesPerMatch            int32
+	ParticipantsPerSide      int32
+	RecordedAt               pgtype.Timestamptz
+	Outcome                  string
 }
 
 func (q *Queries) ListCompetitionMemberHistoryByUserID(ctx context.Context, userID uuid.UUID) ([]ListCompetitionMemberHistoryByUserIDRow, error) {
@@ -317,6 +566,7 @@ func (q *Queries) ListCompetitionMemberHistoryByUserID(ctx context.Context, user
 		var i ListCompetitionMemberHistoryByUserIDRow
 		if err := rows.Scan(
 			&i.CompetitionMatchID,
+			&i.CompetitionMatchResultID,
 			&i.DisplayName,
 			&i.SportKey,
 			&i.FacilityKey,
@@ -392,14 +642,15 @@ INNER JOIN apollo.sports AS sp
 INNER JOIN apollo.competition_matches AS m
   ON m.competition_session_id = s.id
 INNER JOIN apollo.competition_match_results AS r
-  ON r.competition_match_id = m.id
+  ON r.id = m.canonical_result_id
 INNER JOIN apollo.competition_match_result_sides AS rs
-  ON rs.competition_match_id = m.id
+  ON rs.competition_match_result_id = r.id
 INNER JOIN apollo.competition_team_roster_members AS rm
   ON rm.competition_session_id = s.id
  AND rm.competition_session_team_id = rs.competition_session_team_id
 WHERE rm.user_id = $1
   AND m.status = 'completed'
+  AND r.result_status IN ('finalized', 'corrected')
 ORDER BY r.recorded_at ASC, m.id ASC
 `
 
@@ -441,6 +692,7 @@ func (q *Queries) ListCompetitionMemberStatRowsByUserID(ctx context.Context, use
 
 const listCompetitionRatingParticipantsBySport = `-- name: ListCompetitionRatingParticipantsBySport :many
 SELECT m.id AS competition_match_id,
+       r.id AS competition_match_result_id,
        s.sport_key,
        sp.competition_mode,
        sp.sides_per_match,
@@ -456,19 +708,21 @@ INNER JOIN apollo.sports AS sp
 INNER JOIN apollo.competition_matches AS m
   ON m.competition_session_id = s.id
 INNER JOIN apollo.competition_match_results AS r
-  ON r.competition_match_id = m.id
+  ON r.id = m.canonical_result_id
 INNER JOIN apollo.competition_match_result_sides AS rs
-  ON rs.competition_match_id = m.id
+  ON rs.competition_match_result_id = r.id
 INNER JOIN apollo.competition_team_roster_members AS rm
   ON rm.competition_session_id = s.id
  AND rm.competition_session_team_id = rs.competition_session_team_id
 WHERE s.sport_key = $1
   AND m.status = 'completed'
+  AND r.result_status IN ('finalized', 'corrected')
 ORDER BY r.recorded_at ASC, m.id ASC, rs.side_index ASC, rm.user_id ASC
 `
 
 type ListCompetitionRatingParticipantsBySportRow struct {
 	CompetitionMatchID       uuid.UUID
+	CompetitionMatchResultID uuid.UUID
 	SportKey                 string
 	CompetitionMode          string
 	SidesPerMatch            int32
@@ -491,6 +745,7 @@ func (q *Queries) ListCompetitionRatingParticipantsBySport(ctx context.Context, 
 		var i ListCompetitionRatingParticipantsBySportRow
 		if err := rows.Scan(
 			&i.CompetitionMatchID,
+			&i.CompetitionMatchResultID,
 			&i.SportKey,
 			&i.CompetitionMode,
 			&i.SidesPerMatch,
@@ -509,6 +764,136 @@ func (q *Queries) ListCompetitionRatingParticipantsBySport(ctx context.Context, 
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateCompetitionMatchCanonicalResult = `-- name: UpdateCompetitionMatchCanonicalResult :one
+UPDATE apollo.competition_matches
+SET canonical_result_id = $2,
+    result_version = result_version + 1,
+    updated_at = $4
+WHERE id = $1
+  AND result_version = $3
+RETURNING id,
+          competition_session_id,
+          match_index,
+          status,
+          result_version,
+          canonical_result_id,
+          created_at,
+          updated_at,
+          archived_at
+`
+
+type UpdateCompetitionMatchCanonicalResultParams struct {
+	ID                uuid.UUID
+	CanonicalResultID pgtype.UUID
+	ResultVersion     int32
+	UpdatedAt         pgtype.Timestamptz
+}
+
+type UpdateCompetitionMatchCanonicalResultRow struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	MatchIndex           int32
+	Status               string
+	ResultVersion        int32
+	CanonicalResultID    pgtype.UUID
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	ArchivedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateCompetitionMatchCanonicalResult(ctx context.Context, arg UpdateCompetitionMatchCanonicalResultParams) (UpdateCompetitionMatchCanonicalResultRow, error) {
+	row := q.db.QueryRow(ctx, updateCompetitionMatchCanonicalResult,
+		arg.ID,
+		arg.CanonicalResultID,
+		arg.ResultVersion,
+		arg.UpdatedAt,
+	)
+	var i UpdateCompetitionMatchCanonicalResultRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionSessionID,
+		&i.MatchIndex,
+		&i.Status,
+		&i.ResultVersion,
+		&i.CanonicalResultID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+	)
+	return i, err
+}
+
+const updateCompetitionMatchResultStatus = `-- name: UpdateCompetitionMatchResultStatus :one
+UPDATE apollo.competition_match_results
+SET result_status = $2,
+    dispute_status = $3,
+    finalized_at = CASE
+        WHEN $2 = 'finalized' THEN $5
+        ELSE finalized_at
+    END,
+    corrected_at = CASE
+        WHEN $2 = 'corrected' THEN $5
+        ELSE corrected_at
+    END
+WHERE id = $1
+  AND result_status = $4
+RETURNING id,
+          competition_match_id,
+          recorded_by_user_id,
+          recorded_at,
+          result_status,
+          dispute_status,
+          correction_id,
+          supersedes_result_id,
+          finalized_at,
+          corrected_at
+`
+
+type UpdateCompetitionMatchResultStatusParams struct {
+	ID             uuid.UUID
+	ResultStatus   string
+	DisputeStatus  string
+	ResultStatus_2 string
+	FinalizedAt    pgtype.Timestamptz
+}
+
+type UpdateCompetitionMatchResultStatusRow struct {
+	ID                 uuid.UUID
+	CompetitionMatchID uuid.UUID
+	RecordedByUserID   uuid.UUID
+	RecordedAt         pgtype.Timestamptz
+	ResultStatus       string
+	DisputeStatus      string
+	CorrectionID       pgtype.UUID
+	SupersedesResultID pgtype.UUID
+	FinalizedAt        pgtype.Timestamptz
+	CorrectedAt        pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateCompetitionMatchResultStatus(ctx context.Context, arg UpdateCompetitionMatchResultStatusParams) (UpdateCompetitionMatchResultStatusRow, error) {
+	row := q.db.QueryRow(ctx, updateCompetitionMatchResultStatus,
+		arg.ID,
+		arg.ResultStatus,
+		arg.DisputeStatus,
+		arg.ResultStatus_2,
+		arg.FinalizedAt,
+	)
+	var i UpdateCompetitionMatchResultStatusRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionMatchID,
+		&i.RecordedByUserID,
+		&i.RecordedAt,
+		&i.ResultStatus,
+		&i.DisputeStatus,
+		&i.CorrectionID,
+		&i.SupersedesResultID,
+		&i.FinalizedAt,
+		&i.CorrectedAt,
+	)
+	return i, err
 }
 
 const upsertCompetitionMemberRating = `-- name: UpsertCompetitionMemberRating :one

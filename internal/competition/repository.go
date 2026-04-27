@@ -574,7 +574,17 @@ func (r *Repository) ListMatchesBySessionID(ctx context.Context, sessionID uuid.
 
 	matches := make([]matchRecord, 0, len(rows))
 	for _, row := range rows {
-		matches = append(matches, buildMatchRecord(row))
+		matches = append(matches, buildMatchRecordValues(
+			row.ID,
+			row.CompetitionSessionID,
+			row.MatchIndex,
+			row.Status,
+			row.ResultVersion,
+			row.CanonicalResultID,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.ArchivedAt,
+		))
 	}
 
 	return matches, nil
@@ -589,7 +599,17 @@ func (r *Repository) GetMatchByID(ctx context.Context, matchID uuid.UUID) (*matc
 		return nil, err
 	}
 
-	record := buildMatchRecord(row)
+	record := buildMatchRecordValues(
+		row.ID,
+		row.CompetitionSessionID,
+		row.MatchIndex,
+		row.Status,
+		row.ResultVersion,
+		row.CanonicalResultID,
+		row.CreatedAt,
+		row.UpdatedAt,
+		row.ArchivedAt,
+	)
 	return &record, nil
 }
 
@@ -621,7 +641,17 @@ func (r *Repository) ArchiveMatch(ctx context.Context, actor StaffActor, session
 			return matchRecord{}, err
 		}
 
-		record := buildMatchRecord(row)
+		record := buildMatchRecordValues(
+			row.ID,
+			row.CompetitionSessionID,
+			row.MatchIndex,
+			row.Status,
+			row.ResultVersion,
+			row.CanonicalResultID,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.ArchivedAt,
+		)
 		attribution := newStaffActionAttribution(actor, "competition_match.archive", archivedAt)
 		attribution.CompetitionSessionID = uuidPtr(sessionID)
 		attribution.CompetitionMatchID = uuidPtr(matchID)
@@ -635,6 +665,11 @@ func (r *Repository) ArchiveMatch(ctx context.Context, actor StaffActor, session
 
 func (r *Repository) StartSession(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error) {
 	return withQueriesTx(ctx, r.db, func(queries *store.Queries) (sessionRecord, error) {
+		matches, err := queries.ListCompetitionMatchesBySessionID(ctx, session.ID)
+		if err != nil {
+			return sessionRecord{}, err
+		}
+
 		updatedMatches, err := queries.UpdateCompetitionMatchStatusBySessionID(ctx, store.UpdateCompetitionMatchStatusBySessionIDParams{
 			CompetitionSessionID: session.ID,
 			Status:               MatchStatusInProgress,
@@ -677,6 +712,21 @@ func (r *Repository) StartSession(ctx context.Context, actor StaffActor, session
 		attribution.CompetitionSessionID = uuidPtr(session.ID)
 		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
 			return sessionRecord{}, err
+		}
+		for _, match := range matches {
+			if match.Status != MatchStatusAssigned {
+				continue
+			}
+			matchID := match.ID
+			if err := recordLifecycleEventTx(ctx, queries, lifecycleEventRecord{
+				Actor:                actor,
+				CompetitionSessionID: session.ID,
+				CompetitionMatchID:   &matchID,
+				EventType:            "competition.match.started",
+				OccurredAt:           updatedAt.UTC(),
+			}); err != nil {
+				return sessionRecord{}, err
+			}
 		}
 
 		return record, nil
@@ -788,7 +838,17 @@ func createCompetitionMatchWithSideSlotsTx(ctx context.Context, queries *store.Q
 		}
 	}
 
-	return buildMatchRecord(match), nil
+	return buildMatchRecordValues(
+		match.ID,
+		match.CompetitionSessionID,
+		match.MatchIndex,
+		match.Status,
+		match.ResultVersion,
+		match.CanonicalResultID,
+		match.CreatedAt,
+		match.UpdatedAt,
+		match.ArchivedAt,
+	), nil
 }
 
 func buildSessionRecordValues(id uuid.UUID, ownerUserID uuid.UUID, displayName string, sportKey string, facilityKey string, zoneKey *string, participantsPerSide int32, queueVersion int32, status string, createdAt pgtype.Timestamptz, updatedAt pgtype.Timestamptz, archivedAt pgtype.Timestamptz) sessionRecord {
@@ -817,15 +877,17 @@ func buildTeamRecord(row store.ApolloCompetitionSessionTeam) teamRecord {
 	}
 }
 
-func buildMatchRecord(row store.ApolloCompetitionMatch) matchRecord {
+func buildMatchRecordValues(id uuid.UUID, sessionID uuid.UUID, matchIndex int32, status string, resultVersion int32, canonicalResultID pgtype.UUID, createdAt pgtype.Timestamptz, updatedAt pgtype.Timestamptz, archivedAt pgtype.Timestamptz) matchRecord {
 	return matchRecord{
-		ID:         row.ID,
-		SessionID:  row.CompetitionSessionID,
-		MatchIndex: int(row.MatchIndex),
-		Status:     row.Status,
-		CreatedAt:  row.CreatedAt.Time.UTC(),
-		UpdatedAt:  row.UpdatedAt.Time.UTC(),
-		ArchivedAt: timePtr(row.ArchivedAt),
+		ID:                id,
+		SessionID:         sessionID,
+		MatchIndex:        int(matchIndex),
+		Status:            status,
+		ResultVersion:     int(resultVersion),
+		CanonicalResultID: uuidFromPgtype(canonicalResultID),
+		CreatedAt:         createdAt.Time.UTC(),
+		UpdatedAt:         updatedAt.Time.UTC(),
+		ArchivedAt:        timePtr(archivedAt),
 	}
 }
 
@@ -835,6 +897,15 @@ func optionalUUID(value *uuid.UUID) pgtype.UUID {
 	}
 
 	return pgtype.UUID{Bytes: *value, Valid: true}
+}
+
+func uuidFromPgtype(value pgtype.UUID) *uuid.UUID {
+	if !value.Valid {
+		return nil
+	}
+
+	parsed := uuid.UUID(value.Bytes)
+	return &parsed
 }
 
 func optionalText(value string) *string {

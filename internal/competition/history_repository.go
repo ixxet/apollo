@@ -25,7 +25,7 @@ const (
 )
 
 func (r *Repository) GetMatchResultByMatchID(ctx context.Context, matchID uuid.UUID) (*matchResultRecord, error) {
-	row, err := store.New(r.db).GetCompetitionMatchResultByMatchID(ctx, matchID)
+	row, err := store.New(r.db).GetCompetitionCanonicalMatchResultByMatchID(ctx, matchID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -33,12 +33,19 @@ func (r *Repository) GetMatchResultByMatchID(ctx context.Context, matchID uuid.U
 		return nil, err
 	}
 
-	recordedAt := row.RecordedAt.Time.UTC()
-	return &matchResultRecord{
-		CompetitionMatchID: row.CompetitionMatchID,
-		RecordedByUserID:   row.RecordedByUserID,
-		RecordedAt:         recordedAt,
-	}, nil
+	result := buildMatchResultRecordValues(
+		row.ID,
+		row.CompetitionMatchID,
+		row.RecordedByUserID,
+		row.RecordedAt,
+		row.ResultStatus,
+		row.DisputeStatus,
+		row.CorrectionID,
+		row.SupersedesResultID,
+		row.FinalizedAt,
+		row.CorrectedAt,
+	)
+	return &result, nil
 }
 
 func (r *Repository) ListMatchResultsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchResultSideRecord, error) {
@@ -50,9 +57,16 @@ func (r *Repository) ListMatchResultsBySessionID(ctx context.Context, sessionID 
 	results := make([]matchResultSideRecord, 0, len(rows))
 	for _, row := range rows {
 		results = append(results, matchResultSideRecord{
+			CompetitionMatchResultID: row.CompetitionMatchResultID,
 			CompetitionMatchID:       row.CompetitionMatchID,
 			RecordedByUserID:         row.RecordedByUserID,
 			RecordedAt:               row.RecordedAt.Time.UTC(),
+			ResultStatus:             row.ResultStatus,
+			DisputeStatus:            row.DisputeStatus,
+			CorrectionID:             uuidFromPgtype(row.CorrectionID),
+			SupersedesResultID:       uuidFromPgtype(row.SupersedesResultID),
+			FinalizedAt:              timePtr(row.FinalizedAt),
+			CorrectedAt:              timePtr(row.CorrectedAt),
 			SideIndex:                int(row.SideIndex),
 			CompetitionSessionTeamID: row.CompetitionSessionTeamID,
 			Outcome:                  row.Outcome,
@@ -131,6 +145,7 @@ func (r *Repository) ListMemberHistoryByUserID(ctx context.Context, userID uuid.
 	for _, row := range rows {
 		history = append(history, memberHistoryRowRecord{
 			CompetitionMatchID:  row.CompetitionMatchID,
+			CompetitionResultID: row.CompetitionMatchResultID,
 			DisplayName:         row.DisplayName,
 			SportKey:            row.SportKey,
 			FacilityKey:         row.FacilityKey,
@@ -145,45 +160,65 @@ func (r *Repository) ListMemberHistoryByUserID(ctx context.Context, userID uuid.
 	return history, nil
 }
 
-func (r *Repository) RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error {
+func (r *Repository) RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, expectedResultVersion int, recordedAt time.Time) (matchResultRecord, error) {
+	_ = sport
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return err
+		return matchResultRecord{}, err
 	}
 	defer func() {
 		_ = tx.Rollback(ctx)
 	}()
 
 	queries := store.New(tx)
-	if _, err := queries.CreateCompetitionMatchResult(ctx, store.CreateCompetitionMatchResultParams{
+	resultRow, err := queries.CreateCompetitionMatchResult(ctx, store.CreateCompetitionMatchResultParams{
 		CompetitionMatchID: match.ID,
 		RecordedByUserID:   actor.UserID,
 		RecordedAt:         timestamptz(recordedAt),
-	}); err != nil {
-		return err
+		ResultStatus:       ResultStatusRecorded,
+		DisputeStatus:      DisputeStatusNone,
+	})
+	if err != nil {
+		return matchResultRecord{}, err
 	}
+	result := buildMatchResultRecordValues(
+		resultRow.ID,
+		resultRow.CompetitionMatchID,
+		resultRow.RecordedByUserID,
+		resultRow.RecordedAt,
+		resultRow.ResultStatus,
+		resultRow.DisputeStatus,
+		resultRow.CorrectionID,
+		resultRow.SupersedesResultID,
+		resultRow.FinalizedAt,
+		resultRow.CorrectedAt,
+	)
 
 	for _, side := range input.Sides {
 		if _, err := queries.CreateCompetitionMatchResultSide(ctx, store.CreateCompetitionMatchResultSideParams{
+			CompetitionMatchResultID: result.ID,
 			CompetitionMatchID:       match.ID,
 			SideIndex:                int32(side.SideIndex),
 			CompetitionSessionTeamID: side.CompetitionSessionTeamID,
 			Outcome:                  side.Outcome,
 		}); err != nil {
-			return err
+			return matchResultRecord{}, err
 		}
 	}
 
-	if _, err := queries.CompleteCompetitionMatch(ctx, store.CompleteCompetitionMatchParams{
-		ID:        match.ID,
-		UpdatedAt: timestamptz(recordedAt),
+	if _, err := queries.CompleteCompetitionMatchWithResult(ctx, store.CompleteCompetitionMatchWithResultParams{
+		ID:                match.ID,
+		CanonicalResultID: optionalUUID(&result.ID),
+		ResultVersion:     int32(expectedResultVersion),
+		UpdatedAt:         timestamptz(recordedAt),
 	}); err != nil {
-		return err
+		return matchResultRecord{}, err
 	}
 
 	incompleteCount, err := queries.CountCompetitionIncompleteActiveMatchesBySessionID(ctx, session.ID)
 	if err != nil {
-		return err
+		return matchResultRecord{}, err
 	}
 	if incompleteCount == 0 {
 		if _, err := queries.CompleteCompetitionSession(ctx, store.CompleteCompetitionSessionParams{
@@ -191,21 +226,175 @@ func (r *Repository) RecordMatchResult(ctx context.Context, actor StaffActor, se
 			OwnerUserID: session.OwnerUserID,
 			UpdatedAt:   timestamptz(recordedAt),
 		}); err != nil {
-			return err
+			return matchResultRecord{}, err
 		}
 	}
 
-	if err := recomputeCompetitionRatingsTx(ctx, queries, sport.SportKey, recordedAt); err != nil {
-		return err
+	if err := recordLifecycleEventTx(ctx, queries, newLifecycleEvent(actor, session.ID, &match.ID, &result.ID, "competition.result.recorded", "", result, recordedAt)); err != nil {
+		return matchResultRecord{}, err
 	}
 	attribution := newStaffActionAttribution(actor, "competition_match.result_record", recordedAt)
 	attribution.CompetitionSessionID = uuidPtr(session.ID)
 	attribution.CompetitionMatchID = uuidPtr(match.ID)
 	if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
-		return err
+		return matchResultRecord{}, err
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return matchResultRecord{}, err
+	}
+	return result, nil
+}
+
+func (r *Repository) FinalizeMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, finalizedAt time.Time) (matchResultRecord, error) {
+	return r.transitionMatchResult(ctx, actor, session, sport, match, result, expectedResultVersion, ResultStatusFinalized, DisputeStatusNone, "competition.result.finalized", "competition_match.result_finalize", finalizedAt)
+}
+
+func (r *Repository) DisputeMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, disputedAt time.Time) (matchResultRecord, error) {
+	return r.transitionMatchResult(ctx, actor, session, sport, match, result, expectedResultVersion, ResultStatusDisputed, DisputeStatusDisputed, "competition.result.disputed", "competition_match.result_dispute", disputedAt)
+}
+
+func (r *Repository) VoidMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, voidedAt time.Time) (matchResultRecord, error) {
+	return r.transitionMatchResult(ctx, actor, session, sport, match, result, expectedResultVersion, ResultStatusVoided, DisputeStatusNone, "competition.result.voided", "competition_match.result_void", voidedAt)
+}
+
+func (r *Repository) transitionMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, nextStatus string, nextDisputeStatus string, eventType string, attributionAction string, occurredAt time.Time) (matchResultRecord, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return matchResultRecord{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	queries := store.New(tx)
+	updatedRow, err := queries.UpdateCompetitionMatchResultStatus(ctx, store.UpdateCompetitionMatchResultStatusParams{
+		ID:             result.ID,
+		ResultStatus:   nextStatus,
+		DisputeStatus:  nextDisputeStatus,
+		ResultStatus_2: result.ResultStatus,
+		FinalizedAt:    timestamptz(occurredAt),
+	})
+	if err != nil {
+		return matchResultRecord{}, err
+	}
+	updated := buildMatchResultRecordValues(
+		updatedRow.ID,
+		updatedRow.CompetitionMatchID,
+		updatedRow.RecordedByUserID,
+		updatedRow.RecordedAt,
+		updatedRow.ResultStatus,
+		updatedRow.DisputeStatus,
+		updatedRow.CorrectionID,
+		updatedRow.SupersedesResultID,
+		updatedRow.FinalizedAt,
+		updatedRow.CorrectedAt,
+	)
+
+	if _, err := queries.UpdateCompetitionMatchCanonicalResult(ctx, store.UpdateCompetitionMatchCanonicalResultParams{
+		ID:                match.ID,
+		CanonicalResultID: optionalUUID(&updated.ID),
+		ResultVersion:     int32(expectedResultVersion),
+		UpdatedAt:         timestamptz(occurredAt),
+	}); err != nil {
+		return matchResultRecord{}, err
+	}
+
+	if err := recomputeCompetitionRatingsTx(ctx, queries, sport.SportKey, occurredAt); err != nil {
+		return matchResultRecord{}, err
+	}
+	if err := recordLifecycleEventTx(ctx, queries, newLifecycleEvent(actor, session.ID, &match.ID, &updated.ID, eventType, result.ResultStatus, updated, occurredAt)); err != nil {
+		return matchResultRecord{}, err
+	}
+	attribution := newStaffActionAttribution(actor, attributionAction, occurredAt)
+	attribution.CompetitionSessionID = uuidPtr(session.ID)
+	attribution.CompetitionMatchID = uuidPtr(match.ID)
+	if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+		return matchResultRecord{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return matchResultRecord{}, err
+	}
+	return updated, nil
+}
+
+func (r *Repository) CorrectMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, input RecordMatchResultInput, expectedResultVersion int, correctedAt time.Time) (matchResultRecord, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return matchResultRecord{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	queries := store.New(tx)
+	correctionID := uuid.New()
+	resultRow, err := queries.CreateCompetitionMatchResult(ctx, store.CreateCompetitionMatchResultParams{
+		CompetitionMatchID: match.ID,
+		RecordedByUserID:   actor.UserID,
+		RecordedAt:         timestamptz(correctedAt),
+		ResultStatus:       ResultStatusCorrected,
+		DisputeStatus:      DisputeStatusNone,
+		CorrectionID:       optionalUUID(&correctionID),
+		SupersedesResultID: optionalUUID(&result.ID),
+		FinalizedAt:        timestamptz(correctedAt),
+		CorrectedAt:        timestamptz(correctedAt),
+	})
+	if err != nil {
+		return matchResultRecord{}, err
+	}
+	corrected := buildMatchResultRecordValues(
+		resultRow.ID,
+		resultRow.CompetitionMatchID,
+		resultRow.RecordedByUserID,
+		resultRow.RecordedAt,
+		resultRow.ResultStatus,
+		resultRow.DisputeStatus,
+		resultRow.CorrectionID,
+		resultRow.SupersedesResultID,
+		resultRow.FinalizedAt,
+		resultRow.CorrectedAt,
+	)
+
+	for _, side := range input.Sides {
+		if _, err := queries.CreateCompetitionMatchResultSide(ctx, store.CreateCompetitionMatchResultSideParams{
+			CompetitionMatchResultID: corrected.ID,
+			CompetitionMatchID:       match.ID,
+			SideIndex:                int32(side.SideIndex),
+			CompetitionSessionTeamID: side.CompetitionSessionTeamID,
+			Outcome:                  side.Outcome,
+		}); err != nil {
+			return matchResultRecord{}, err
+		}
+	}
+
+	if _, err := queries.UpdateCompetitionMatchCanonicalResult(ctx, store.UpdateCompetitionMatchCanonicalResultParams{
+		ID:                match.ID,
+		CanonicalResultID: optionalUUID(&corrected.ID),
+		ResultVersion:     int32(expectedResultVersion),
+		UpdatedAt:         timestamptz(correctedAt),
+	}); err != nil {
+		return matchResultRecord{}, err
+	}
+
+	if err := recomputeCompetitionRatingsTx(ctx, queries, sport.SportKey, correctedAt); err != nil {
+		return matchResultRecord{}, err
+	}
+	if err := recordLifecycleEventTx(ctx, queries, newLifecycleEvent(actor, session.ID, &match.ID, &corrected.ID, "competition.result.corrected", result.ResultStatus, corrected, correctedAt)); err != nil {
+		return matchResultRecord{}, err
+	}
+	attribution := newStaffActionAttribution(actor, "competition_match.result_correct", correctedAt)
+	attribution.CompetitionSessionID = uuidPtr(session.ID)
+	attribution.CompetitionMatchID = uuidPtr(match.ID)
+	if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+		return matchResultRecord{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return matchResultRecord{}, err
+	}
+	return corrected, nil
 }
 
 type ratingMatchRecord struct {
@@ -227,6 +416,75 @@ type ratingState struct {
 	Sigma         float64
 	MatchesPlayed int
 	LastPlayedAt  *time.Time
+}
+
+type lifecycleEventRecord struct {
+	Actor                StaffActor
+	CompetitionSessionID uuid.UUID
+	CompetitionMatchID   *uuid.UUID
+	ResultID             *uuid.UUID
+	EventType            string
+	PreviousResultStatus string
+	ResultStatus         string
+	DisputeStatus        string
+	CorrectionID         *uuid.UUID
+	SupersedesResultID   *uuid.UUID
+	OccurredAt           time.Time
+}
+
+func newLifecycleEvent(actor StaffActor, sessionID uuid.UUID, matchID *uuid.UUID, resultID *uuid.UUID, eventType string, previousStatus string, result matchResultRecord, occurredAt time.Time) lifecycleEventRecord {
+	return lifecycleEventRecord{
+		Actor:                actor,
+		CompetitionSessionID: sessionID,
+		CompetitionMatchID:   matchID,
+		ResultID:             resultID,
+		EventType:            eventType,
+		PreviousResultStatus: previousStatus,
+		ResultStatus:         result.ResultStatus,
+		DisputeStatus:        result.DisputeStatus,
+		CorrectionID:         result.CorrectionID,
+		SupersedesResultID:   result.SupersedesResultID,
+		OccurredAt:           occurredAt.UTC(),
+	}
+}
+
+func recordLifecycleEventTx(ctx context.Context, queries *store.Queries, event lifecycleEventRecord) error {
+	actorRole := string(event.Actor.Role)
+	capability := string(event.Actor.Capability)
+	_, err := queries.CreateCompetitionLifecycleEvent(ctx, store.CreateCompetitionLifecycleEventParams{
+		CompetitionSessionID:     event.CompetitionSessionID,
+		CompetitionMatchID:       optionalUUID(event.CompetitionMatchID),
+		CompetitionMatchResultID: optionalUUID(event.ResultID),
+		EventType:                event.EventType,
+		ActorUserID:              optionalUUID(&event.Actor.UserID),
+		ActorRole:                optionalText(actorRole),
+		ActorSessionID:           optionalUUID(&event.Actor.SessionID),
+		Capability:               optionalText(capability),
+		TrustedSurfaceKey:        optionalText(event.Actor.TrustedSurfaceKey),
+		TrustedSurfaceLabel:      optionalText(event.Actor.TrustedSurfaceLabel),
+		PreviousResultStatus:     optionalText(event.PreviousResultStatus),
+		ResultStatus:             optionalText(event.ResultStatus),
+		DisputeStatus:            optionalText(event.DisputeStatus),
+		CorrectionID:             optionalUUID(event.CorrectionID),
+		SupersedesResultID:       optionalUUID(event.SupersedesResultID),
+		OccurredAt:               timestamptz(event.OccurredAt),
+	})
+	return err
+}
+
+func buildMatchResultRecordValues(id uuid.UUID, matchID uuid.UUID, recordedBy uuid.UUID, recordedAt pgtype.Timestamptz, status string, disputeStatus string, correctionID pgtype.UUID, supersedesResultID pgtype.UUID, finalizedAt pgtype.Timestamptz, correctedAt pgtype.Timestamptz) matchResultRecord {
+	return matchResultRecord{
+		ID:                 id,
+		CompetitionMatchID: matchID,
+		RecordedByUserID:   recordedBy,
+		RecordedAt:         recordedAt.Time.UTC(),
+		ResultStatus:       status,
+		DisputeStatus:      disputeStatus,
+		CorrectionID:       uuidFromPgtype(correctionID),
+		SupersedesResultID: uuidFromPgtype(supersedesResultID),
+		FinalizedAt:        timePtr(finalizedAt),
+		CorrectedAt:        timePtr(correctedAt),
+	}
 }
 
 func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, sportKey string, updatedAt time.Time) error {

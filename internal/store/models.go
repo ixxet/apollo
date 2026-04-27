@@ -91,6 +91,26 @@ type ApolloClaimedTag struct {
 	ClaimedAt pgtype.Timestamptz
 }
 
+type ApolloCompetitionLifecycleEvent struct {
+	ID                       uuid.UUID
+	CompetitionSessionID     uuid.UUID
+	CompetitionMatchID       pgtype.UUID
+	CompetitionMatchResultID pgtype.UUID
+	EventType                string
+	ActorUserID              pgtype.UUID
+	ActorRole                *string
+	ActorSessionID           pgtype.UUID
+	Capability               *string
+	TrustedSurfaceKey        *string
+	TrustedSurfaceLabel      *string
+	PreviousResultStatus     *string
+	ResultStatus             *string
+	DisputeStatus            *string
+	CorrectionID             pgtype.UUID
+	SupersedesResultID       pgtype.UUID
+	OccurredAt               pgtype.Timestamptz
+}
+
 type ApolloCompetitionMatch struct {
 	ID                   uuid.UUID
 	CompetitionSessionID uuid.UUID
@@ -99,12 +119,21 @@ type ApolloCompetitionMatch struct {
 	CreatedAt            pgtype.Timestamptz
 	UpdatedAt            pgtype.Timestamptz
 	ArchivedAt           pgtype.Timestamptz
+	ResultVersion        int32
+	CanonicalResultID    pgtype.UUID
 }
 
 type ApolloCompetitionMatchResult struct {
 	CompetitionMatchID uuid.UUID
 	RecordedByUserID   uuid.UUID
 	RecordedAt         pgtype.Timestamptz
+	ID                 uuid.UUID
+	ResultStatus       string
+	DisputeStatus      string
+	CorrectionID       pgtype.UUID
+	SupersedesResultID pgtype.UUID
+	FinalizedAt        pgtype.Timestamptz
+	CorrectedAt        pgtype.Timestamptz
 }
 
 type ApolloCompetitionMatchResultSide struct {
@@ -112,6 +141,7 @@ type ApolloCompetitionMatchResultSide struct {
 	SideIndex                int32
 	CompetitionSessionTeamID uuid.UUID
 	Outcome                  string
+	CompetitionMatchResultID uuid.UUID
 }
 
 type ApolloCompetitionMatchSideSlot struct {

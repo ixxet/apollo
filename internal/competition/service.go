@@ -30,6 +30,14 @@ const (
 	MatchStatusInProgress   = "in_progress"
 	MatchStatusCompleted    = "completed"
 	MatchStatusArchived     = "archived"
+	ResultStatusRecorded    = "recorded"
+	ResultStatusFinalized   = "finalized"
+	ResultStatusDisputed    = "disputed"
+	ResultStatusCorrected   = "corrected"
+	ResultStatusVoided      = "voided"
+	DisputeStatusNone       = "none"
+	DisputeStatusDisputed   = "disputed"
+	DisputeStatusResolved   = "resolved"
 
 	competitionTeamRosterMembersPrimaryKey        = "competition_team_roster_members_pkey"
 	competitionTeamRosterMembersSessionUserUnique = "competition_team_roster_members_session_user_unique"
@@ -80,6 +88,13 @@ var (
 	ErrMatchArchived            = errors.New("competition match is archived")
 	ErrMatchNotInProgress       = errors.New("competition match is not in progress")
 	ErrMatchResultRecorded      = errors.New("competition match result is already recorded")
+	ErrMatchResultNotFound      = errors.New("competition match result not found")
+	ErrMatchResultVersion       = errors.New("expected_result_version is required")
+	ErrMatchResultStateStale    = errors.New("competition match result state is stale")
+	ErrMatchResultNotRecorded   = errors.New("competition match result is not recorded")
+	ErrMatchResultNotCanonical  = errors.New("competition match result is not canonical")
+	ErrMatchResultNotFinal      = errors.New("competition match result is not finalized or corrected")
+	ErrMatchResultVoided        = errors.New("competition match result is voided")
 	ErrMatchResultSideCount     = errors.New("competition match result side count does not match match side slots")
 	ErrMatchResultSideIndex     = errors.New("competition match result side_index values must be positive and contiguous")
 	ErrMatchResultTeamMismatch  = errors.New("competition match result does not match match side slots")
@@ -123,7 +138,11 @@ type Store interface {
 	ListMatchSideSlotsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchSideSlotRecord, error)
 	GetMatchResultByMatchID(ctx context.Context, matchID uuid.UUID) (*matchResultRecord, error)
 	ListMatchResultsBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchResultSideRecord, error)
-	RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error
+	RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, expectedResultVersion int, recordedAt time.Time) (matchResultRecord, error)
+	FinalizeMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, finalizedAt time.Time) (matchResultRecord, error)
+	DisputeMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, disputedAt time.Time) (matchResultRecord, error)
+	CorrectMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, input RecordMatchResultInput, expectedResultVersion int, correctedAt time.Time) (matchResultRecord, error)
+	VoidMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, voidedAt time.Time) (matchResultRecord, error)
 	ListMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error)
 	ListMemberStatRowsByUserID(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error)
 	ListMemberHistoryByUserID(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error)
@@ -191,14 +210,17 @@ type RosterMember struct {
 }
 
 type Match struct {
-	ID         uuid.UUID      `json:"id"`
-	MatchIndex int            `json:"match_index"`
-	Status     string         `json:"status"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
-	ArchivedAt *time.Time     `json:"archived_at,omitempty"`
-	SideSlots  []MatchSideRef `json:"side_slots"`
-	Result     *MatchResult   `json:"result,omitempty"`
+	ID                uuid.UUID      `json:"id"`
+	MatchIndex        int            `json:"match_index"`
+	Status            string         `json:"status"`
+	MatchStatus       string         `json:"match_status"`
+	ResultVersion     int            `json:"result_version"`
+	CanonicalResultID *uuid.UUID     `json:"canonical_result_id,omitempty"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	ArchivedAt        *time.Time     `json:"archived_at,omitempty"`
+	SideSlots         []MatchSideRef `json:"side_slots"`
+	Result            *MatchResult   `json:"result,omitempty"`
 }
 
 type MatchSideRef struct {
@@ -208,9 +230,17 @@ type MatchSideRef struct {
 }
 
 type MatchResult struct {
+	ID                 uuid.UUID         `json:"id"`
 	CompetitionMatchID uuid.UUID         `json:"competition_match_id"`
+	CanonicalResultID  uuid.UUID         `json:"canonical_result_id"`
+	ResultStatus       string            `json:"result_status"`
+	DisputeStatus      string            `json:"dispute_status"`
+	CorrectionID       *uuid.UUID        `json:"correction_id,omitempty"`
+	SupersedesResultID *uuid.UUID        `json:"supersedes_result_id,omitempty"`
 	RecordedByUserID   uuid.UUID         `json:"recorded_by_user_id"`
 	RecordedAt         time.Time         `json:"recorded_at"`
+	FinalizedAt        *time.Time        `json:"finalized_at,omitempty"`
+	CorrectedAt        *time.Time        `json:"corrected_at,omitempty"`
 	Sides              []MatchResultSide `json:"sides"`
 }
 
@@ -252,6 +282,8 @@ type MemberStat struct {
 
 type MemberHistoryEntry struct {
 	CompetitionMatchID uuid.UUID `json:"competition_match_id"`
+	SourceResultID     uuid.UUID `json:"source_result_id"`
+	CanonicalResultID  uuid.UUID `json:"canonical_result_id"`
 	DisplayName        string    `json:"display_name"`
 	SportKey           string    `json:"sport_key"`
 	ModeKey            string    `json:"mode_key"`
@@ -296,7 +328,8 @@ type CreateMatchInput struct {
 }
 
 type RecordMatchResultInput struct {
-	Sides []MatchResultSideInput `json:"sides"`
+	ExpectedResultVersion int                    `json:"expected_result_version"`
+	Sides                 []MatchResultSideInput `json:"sides"`
 }
 
 type sessionRecord struct {
@@ -338,13 +371,15 @@ type rosterRecord struct {
 }
 
 type matchRecord struct {
-	ID         uuid.UUID
-	SessionID  uuid.UUID
-	MatchIndex int
-	Status     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	ArchivedAt *time.Time
+	ID                uuid.UUID
+	SessionID         uuid.UUID
+	MatchIndex        int
+	Status            string
+	ResultVersion     int
+	CanonicalResultID *uuid.UUID
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	ArchivedAt        *time.Time
 }
 
 type matchSideSlotRecord struct {
@@ -355,15 +390,29 @@ type matchSideSlotRecord struct {
 }
 
 type matchResultRecord struct {
+	ID                 uuid.UUID
 	CompetitionMatchID uuid.UUID
 	RecordedByUserID   uuid.UUID
 	RecordedAt         time.Time
+	ResultStatus       string
+	DisputeStatus      string
+	CorrectionID       *uuid.UUID
+	SupersedesResultID *uuid.UUID
+	FinalizedAt        *time.Time
+	CorrectedAt        *time.Time
 }
 
 type matchResultSideRecord struct {
+	CompetitionMatchResultID uuid.UUID
 	CompetitionMatchID       uuid.UUID
 	RecordedByUserID         uuid.UUID
 	RecordedAt               time.Time
+	ResultStatus             string
+	DisputeStatus            string
+	CorrectionID             *uuid.UUID
+	SupersedesResultID       *uuid.UUID
+	FinalizedAt              *time.Time
+	CorrectedAt              *time.Time
 	SideIndex                int
 	CompetitionSessionTeamID uuid.UUID
 	Outcome                  string
@@ -391,6 +440,7 @@ type memberStatRowRecord struct {
 
 type memberHistoryRowRecord struct {
 	CompetitionMatchID  uuid.UUID
+	CompetitionResultID uuid.UUID
 	DisplayName         string
 	SportKey            string
 	FacilityKey         string
@@ -1072,14 +1122,17 @@ func (s *Service) loadSessionDetail(ctx context.Context, session sessionRecord) 
 	for _, match := range matches {
 		matchIndex[match.ID] = len(matchValues)
 		matchValues = append(matchValues, Match{
-			ID:         match.ID,
-			MatchIndex: match.MatchIndex,
-			Status:     match.Status,
-			CreatedAt:  match.CreatedAt,
-			UpdatedAt:  match.UpdatedAt,
-			ArchivedAt: match.ArchivedAt,
-			SideSlots:  nil,
-			Result:     nil,
+			ID:                match.ID,
+			MatchIndex:        match.MatchIndex,
+			Status:            match.Status,
+			MatchStatus:       match.Status,
+			ResultVersion:     match.ResultVersion,
+			CanonicalResultID: match.CanonicalResultID,
+			CreatedAt:         match.CreatedAt,
+			UpdatedAt:         match.UpdatedAt,
+			ArchivedAt:        match.ArchivedAt,
+			SideSlots:         nil,
+			Result:            nil,
 		})
 	}
 	for _, slot := range sideSlots {

@@ -14,20 +14,24 @@ import (
 type CommandName string
 
 const (
-	CommandCreateSession      CommandName = "create_session"
-	CommandOpenQueue          CommandName = "open_queue"
-	CommandAddQueueMember     CommandName = "add_queue_member"
-	CommandRemoveQueueMember  CommandName = "remove_queue_member"
-	CommandAssignQueue        CommandName = "assign_queue"
-	CommandStartSession       CommandName = "start_session"
-	CommandArchiveSession     CommandName = "archive_session"
-	CommandCreateTeam         CommandName = "create_team"
-	CommandRemoveTeam         CommandName = "remove_team"
-	CommandAddRosterMember    CommandName = "add_roster_member"
-	CommandRemoveRosterMember CommandName = "remove_roster_member"
-	CommandCreateMatch        CommandName = "create_match"
-	CommandArchiveMatch       CommandName = "archive_match"
-	CommandRecordMatchResult  CommandName = "record_match_result"
+	CommandCreateSession       CommandName = "create_session"
+	CommandOpenQueue           CommandName = "open_queue"
+	CommandAddQueueMember      CommandName = "add_queue_member"
+	CommandRemoveQueueMember   CommandName = "remove_queue_member"
+	CommandAssignQueue         CommandName = "assign_queue"
+	CommandStartSession        CommandName = "start_session"
+	CommandArchiveSession      CommandName = "archive_session"
+	CommandCreateTeam          CommandName = "create_team"
+	CommandRemoveTeam          CommandName = "remove_team"
+	CommandAddRosterMember     CommandName = "add_roster_member"
+	CommandRemoveRosterMember  CommandName = "remove_roster_member"
+	CommandCreateMatch         CommandName = "create_match"
+	CommandArchiveMatch        CommandName = "archive_match"
+	CommandRecordMatchResult   CommandName = "record_match_result"
+	CommandFinalizeMatchResult CommandName = "finalize_match_result"
+	CommandDisputeMatchResult  CommandName = "dispute_match_result"
+	CommandCorrectMatchResult  CommandName = "correct_match_result"
+	CommandVoidMatchResult     CommandName = "void_match_result"
 )
 
 const (
@@ -155,7 +159,11 @@ var commandDefinitions = []CompetitionCommandDefinition{
 	{Name: CommandRemoveRosterMember, RequiredCapability: authz.CapabilityCompetitionStructureManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Remove a member from a draft team roster."},
 	{Name: CommandCreateMatch, RequiredCapability: authz.CapabilityCompetitionStructureManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Create a draft match and side-slot references."},
 	{Name: CommandArchiveMatch, RequiredCapability: authz.CapabilityCompetitionStructureManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Archive an eligible draft match."},
-	{Name: CommandRecordMatchResult, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: false, Description: "Validate the existing result-capture command shape without applying result mutation in this packet."},
+	{Name: CommandRecordMatchResult, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "result_version", Description: "Record a match result as non-final canonical result truth."},
+	{Name: CommandFinalizeMatchResult, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "result_version", Description: "Finalize a recorded match result so ratings may consume it."},
+	{Name: CommandDisputeMatchResult, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "result_version", Description: "Mark the canonical match result as disputed."},
+	{Name: CommandCorrectMatchResult, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "result_version", Description: "Create a corrected canonical result that supersedes the previous result."},
+	{Name: CommandVoidMatchResult, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "result_version", Description: "Void the canonical match result so ratings cannot consume it."},
 }
 
 func CompetitionCommandDefinitions() []CompetitionCommandDefinition {
@@ -291,8 +299,19 @@ func (s *Service) ExecuteCommand(ctx context.Context, command CompetitionCommand
 	outcome.Mutated = definition.Mutating
 	outcome.Result = result
 	if session, ok := result.(Session); ok {
-		version := session.QueueVersion
-		outcome.ActualVersion = &version
+		if command.MatchID != uuid.Nil {
+			for _, match := range session.Matches {
+				if match.ID == command.MatchID {
+					version := match.ResultVersion
+					outcome.ActualVersion = &version
+					break
+				}
+			}
+		}
+		if outcome.ActualVersion == nil {
+			version := session.QueueVersion
+			outcome.ActualVersion = &version
+		}
 	}
 	return outcome, nil
 }
@@ -403,15 +422,29 @@ func validateCompetitionCommand(command CompetitionCommand, definition Competiti
 		if command.MatchID == uuid.Nil {
 			return ErrCommandMatchIDRequired
 		}
-	case CommandRecordMatchResult:
+	case CommandRecordMatchResult, CommandCorrectMatchResult:
 		if err := requireSessionID(command); err != nil {
 			return err
 		}
 		if command.MatchID == uuid.Nil {
 			return ErrCommandMatchIDRequired
 		}
+		if command.ExpectedVersion == nil || *command.ExpectedVersion < 0 {
+			return ErrCommandExpectedVersion
+		}
 		if command.MatchResult == nil {
 			return ErrCommandMatchResultInput
+		}
+		command.MatchResult.ExpectedResultVersion = *command.ExpectedVersion
+	case CommandFinalizeMatchResult, CommandDisputeMatchResult, CommandVoidMatchResult:
+		if err := requireSessionID(command); err != nil {
+			return err
+		}
+		if command.MatchID == uuid.Nil {
+			return ErrCommandMatchIDRequired
+		}
+		if command.ExpectedVersion == nil || *command.ExpectedVersion < 0 {
+			return ErrCommandExpectedVersion
 		}
 	default:
 		return ErrCommandUnsupported
@@ -427,6 +460,17 @@ func requireSessionID(command CompetitionCommand) error {
 }
 
 func (s *Service) commandActualVersion(ctx context.Context, command CompetitionCommand) (*int, error) {
+	if command.MatchID != uuid.Nil {
+		match, err := s.repository.GetMatchByID(ctx, command.MatchID)
+		if err != nil {
+			return nil, err
+		}
+		if match == nil {
+			return nil, ErrMatchNotFound
+		}
+		version := match.ResultVersion
+		return &version, nil
+	}
 	if command.SessionID == uuid.Nil {
 		return nil, nil
 	}
@@ -500,7 +544,19 @@ func (s *Service) applyCompetitionCommand(ctx context.Context, command Competiti
 	case CommandArchiveMatch:
 		return s.ArchiveMatch(ctx, actor, command.SessionID, command.MatchID)
 	case CommandRecordMatchResult:
-		return s.RecordMatchResult(ctx, actor, command.SessionID, command.MatchID, *command.MatchResult)
+		input := *command.MatchResult
+		input.ExpectedResultVersion = *command.ExpectedVersion
+		return s.RecordMatchResult(ctx, actor, command.SessionID, command.MatchID, input)
+	case CommandFinalizeMatchResult:
+		return s.FinalizeMatchResult(ctx, actor, command.SessionID, command.MatchID, *command.ExpectedVersion)
+	case CommandDisputeMatchResult:
+		return s.DisputeMatchResult(ctx, actor, command.SessionID, command.MatchID, *command.ExpectedVersion)
+	case CommandCorrectMatchResult:
+		input := *command.MatchResult
+		input.ExpectedResultVersion = *command.ExpectedVersion
+		return s.CorrectMatchResult(ctx, actor, command.SessionID, command.MatchID, input)
+	case CommandVoidMatchResult:
+		return s.VoidMatchResult(ctx, actor, command.SessionID, command.MatchID, *command.ExpectedVersion)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrCommandUnsupported, command.Name)
 	}
