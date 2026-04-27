@@ -21,7 +21,8 @@ The correct strategic pattern is:
 7. Add social safety before public surfaces.
 8. Add retention mechanics after public trust is durable.
 
-The immediate next tracer should be docs truth plus CLI parity planning, not badges, tournaments, or OpenSkill hard swap.
+The immediate next packet after 3B.11 should be competition lifecycle and result
+trust, not badges, tournaments, public pages, or OpenSkill hard swap.
 
 ## Evidence Anchors
 
