@@ -22,8 +22,9 @@ The correct strategic pattern is:
 8. Add retention mechanics after public trust is durable.
 
 Phase 3B.12 has now closed the immediate lifecycle/result trust packet after
-3B.11. The next packet should be rating foundation, not badges, tournaments,
-public pages, or OpenSkill hard swap.
+3B.11, and 3B.12.1 found no cohesion drift across APOLLO, Themis, platform
+docs, or Hestia untouched status. The next packet should be rating foundation,
+not badges, tournaments, public pages, or OpenSkill hard swap.
 
 ## Evidence Anchors
 
@@ -1163,6 +1164,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-27 | Substrate decomposition accepted: internal Themis ops shell, approval/proposal workflow, match lifecycle, notifications, schedule policy, and resource splitting are reusable primitives, not public surfaces. | This audit consolidation. |
 | 2026-04-27 | Phase 3B.11 shipped only command/readiness/CLI/Themis ops foundation; result trust, OpenSkill, analytics, tournament runtime, public competition surfaces, and game identity remain deferred. | 3B.11 closeout. |
 | 2026-04-27 | Phase 3B.12 shipped lifecycle/result trust only: canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, and finalized/corrected-only rating consumption. Rating extraction, OpenSkill, analytics, tournament runtime, public surfaces, and game identity remain deferred. | 3B.12 closeout. |
+| 2026-04-27 | Phase 3B.12.1 cohesion hardening found no runtime, Themis, Hestia, or docs truth drift; no patch worker changes were required. | 3B.12.1 hardening closeout. |
 
 ## Kill Criteria
 
@@ -1182,7 +1184,7 @@ Kill or defer a tracer if any of these are true:
 
 ## Immediate Action List
 
-1. Closed by 3B.12: APOLLO canonical lifecycle/result trust, correction
+1. Closed by 3B.12 and re-verified by 3B.12.1: APOLLO canonical lifecycle/result trust, correction
    supersession, and finalized/corrected-only rating consumption boundary;
    Themis renders APOLLO-backed result states without owning result truth.
 2. Next: 3B.13 rating extraction/policy/audit.
@@ -1322,6 +1324,53 @@ Verification notes:
   focused `competition|result` Playwright tests passed.
 - Hestia stayed untouched.
 - Deployed truth stayed unchanged.
+
+Still deferred:
+
+- Rating engine extraction: Phase 3B.13.
+- OpenSkill: Phase 3B.14.
+- ARES v2: Phase 3B.15.
+- Analytics: Phase 3B.16.
+- Tournament runtime: Phase 3B.17.
+- Social safety: Phase 3B.18.
+- Public competition surfaces: Phase 3B.19.
+- CP, badges, rivalry, and squads: Phase 3B.20.
+- Proposal workflow, recurring schedule, court splitting, booking/commercial
+  work, browser trusted-surface token, and public/Hestia competition expansion
+  remain out of scope until separately reopened.
+
+Next packet if launch expansion continues: 3B.13 Rating Foundation.
+
+## 3B.12.1 Cohesion Hardening Addendum
+
+Date: 2026-04-27
+
+Phase 3B.12.1 `Cohesion Hardening` is closed with no runtime, UI, or truth-drift
+findings. The pass re-verified the 3B.12 lifecycle/result trust spine and did
+not require a patch worker.
+
+Confirmed rulings:
+
+- APOLLO rating/stat/history paths consume only finalized or corrected
+  canonical results via `canonical_result_id`.
+- Recorded, disputed, voided, superseded, and non-canonical results remain
+  excluded from rating consumption.
+- APOLLO lifecycle/result commands, direct result endpoints, result-version
+  guards, correction linkage, and lifecycle events remain coherent.
+- Themis `/ops/competition` consumes APOLLO lifecycle/result contracts only and
+  does not own or infer canonical result truth.
+- Platform, APOLLO, and Themis docs preserve the 3B.12 shipped/deferred line.
+- Hestia stayed untouched.
+- Deployed truth stayed unchanged.
+
+Verification notes:
+
+- APOLLO `git diff --check`, focused lifecycle/result/rating/CLI tests,
+  `go build ./cmd/apollo`, and `go test -count=1 ./...` passed.
+- Themis `git diff --check`, `npm run check`, `npm test`, `npm run build`, and
+  focused `/ops/competition` Playwright tests passed.
+- Platform `git diff --check` passed; no docs checker is defined.
+- Hestia `git status -sb` stayed clean.
 
 Still deferred:
 
