@@ -160,23 +160,23 @@ func TestCompetitionHistoryRuntimeRejectsInvalidResultWrites(t *testing.T) {
 		t.Fatalf("wrongOwnerResponse.Code = %d, want %d", wrongOwnerResponse.Code, http.StatusForbidden)
 	}
 
-	invalidCountResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", startedSession.ID, startedSession.Matches[0].ID), `{"sides":[{"side_index":1,"competition_session_team_id":"`+startedSession.Matches[0].SideSlots[0].TeamID.String()+`","outcome":"win"}]}`, ownerCookie)
+	invalidCountResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", startedSession.ID, startedSession.Matches[0].ID), `{"expected_result_version":0,"sides":[{"side_index":1,"competition_session_team_id":"`+startedSession.Matches[0].SideSlots[0].TeamID.String()+`","outcome":"win"}]}`, ownerCookie)
 	if invalidCountResponse.Code != http.StatusBadRequest {
 		t.Fatalf("invalidCountResponse.Code = %d, want %d", invalidCountResponse.Code, http.StatusBadRequest)
 	}
 
-	mismatchedTeamResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", startedSession.ID, startedSession.Matches[0].ID), fmt.Sprintf(`{"sides":[
-		{"side_index":1,"competition_session_team_id":"%s","outcome":"win"},
-		{"side_index":2,"competition_session_team_id":"%s","outcome":"loss"}
-	]}`, uuid.New(), startedSession.Matches[0].SideSlots[1].TeamID), ownerCookie)
+	mismatchedTeamResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", startedSession.ID, startedSession.Matches[0].ID), fmt.Sprintf(`{"expected_result_version":0,"sides":[
+			{"side_index":1,"competition_session_team_id":"%s","outcome":"win"},
+			{"side_index":2,"competition_session_team_id":"%s","outcome":"loss"}
+		]}`, uuid.New(), startedSession.Matches[0].SideSlots[1].TeamID), ownerCookie)
 	if mismatchedTeamResponse.Code != http.StatusConflict {
 		t.Fatalf("mismatchedTeamResponse.Code = %d, want %d", mismatchedTeamResponse.Code, http.StatusConflict)
 	}
 
-	garbageOutcomeResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", startedSession.ID, startedSession.Matches[0].ID), fmt.Sprintf(`{"sides":[
-		{"side_index":1,"competition_session_team_id":"%s","outcome":"forfeit"},
-		{"side_index":2,"competition_session_team_id":"%s","outcome":"loss"}
-	]}`, startedSession.Matches[0].SideSlots[0].TeamID, startedSession.Matches[0].SideSlots[1].TeamID), ownerCookie)
+	garbageOutcomeResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", startedSession.ID, startedSession.Matches[0].ID), fmt.Sprintf(`{"expected_result_version":0,"sides":[
+			{"side_index":1,"competition_session_team_id":"%s","outcome":"forfeit"},
+			{"side_index":2,"competition_session_team_id":"%s","outcome":"loss"}
+		]}`, startedSession.Matches[0].SideSlots[0].TeamID, startedSession.Matches[0].SideSlots[1].TeamID), ownerCookie)
 	if garbageOutcomeResponse.Code != http.StatusBadRequest {
 		t.Fatalf("garbageOutcomeResponse.Code = %d, want %d", garbageOutcomeResponse.Code, http.StatusBadRequest)
 	}
@@ -261,6 +261,109 @@ func TestCompetitionHistoryRuntimeSeparatesRatingsBySportAndMode(t *testing.T) {
 	}
 }
 
+func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-result-trust-001", "result-trust-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
+	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-result-trust-002", "result-trust-002@example.com")
+
+	for _, cookie := range []*http.Cookie{ownerCookie, memberTwoCookie} {
+		makeEligibleForLobby(t, env, cookie)
+		joinLobbyMembership(t, env, cookie)
+	}
+
+	session := createStartedCompetitionSession(t, env, ownerCookie, "3B.12 Result Trust", "badminton", "gym-floor", 1, []uuid.UUID{owner.ID, memberTwo.ID})
+	match := session.Matches[0]
+
+	recordResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", session.ID, match.ID), buildResultRequestBodyWithVersion(match.SideSlots, []string{"win", "loss"}, match.ResultVersion), ownerCookie)
+	if recordResponse.Code != http.StatusOK {
+		t.Fatalf("recordResponse.Code = %d, want %d body=%s", recordResponse.Code, http.StatusOK, recordResponse.Body.String())
+	}
+	recorded := decodeCompetitionSession(t, recordResponse)
+	recordedMatch := recorded.Matches[0]
+	if recordedMatch.Result == nil || recordedMatch.Result.ResultStatus != competition.ResultStatusRecorded {
+		t.Fatalf("recorded result = %#v, want recorded status", recordedMatch.Result)
+	}
+	assertCompetitionStatsCount(t, env, ownerCookie, 0)
+
+	finalizeResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/finalize", session.ID, match.ID), fmt.Sprintf(`{"expected_result_version":%d}`, recordedMatch.ResultVersion), ownerCookie)
+	if finalizeResponse.Code != http.StatusOK {
+		t.Fatalf("finalizeResponse.Code = %d, want %d body=%s", finalizeResponse.Code, http.StatusOK, finalizeResponse.Body.String())
+	}
+	finalized := decodeCompetitionSession(t, finalizeResponse)
+	finalizedMatch := finalized.Matches[0]
+	if finalizedMatch.Result == nil || finalizedMatch.Result.ResultStatus != competition.ResultStatusFinalized || finalizedMatch.Result.FinalizedAt == nil {
+		t.Fatalf("finalized result = %#v, want finalized status and timestamp", finalizedMatch.Result)
+	}
+	assertCompetitionStatsCount(t, env, ownerCookie, 1)
+
+	disputeResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/dispute", session.ID, match.ID), fmt.Sprintf(`{"expected_result_version":%d}`, finalizedMatch.ResultVersion), ownerCookie)
+	if disputeResponse.Code != http.StatusOK {
+		t.Fatalf("disputeResponse.Code = %d, want %d body=%s", disputeResponse.Code, http.StatusOK, disputeResponse.Body.String())
+	}
+	disputed := decodeCompetitionSession(t, disputeResponse)
+	disputedMatch := disputed.Matches[0]
+	if disputedMatch.Result == nil || disputedMatch.Result.ResultStatus != competition.ResultStatusDisputed || disputedMatch.Result.DisputeStatus != competition.DisputeStatusDisputed {
+		t.Fatalf("disputed result = %#v, want disputed status", disputedMatch.Result)
+	}
+	assertCompetitionStatsCount(t, env, ownerCookie, 0)
+
+	correctResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/correct", session.ID, match.ID), buildResultRequestBodyWithVersion(disputedMatch.SideSlots, []string{"loss", "win"}, disputedMatch.ResultVersion), ownerCookie)
+	if correctResponse.Code != http.StatusOK {
+		t.Fatalf("correctResponse.Code = %d, want %d body=%s", correctResponse.Code, http.StatusOK, correctResponse.Body.String())
+	}
+	corrected := decodeCompetitionSession(t, correctResponse)
+	correctedMatch := corrected.Matches[0]
+	if correctedMatch.Result == nil || correctedMatch.Result.ResultStatus != competition.ResultStatusCorrected || correctedMatch.Result.CorrectionID == nil || correctedMatch.Result.SupersedesResultID == nil || correctedMatch.Result.CorrectedAt == nil {
+		t.Fatalf("corrected result = %#v, want correction linkage and timestamp", correctedMatch.Result)
+	}
+	if *correctedMatch.Result.SupersedesResultID != finalizedMatch.Result.ID {
+		t.Fatalf("supersedes_result_id = %s, want original result %s", correctedMatch.Result.SupersedesResultID, finalizedMatch.Result.ID)
+	}
+	stats := readCompetitionStats(t, env, ownerCookie)
+	if len(stats) != 1 || stats[0].Losses != 1 || stats[0].Wins != 0 {
+		t.Fatalf("corrected stats = %+v, want corrected loss only", stats)
+	}
+
+	voidResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/void", session.ID, match.ID), fmt.Sprintf(`{"expected_result_version":%d}`, correctedMatch.ResultVersion), ownerCookie)
+	if voidResponse.Code != http.StatusOK {
+		t.Fatalf("voidResponse.Code = %d, want %d body=%s", voidResponse.Code, http.StatusOK, voidResponse.Body.String())
+	}
+	voided := decodeCompetitionSession(t, voidResponse)
+	voidedMatch := voided.Matches[0]
+	if voidedMatch.Result == nil || voidedMatch.Result.ResultStatus != competition.ResultStatusVoided {
+		t.Fatalf("voided result = %#v, want voided status", voidedMatch.Result)
+	}
+	assertCompetitionStatsCount(t, env, ownerCookie, 0)
+
+	var resultCount int
+	if err := env.db.DB.QueryRow(context.Background(), `SELECT count(*) FROM apollo.competition_match_results WHERE competition_match_id = $1`, match.ID).Scan(&resultCount); err != nil {
+		t.Fatalf("count match results error = %v", err)
+	}
+	if resultCount != 2 {
+		t.Fatalf("resultCount = %d, want original plus corrected result", resultCount)
+	}
+
+	for _, eventType := range []string{
+		"competition.match.started",
+		"competition.result.recorded",
+		"competition.result.finalized",
+		"competition.result.disputed",
+		"competition.result.corrected",
+		"competition.result.voided",
+	} {
+		var eventCount int
+		if err := env.db.DB.QueryRow(context.Background(), `SELECT count(*) FROM apollo.competition_lifecycle_events WHERE event_type = $1 AND competition_match_id = $2`, eventType, match.ID).Scan(&eventCount); err != nil {
+			t.Fatalf("count lifecycle event %s error = %v", eventType, err)
+		}
+		if eventCount == 0 {
+			t.Fatalf("event %s count = 0, want at least one", eventType)
+		}
+	}
+}
+
 func TestCompetitionHistoryRouteRequiresAuthenticatedSession(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
@@ -322,12 +425,29 @@ func recordCompetitionResult(t *testing.T, env *authProfileServerEnv, ownerCooki
 	if response.Code != http.StatusOK {
 		t.Fatalf("result response code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
 	}
+	recorded := decodeCompetitionSession(t, response)
+	recordedMatch := recorded.Matches[0]
+	for _, match := range recorded.Matches {
+		if match.ID.String() == matchID {
+			recordedMatch = match
+			break
+		}
+	}
 
-	return decodeCompetitionSession(t, response)
+	finalizeResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/finalize", sessionID, matchID), fmt.Sprintf(`{"expected_result_version":%d}`, recordedMatch.ResultVersion), ownerCookie)
+	if finalizeResponse.Code != http.StatusOK {
+		t.Fatalf("finalize response code = %d, want %d body=%s", finalizeResponse.Code, http.StatusOK, finalizeResponse.Body.String())
+	}
+
+	return decodeCompetitionSession(t, finalizeResponse)
 }
 
 func buildResultRequestBody(sideSlots []competition.MatchSideRef, outcomes []string) string {
-	body := `{"sides":[`
+	return buildResultRequestBodyWithVersion(sideSlots, outcomes, 0)
+}
+
+func buildResultRequestBodyWithVersion(sideSlots []competition.MatchSideRef, outcomes []string, expectedVersion int) string {
+	body := fmt.Sprintf(`{"expected_result_version":%d,"sides":[`, expectedVersion)
 	for index, sideSlot := range sideSlots {
 		if index > 0 {
 			body += ","
@@ -336,6 +456,25 @@ func buildResultRequestBody(sideSlots []competition.MatchSideRef, outcomes []str
 	}
 	body += `]}`
 	return body
+}
+
+func assertCompetitionStatsCount(t *testing.T, env *authProfileServerEnv, cookie *http.Cookie, want int) {
+	t.Helper()
+
+	stats := readCompetitionStats(t, env, cookie)
+	if len(stats) != want {
+		t.Fatalf("len(stats) = %d, want %d; stats=%+v", len(stats), want, stats)
+	}
+}
+
+func readCompetitionStats(t *testing.T, env *authProfileServerEnv, cookie *http.Cookie) []competition.MemberStat {
+	t.Helper()
+
+	response := env.doRequest(t, http.MethodGet, "/api/v1/competition/member-stats", nil, cookie)
+	if response.Code != http.StatusOK {
+		t.Fatalf("stats response code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	return decodeCompetitionMemberStats(t, response)
 }
 
 func decodeCompetitionMemberStats(t *testing.T, response *httptest.ResponseRecorder) []competition.MemberStat {

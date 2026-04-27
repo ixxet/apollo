@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ixxet/apollo/internal/auth"
+	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/config"
 	"github.com/ixxet/apollo/internal/schedule"
@@ -168,6 +169,127 @@ func TestCompetitionCommandCLIDryRunAndCreateSession(t *testing.T) {
 	sessionList = runRootCommand(t, "competition", "session", "list", "--format", "text")
 	if !strings.Contains(sessionList, "CLI Command Session") {
 		t.Fatalf("sessionList = %q, want CLI-created session", sessionList)
+	}
+}
+
+func TestCompetitionCommandCLIResultLifecycleSmoke(t *testing.T) {
+	ctx := context.Background()
+	postgresEnv, err := testutil.StartPostgres(ctx)
+	if err != nil {
+		t.Fatalf("StartPostgres() error = %v", err)
+	}
+	defer func() {
+		if closeErr := postgresEnv.Close(); closeErr != nil {
+			t.Fatalf("Close() error = %v", closeErr)
+		}
+	}()
+
+	if err := testutil.ApplyApolloSchema(ctx, postgresEnv.DB); err != nil {
+		t.Fatalf("ApplyApolloSchema() error = %v", err)
+	}
+
+	t.Setenv("APOLLO_DATABASE_URL", postgresEnv.DatabaseURL)
+
+	actorUserID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	actorSessionID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	memberOneID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+	memberTwoID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	for _, user := range []struct {
+		id        uuid.UUID
+		studentID string
+		name      string
+		email     string
+		role      string
+	}{
+		{actorUserID, "competition-cli-result-manager", "Competition CLI Result Manager", "competition-cli-result-manager@example.com", "manager"},
+		{memberOneID, "competition-cli-result-one", "Competition CLI Result One", "competition-cli-result-one@example.com", "member"},
+		{memberTwoID, "competition-cli-result-two", "Competition CLI Result Two", "competition-cli-result-two@example.com", "member"},
+	} {
+		if _, err := postgresEnv.DB.Exec(ctx, `INSERT INTO apollo.users (id, student_id, display_name, email, role) VALUES ($1, $2, $3, $4, $5)`, user.id, user.studentID, user.name, user.email, user.role); err != nil {
+			t.Fatalf("insert user %s error = %v", user.studentID, err)
+		}
+	}
+	if _, err := postgresEnv.DB.Exec(ctx, `INSERT INTO apollo.sessions (id, user_id, expires_at, revoked_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour', NULL)`, actorSessionID, actorUserID); err != nil {
+		t.Fatalf("insert actor session error = %v", err)
+	}
+
+	service := competition.NewService(competition.NewRepository(postgresEnv.DB))
+	actor := competition.StaffActor{
+		UserID:              actorUserID,
+		Role:                authz.RoleManager,
+		SessionID:           actorSessionID,
+		Capability:          authz.CapabilityCompetitionStructureManage,
+		TrustedSurfaceKey:   "staff-console",
+		TrustedSurfaceLabel: "staff console",
+	}
+	zoneKey := "gym-floor"
+	session, err := service.CreateSession(ctx, actor, competition.CreateSessionInput{
+		DisplayName:         "CLI Result Lifecycle",
+		SportKey:            "badminton",
+		FacilityKey:         "ashtonbee",
+		ZoneKey:             &zoneKey,
+		ParticipantsPerSide: 1,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession error = %v", err)
+	}
+	teamOne, err := service.CreateTeam(ctx, actor, session.ID, competition.CreateTeamInput{SideIndex: 1})
+	if err != nil {
+		t.Fatalf("CreateTeam one error = %v", err)
+	}
+	teamTwo, err := service.CreateTeam(ctx, actor, session.ID, competition.CreateTeamInput{SideIndex: 2})
+	if err != nil {
+		t.Fatalf("CreateTeam two error = %v", err)
+	}
+	if _, err := service.AddRosterMember(ctx, actor, session.ID, teamOne.ID, competition.AddRosterMemberInput{UserID: memberOneID, SlotIndex: 1}); err != nil {
+		t.Fatalf("AddRosterMember one error = %v", err)
+	}
+	if _, err := service.AddRosterMember(ctx, actor, session.ID, teamTwo.ID, competition.AddRosterMemberInput{UserID: memberTwoID, SlotIndex: 1}); err != nil {
+		t.Fatalf("AddRosterMember two error = %v", err)
+	}
+	match, err := service.CreateMatch(ctx, actor, session.ID, competition.CreateMatchInput{
+		MatchIndex: 1,
+		SideSlots: []competition.MatchSideInput{
+			{TeamID: teamOne.ID, SideIndex: 1},
+			{TeamID: teamTwo.ID, SideIndex: 2},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateMatch error = %v", err)
+	}
+	if _, err := postgresEnv.DB.Exec(ctx, `UPDATE apollo.competition_sessions SET status = $2 WHERE id = $1`, session.ID, competition.SessionStatusInProgress); err != nil {
+		t.Fatalf("mark session in progress error = %v", err)
+	}
+	if _, err := postgresEnv.DB.Exec(ctx, `UPDATE apollo.competition_matches SET status = $2 WHERE id = $1`, match.ID, competition.MatchStatusInProgress); err != nil {
+		t.Fatalf("mark match in progress error = %v", err)
+	}
+
+	resultInput := fmt.Sprintf(`{"match_result":{"sides":[{"side_index":1,"competition_session_team_id":"%s","outcome":"win"},{"side_index":2,"competition_session_team_id":"%s","outcome":"loss"}]}}`, teamOne.ID, teamTwo.ID)
+	correctionInput := fmt.Sprintf(`{"match_result":{"sides":[{"side_index":1,"competition_session_team_id":"%s","outcome":"loss"},{"side_index":2,"competition_session_team_id":"%s","outcome":"win"}]}}`, teamOne.ID, teamTwo.ID)
+	dryRun := runCompetitionResultCLICommand(t, "record_match_result", session.ID, match.ID, 0, resultInput, true, actorUserID, actorSessionID)
+	if dryRun.Status != competition.CommandStatusPlanned || dryRun.Mutated {
+		t.Fatalf("dryRun = %#v, want planned non-mutating", dryRun)
+	}
+
+	for _, step := range []struct {
+		name    string
+		version int
+		input   string
+		actual  int
+	}{
+		{"record_match_result", 0, resultInput, 1},
+		{"finalize_match_result", 1, `{}`, 2},
+		{"dispute_match_result", 2, `{}`, 3},
+		{"correct_match_result", 3, correctionInput, 4},
+		{"void_match_result", 4, `{}`, 5},
+	} {
+		outcome := runCompetitionResultCLICommand(t, step.name, session.ID, match.ID, step.version, step.input, false, actorUserID, actorSessionID)
+		if outcome.Status != competition.CommandStatusSucceeded || !outcome.Mutated {
+			t.Fatalf("%s outcome = %#v, want succeeded mutating", step.name, outcome)
+		}
+		if outcome.ActualVersion == nil || *outcome.ActualVersion != step.actual {
+			t.Fatalf("%s ActualVersion = %v, want %d", step.name, outcome.ActualVersion, step.actual)
+		}
 	}
 }
 
@@ -605,6 +727,37 @@ func runRootCommand(t *testing.T, args ...string) string {
 	}
 
 	return stdout
+}
+
+func runCompetitionResultCLICommand(t *testing.T, name string, sessionID uuid.UUID, matchID uuid.UUID, expectedVersion int, inputJSON string, dryRun bool, actorUserID uuid.UUID, actorSessionID uuid.UUID) competition.CompetitionCommandOutcome {
+	t.Helper()
+
+	args := []string{
+		"competition", "command", "run",
+		"--name", name,
+		"--session-id", sessionID.String(),
+		"--match-id", matchID.String(),
+		"--expected-version", fmt.Sprint(expectedVersion),
+		"--actor-role", "manager",
+		"--input-json", inputJSON,
+		"--format", "json",
+	}
+	if dryRun {
+		args = append(args, "--dry-run")
+	} else {
+		args = append(args,
+			"--actor-user-id", actorUserID.String(),
+			"--actor-session-id", actorSessionID.String(),
+			"--trusted-surface-key", "staff-console",
+		)
+	}
+
+	output := runRootCommand(t, args...)
+	var outcome competition.CompetitionCommandOutcome
+	if err := json.Unmarshal([]byte(output), &outcome); err != nil {
+		t.Fatalf("json.Unmarshal(%s) error = %v output=%s", name, err, output)
+	}
+	return outcome
 }
 
 func runRootCommandWithResult(t *testing.T, args ...string) (string, string, error) {

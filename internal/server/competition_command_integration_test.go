@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/competition"
 )
@@ -134,42 +136,43 @@ func TestCompetitionCommandEndpointDeniesUnsupportedRole(t *testing.T) {
 	}
 }
 
-func TestCompetitionCommandEndpointKeepsResultApplyDeferred(t *testing.T) {
+func TestCompetitionCommandEndpointRecordsResultWithVersion(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
 
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-command-result-001", "command-result-001@example.com")
 	setUserRole(t, env, owner.ID, authz.RoleOwner)
+	memberCookie, member := createVerifiedSessionViaHTTP(t, env, "student-command-result-002", "command-result-002@example.com")
 
-	createResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/competition/sessions", `{
-		"display_name":"Result Deferred Session",
-		"sport_key":"badminton",
-		"facility_key":"ashtonbee",
-		"zone_key":"gym-floor",
-		"participants_per_side":1
-	}`, ownerCookie)
-	if createResponse.Code != http.StatusCreated {
-		t.Fatalf("createResponse.Code = %d, want %d body=%s", createResponse.Code, http.StatusCreated, createResponse.Body.String())
+	for _, cookie := range []*http.Cookie{ownerCookie, memberCookie} {
+		makeEligibleForLobby(t, env, cookie)
+		joinLobbyMembership(t, env, cookie)
 	}
-	session := decodeCompetitionSession(t, createResponse)
+
+	session := createStartedCompetitionSession(t, env, ownerCookie, "Result Command Session", "badminton", "gym-floor", 1, []uuid.UUID{owner.ID, member.ID})
+	match := session.Matches[0]
 
 	response := env.doJSONRequest(t, http.MethodPost, "/api/v1/competition/commands", fmt.Sprintf(`{
 		"name":"record_match_result",
+		"expected_version":%d,
 		"session_id":"%s",
-		"match_id":"11111111-1111-1111-1111-111111111111",
+		"match_id":"%s",
 		"match_result":{
 			"sides":[
-				{"side_index":1,"competition_session_team_id":"22222222-2222-2222-2222-222222222222","outcome":"win"},
-				{"side_index":2,"competition_session_team_id":"33333333-3333-3333-3333-333333333333","outcome":"loss"}
+				{"side_index":1,"competition_session_team_id":"%s","outcome":"win"},
+				{"side_index":2,"competition_session_team_id":"%s","outcome":"loss"}
 			]
 		}
-	}`, session.ID), ownerCookie)
-	if response.Code != http.StatusConflict {
-		t.Fatalf("response.Code = %d, want %d body=%s", response.Code, http.StatusConflict, response.Body.String())
+	}`, match.ResultVersion, session.ID, match.ID, match.SideSlots[0].TeamID, match.SideSlots[1].TeamID), ownerCookie)
+	if response.Code != http.StatusOK {
+		t.Fatalf("response.Code = %d, want %d body=%s", response.Code, http.StatusOK, response.Body.String())
 	}
 	outcome := decodeCompetitionCommandOutcome(t, response.Body.Bytes())
-	if outcome.Error != competition.ErrCommandApplyUnsupported.Error() {
-		t.Fatalf("outcome.Error = %q, want %q", outcome.Error, competition.ErrCommandApplyUnsupported.Error())
+	if outcome.Status != competition.CommandStatusSucceeded || !outcome.Mutated {
+		t.Fatalf("outcome = %#v, want succeeded mutating result command", outcome)
+	}
+	if outcome.ActualVersion == nil || *outcome.ActualVersion != 1 {
+		t.Fatalf("outcome.ActualVersion = %v, want 1", outcome.ActualVersion)
 	}
 }
 

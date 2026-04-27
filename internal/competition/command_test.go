@@ -26,8 +26,8 @@ func TestCompetitionReadinessExposesRoleCapabilities(t *testing.T) {
 	if !ok {
 		t.Fatalf("readiness missing %s", CommandRecordMatchResult)
 	}
-	if resultDefinition.ApplySupported {
-		t.Fatal("record_match_result ApplySupported = true, want false for 3B.11")
+	if !resultDefinition.ApplySupported {
+		t.Fatal("record_match_result ApplySupported = false, want true for 3B.12")
 	}
 	if !resultDefinition.DryRunSupported {
 		t.Fatal("record_match_result DryRunSupported = false, want true")
@@ -106,7 +106,7 @@ func TestCompetitionCommandDeniesMissingCapability(t *testing.T) {
 	}
 }
 
-func TestCompetitionCommandRecordResultApplyUnsupported(t *testing.T) {
+func TestCompetitionCommandRecordResultRequiresExpectedVersion(t *testing.T) {
 	sessionID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	matchID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	teamOneID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
@@ -115,9 +115,9 @@ func TestCompetitionCommandRecordResultApplyUnsupported(t *testing.T) {
 		getSessionByID: func(context.Context, uuid.UUID) (*sessionRecord, error) {
 			return &sessionRecord{ID: sessionID, QueueVersion: 4, Status: SessionStatusInProgress}, nil
 		},
-		recordMatchResult: func(context.Context, StaffActor, sessionRecord, SportConfig, matchRecord, RecordMatchResultInput, time.Time) error {
-			t.Fatal("RecordMatchResult called through 3B.11 command apply")
-			return nil
+		recordMatchResult: func(context.Context, StaffActor, sessionRecord, SportConfig, matchRecord, RecordMatchResultInput, int, time.Time) (matchResultRecord, error) {
+			t.Fatal("RecordMatchResult called without expected_version")
+			return matchResultRecord{}, nil
 		},
 	})
 
@@ -136,8 +136,8 @@ func TestCompetitionCommandRecordResultApplyUnsupported(t *testing.T) {
 			{SideIndex: 2, CompetitionSessionTeamID: teamTwoID, Outcome: matchOutcomeLoss},
 		}},
 	})
-	if !errors.Is(err, ErrCommandApplyUnsupported) {
-		t.Fatalf("ExecuteCommand error = %v, want ErrCommandApplyUnsupported", err)
+	if !errors.Is(err, ErrCommandExpectedVersion) {
+		t.Fatalf("ExecuteCommand error = %v, want ErrCommandExpectedVersion", err)
 	}
 	if outcome.Status != CommandStatusRejected {
 		t.Fatalf("outcome.Status = %q, want %q", outcome.Status, CommandStatusRejected)

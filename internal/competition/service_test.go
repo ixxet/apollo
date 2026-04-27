@@ -47,7 +47,11 @@ type stubStore struct {
 	listMatchSideSlotsByID   func(ctx context.Context, sessionID uuid.UUID) ([]matchSideSlotRecord, error)
 	getMatchResultByID       func(ctx context.Context, matchID uuid.UUID) (*matchResultRecord, error)
 	listMatchResultsByID     func(ctx context.Context, sessionID uuid.UUID) ([]matchResultSideRecord, error)
-	recordMatchResult        func(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error
+	recordMatchResult        func(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, expectedResultVersion int, recordedAt time.Time) (matchResultRecord, error)
+	finalizeMatchResult      func(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, finalizedAt time.Time) (matchResultRecord, error)
+	disputeMatchResult       func(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, disputedAt time.Time) (matchResultRecord, error)
+	correctMatchResult       func(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, input RecordMatchResultInput, expectedResultVersion int, correctedAt time.Time) (matchResultRecord, error)
+	voidMatchResult          func(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, voidedAt time.Time) (matchResultRecord, error)
 	listMemberRatingsByUser  func(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error)
 	listMemberStatRowsByUser func(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error)
 	listMemberHistoryByUser  func(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error)
@@ -191,11 +195,39 @@ func (s stubStore) ListMatchResultsBySessionID(ctx context.Context, sessionID uu
 	return s.listMatchResultsByID(ctx, sessionID)
 }
 
-func (s stubStore) RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, recordedAt time.Time) error {
+func (s stubStore) RecordMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, input RecordMatchResultInput, expectedResultVersion int, recordedAt time.Time) (matchResultRecord, error) {
 	if s.recordMatchResult == nil {
-		return errors.New("unexpected RecordMatchResult call")
+		return matchResultRecord{}, errors.New("unexpected RecordMatchResult call")
 	}
-	return s.recordMatchResult(ctx, actor, session, sport, match, input, recordedAt)
+	return s.recordMatchResult(ctx, actor, session, sport, match, input, expectedResultVersion, recordedAt)
+}
+
+func (s stubStore) FinalizeMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, finalizedAt time.Time) (matchResultRecord, error) {
+	if s.finalizeMatchResult == nil {
+		return matchResultRecord{}, errors.New("unexpected FinalizeMatchResult call")
+	}
+	return s.finalizeMatchResult(ctx, actor, session, sport, match, result, expectedResultVersion, finalizedAt)
+}
+
+func (s stubStore) DisputeMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, disputedAt time.Time) (matchResultRecord, error) {
+	if s.disputeMatchResult == nil {
+		return matchResultRecord{}, errors.New("unexpected DisputeMatchResult call")
+	}
+	return s.disputeMatchResult(ctx, actor, session, sport, match, result, expectedResultVersion, disputedAt)
+}
+
+func (s stubStore) CorrectMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, input RecordMatchResultInput, expectedResultVersion int, correctedAt time.Time) (matchResultRecord, error) {
+	if s.correctMatchResult == nil {
+		return matchResultRecord{}, errors.New("unexpected CorrectMatchResult call")
+	}
+	return s.correctMatchResult(ctx, actor, session, sport, match, result, input, expectedResultVersion, correctedAt)
+}
+
+func (s stubStore) VoidMatchResult(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, match matchRecord, result matchResultRecord, expectedResultVersion int, voidedAt time.Time) (matchResultRecord, error) {
+	if s.voidMatchResult == nil {
+		return matchResultRecord{}, errors.New("unexpected VoidMatchResult call")
+	}
+	return s.voidMatchResult(ctx, actor, session, sport, match, result, expectedResultVersion, voidedAt)
 }
 
 func (s stubStore) ListMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error) {
