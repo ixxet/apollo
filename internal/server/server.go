@@ -82,6 +82,8 @@ type CompetitionManager interface {
 	ListSessions(ctx context.Context) ([]competition.SessionSummary, error)
 	GetSession(ctx context.Context, sessionID uuid.UUID) (competition.Session, error)
 	ListMemberStats(ctx context.Context, userID uuid.UUID) ([]competition.MemberStat, error)
+	CompetitionReadiness(actor competition.StaffActor) competition.CompetitionCommandReadiness
+	ExecuteCommand(ctx context.Context, command competition.CompetitionCommand) (competition.CompetitionCommandOutcome, error)
 	CreateSession(ctx context.Context, actor competition.StaffActor, input competition.CreateSessionInput) (competition.Session, error)
 	OpenQueue(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID) (competition.Session, error)
 	AddQueueMember(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, input competition.QueueMemberInput) (competition.Session, error)
@@ -740,6 +742,44 @@ func NewHandler(deps Dependencies) http.Handler {
 				"preview_version", matchPreview.PreviewVersion,
 			)
 			writeJSON(w, http.StatusOK, matchPreview)
+		})
+		authenticated.Get("/api/v1/competition/commands/readiness", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			readiness := deps.Competition.CompetitionReadiness(competitionActorFromPrincipal(principal, ""))
+
+			writeJSON(w, http.StatusOK, readiness)
+		})
+		authenticated.Post("/api/v1/competition/commands", func(w http.ResponseWriter, r *http.Request) {
+			var command competition.CompetitionCommand
+			if err := decodeJSONBody(w, r, &command); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if command.IdempotencyKey == "" {
+				command.IdempotencyKey = r.Header.Get("Idempotency-Key")
+			}
+
+			principal := principalFromContext(r.Context())
+			if !command.DryRun {
+				surface, err := trustedSurfaceVerifier.VerifyRequest(r)
+				if err != nil {
+					outcome := competition.CompetitionCommandOutcome{
+						Name:    command.Name,
+						Status:  competition.CommandStatusDenied,
+						DryRun:  command.DryRun,
+						Actor:   competitionCommandActorFromPrincipal(principal, ""),
+						Message: "Competition command requires trusted-surface proof.",
+						Error:   err.Error(),
+					}
+					writeJSON(w, http.StatusForbidden, outcome)
+					return
+				}
+				principal = principal.WithTrustedSurface(surface)
+			}
+			command.Actor = competitionCommandActorFromPrincipal(principal, "")
+
+			outcome, err := deps.Competition.ExecuteCommand(r.Context(), command)
+			writeJSON(w, competitionCommandHTTPStatus(outcome, err), outcome)
 		})
 		authenticated.Get("/api/v1/competition/sessions", withCompetitionAccess(authz.CapabilityCompetitionRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ competition.StaffActor) {
 			sessions, err := deps.Competition.ListSessions(r.Context())
@@ -2116,6 +2156,21 @@ func competitionActorFromPrincipal(principal auth.Principal, capability authz.Ca
 	return actor
 }
 
+func competitionCommandActorFromPrincipal(principal auth.Principal, capability authz.Capability) competition.CompetitionCommandActor {
+	actor := competition.CompetitionCommandActor{
+		UserID:     principal.UserID,
+		Role:       principal.Role,
+		SessionID:  principal.SessionID,
+		Capability: capability,
+	}
+	if principal.TrustedSurface != nil {
+		actor.TrustedSurfaceKey = principal.TrustedSurface.Key
+		actor.TrustedSurfaceLabel = principal.TrustedSurface.Label
+	}
+
+	return actor
+}
+
 func scheduleActorFromPrincipal(principal auth.Principal, capability authz.Capability) schedule.StaffActor {
 	actor := schedule.StaffActor{
 		UserID:     principal.UserID,
@@ -2280,6 +2335,91 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, errorResponse{Error: err.Error()})
+}
+
+func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome, err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+
+	switch {
+	case errors.Is(err, authz.ErrCapabilityDenied),
+		errors.Is(err, authz.ErrTrustedSurfaceMissing),
+		errors.Is(err, authz.ErrTrustedSurfaceKey),
+		errors.Is(err, authz.ErrTrustedSurfaceInvalid),
+		errors.Is(err, competition.ErrCommandActorRequired),
+		errors.Is(err, competition.ErrCommandActorSession),
+		errors.Is(err, competition.ErrCommandTrustedSurface):
+		return http.StatusForbidden
+	case errors.Is(err, competition.ErrSessionNotFound),
+		errors.Is(err, competition.ErrTeamNotFound),
+		errors.Is(err, competition.ErrMatchNotFound),
+		errors.Is(err, competition.ErrUserNotFound),
+		errors.Is(err, competition.ErrSportNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, competition.ErrCommandNameRequired),
+		errors.Is(err, competition.ErrCommandUnsupported),
+		errors.Is(err, competition.ErrCommandSessionIDRequired),
+		errors.Is(err, competition.ErrCommandTeamIDRequired),
+		errors.Is(err, competition.ErrCommandMatchIDRequired),
+		errors.Is(err, competition.ErrCommandUserIDRequired),
+		errors.Is(err, competition.ErrCommandExpectedVersion),
+		errors.Is(err, competition.ErrCommandCreateSessionInput),
+		errors.Is(err, competition.ErrCommandCreateTeamInput),
+		errors.Is(err, competition.ErrCommandRosterInput),
+		errors.Is(err, competition.ErrCommandQueueMemberInput),
+		errors.Is(err, competition.ErrCommandCreateMatchInput),
+		errors.Is(err, competition.ErrCommandMatchResultInput),
+		errors.Is(err, competition.ErrSessionNameRequired),
+		errors.Is(err, competition.ErrParticipantsPerSide),
+		errors.Is(err, competition.ErrFacilityUnsupported),
+		errors.Is(err, competition.ErrZoneUnsupported),
+		errors.Is(err, competition.ErrTeamSideIndexInvalid),
+		errors.Is(err, competition.ErrRosterSlotIndexInvalid),
+		errors.Is(err, competition.ErrRosterSlotOutOfRange),
+		errors.Is(err, competition.ErrQueueVersionRequired),
+		errors.Is(err, competition.ErrMatchIndexInvalid),
+		errors.Is(err, competition.ErrMatchSideCountMismatch),
+		errors.Is(err, competition.ErrMatchSideIndexInvalid),
+		errors.Is(err, competition.ErrMatchResultSideCount),
+		errors.Is(err, competition.ErrMatchResultSideIndex),
+		errors.Is(err, competition.ErrMatchResultOutcome),
+		errors.Is(err, competition.ErrMatchResultShape):
+		return http.StatusBadRequest
+	case errors.Is(err, competition.ErrCommandApplyUnsupported),
+		errors.Is(err, competition.ErrSessionArchived),
+		errors.Is(err, competition.ErrQueueClosed),
+		errors.Is(err, competition.ErrQueueMemberAlreadyJoined),
+		errors.Is(err, competition.ErrQueueMemberNotFound),
+		errors.Is(err, competition.ErrQueueMemberNotJoined),
+		errors.Is(err, competition.ErrQueueMemberIneligible),
+		errors.Is(err, competition.ErrQueueCapacityReached),
+		errors.Is(err, competition.ErrQueueStateStale),
+		errors.Is(err, competition.ErrQueueNotReady),
+		errors.Is(err, competition.ErrQueueNotEmpty),
+		errors.Is(err, competition.ErrExecutionAlreadySeeded),
+		errors.Is(err, competition.ErrInvalidSessionTransition),
+		errors.Is(err, competition.ErrDuplicateSession),
+		errors.Is(err, competition.ErrDuplicateTeam),
+		errors.Is(err, competition.ErrRosterConflict),
+		errors.Is(err, competition.ErrDuplicateRosterSlot),
+		errors.Is(err, competition.ErrTeamReferencedByMatch),
+		errors.Is(err, competition.ErrTeamSizeMismatch),
+		errors.Is(err, competition.ErrDuplicateMatch),
+		errors.Is(err, competition.ErrDuplicateMatchSideIndex),
+		errors.Is(err, competition.ErrDuplicateMatchTeam),
+		errors.Is(err, competition.ErrSessionHasDraftMatches),
+		errors.Is(err, competition.ErrMatchArchived),
+		errors.Is(err, competition.ErrMatchNotInProgress),
+		errors.Is(err, competition.ErrMatchResultRecorded),
+		errors.Is(err, competition.ErrMatchResultTeamMismatch):
+		return http.StatusConflict
+	default:
+		if outcome.Status == competition.CommandStatusDenied {
+			return http.StatusForbidden
+		}
+		return http.StatusInternalServerError
+	}
 }
 
 func writeCompetitionError(w http.ResponseWriter, err error) {

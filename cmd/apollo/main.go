@@ -73,6 +73,7 @@ func newRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(newServeCmd())
 	rootCmd.AddCommand(newMigrateCmd())
+	rootCmd.AddCommand(newCompetitionCmd())
 	rootCmd.AddCommand(newScheduleCmd())
 	rootCmd.AddCommand(newSportCmd())
 	rootCmd.AddCommand(newVisitCmd())
@@ -389,6 +390,233 @@ func newVisitCmd() *cobra.Command {
 	visitCmd.AddCommand(listCmd)
 
 	return visitCmd
+}
+
+func newCompetitionCmd() *cobra.Command {
+	competitionCmd := &cobra.Command{
+		Use:   "competition",
+		Short: "Read and command APOLLO competition runtime truth.",
+	}
+
+	sessionCmd := &cobra.Command{
+		Use:   "session",
+		Short: "Read APOLLO competition sessions.",
+	}
+	sessionCmd.AddCommand(newCompetitionSessionListCmd())
+	sessionCmd.AddCommand(newCompetitionSessionShowCmd())
+
+	commandCmd := &cobra.Command{
+		Use:   "command",
+		Short: "Run APOLLO competition command DTOs.",
+	}
+	commandCmd.AddCommand(newCompetitionCommandReadinessCmd())
+	commandCmd.AddCommand(newCompetitionCommandRunCmd())
+
+	competitionCmd.AddCommand(sessionCmd)
+	competitionCmd.AddCommand(commandCmd)
+	return competitionCmd
+}
+
+func newCompetitionSessionListCmd() *cobra.Command {
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List APOLLO competition sessions.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			sessions, err := service.ListSessions(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, sessions)
+			case "text":
+				return writeCompetitionSessionListText(cmd, sessions)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	return cmd
+}
+
+func newCompetitionSessionShowCmd() *cobra.Command {
+	var sessionID string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "show",
+		Short: "Show one APOLLO competition session.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			parsedSessionID, err := uuid.Parse(strings.TrimSpace(sessionID))
+			if err != nil {
+				return err
+			}
+			session, err := service.GetSession(cmd.Context(), parsedSessionID)
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, session)
+			case "text":
+				return writeCompetitionSessionText(cmd, session)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "competition session id")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("session-id")
+	return cmd
+}
+
+func newCompetitionCommandReadinessCmd() *cobra.Command {
+	var actorUserID string
+	var actorSessionID string
+	var actorRole string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "readiness",
+		Short: "Show APOLLO competition command readiness for an actor role.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			actor, err := parseCompetitionActor(actorUserID, actorSessionID, actorRole, "", "", "")
+			if err != nil {
+				return err
+			}
+			readiness := service.CompetitionReadiness(actor)
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, readiness)
+			case "text":
+				return writeCompetitionReadinessText(cmd, readiness)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&actorUserID, "actor-user-id", "", "actor user id for attribution")
+	cmd.Flags().StringVar(&actorSessionID, "actor-session-id", "", "actor session id for attribution")
+	cmd.Flags().StringVar(&actorRole, "actor-role", "", "actor role")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("actor-role")
+	return cmd
+}
+
+func newCompetitionCommandRunCmd() *cobra.Command {
+	var name string
+	var inputJSON string
+	var dryRun bool
+	var idempotencyKey string
+	var expectedVersion int
+	var sessionID string
+	var teamID string
+	var matchID string
+	var userID string
+	var actorUserID string
+	var actorSessionID string
+	var actorRole string
+	var trustedSurfaceKey string
+	var trustedSurfaceLabel string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Run one APOLLO competition command DTO through the shared handler.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			var command competition.CompetitionCommand
+			if strings.TrimSpace(inputJSON) != "" {
+				if err := json.Unmarshal([]byte(inputJSON), &command); err != nil {
+					return err
+				}
+			}
+			if strings.TrimSpace(name) != "" {
+				command.Name = competition.CommandName(strings.TrimSpace(name))
+			}
+			command.DryRun = dryRun
+			if strings.TrimSpace(idempotencyKey) != "" {
+				command.IdempotencyKey = strings.TrimSpace(idempotencyKey)
+			}
+			if expectedVersion > 0 {
+				command.ExpectedVersion = &expectedVersion
+			}
+			if err := applyCompetitionCommandIDFlags(&command, sessionID, teamID, matchID, userID); err != nil {
+				return err
+			}
+			actor, err := parseCompetitionCommandActor(actorUserID, actorSessionID, actorRole, trustedSurfaceKey, trustedSurfaceLabel, dryRun)
+			if err != nil {
+				return err
+			}
+			command.Actor = actor
+
+			outcome, err := service.ExecuteCommand(cmd.Context(), command)
+			switch format {
+			case "json":
+				writeErr := writeJSONOutput(cmd, outcome)
+				if err != nil {
+					return err
+				}
+				return writeErr
+			case "text":
+				writeErr := writeCompetitionCommandOutcomeText(cmd, outcome)
+				if err != nil {
+					return err
+				}
+				return writeErr
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "competition command name")
+	cmd.Flags().StringVar(&inputJSON, "input-json", "", "competition command DTO JSON")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "return a command plan without mutation")
+	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "idempotency key when the command supports it")
+	cmd.Flags().IntVar(&expectedVersion, "expected-version", 0, "expected resource version when the command supports it")
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "competition session id")
+	cmd.Flags().StringVar(&teamID, "team-id", "", "competition team id")
+	cmd.Flags().StringVar(&matchID, "match-id", "", "competition match id")
+	cmd.Flags().StringVar(&userID, "user-id", "", "competition user id")
+	cmd.Flags().StringVar(&actorUserID, "actor-user-id", "", "actor user id for attribution")
+	cmd.Flags().StringVar(&actorSessionID, "actor-session-id", "", "actor session id for attribution")
+	cmd.Flags().StringVar(&actorRole, "actor-role", "", "actor role")
+	cmd.Flags().StringVar(&trustedSurfaceKey, "trusted-surface-key", "", "trusted surface key")
+	cmd.Flags().StringVar(&trustedSurfaceLabel, "trusted-surface-label", "", "trusted surface label")
+	cmd.Flags().StringVar(&format, "format", "json", "output format: text or json")
+	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("actor-role")
+	return cmd
 }
 
 func newScheduleCmd() *cobra.Command {
@@ -939,6 +1167,112 @@ func openScheduleService(ctx context.Context) (*schedule.Service, *pgxpool.Pool,
 	return schedule.NewService(schedule.NewRepository(pool)), pool, nil
 }
 
+func openCompetitionService(ctx context.Context) (*competition.Service, *pgxpool.Pool, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pool, err := openPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return competition.NewService(competition.NewRepository(pool)), pool, nil
+}
+
+func parseCompetitionCommandActor(actorUserID string, actorSessionID string, actorRole string, trustedSurfaceKey string, trustedSurfaceLabel string, dryRun bool) (competition.CompetitionCommandActor, error) {
+	actor, err := parseCompetitionActor(actorUserID, actorSessionID, actorRole, "", trustedSurfaceKey, trustedSurfaceLabel)
+	if err != nil {
+		return competition.CompetitionCommandActor{}, err
+	}
+	if !dryRun {
+		if actor.UserID == uuid.Nil || actor.SessionID == uuid.Nil {
+			return competition.CompetitionCommandActor{}, fmt.Errorf("actor attribution is required")
+		}
+		if strings.TrimSpace(actor.TrustedSurfaceKey) == "" {
+			return competition.CompetitionCommandActor{}, fmt.Errorf("trusted surface key is required")
+		}
+	}
+	return competition.CompetitionCommandActor{
+		UserID:              actor.UserID,
+		Role:                actor.Role,
+		SessionID:           actor.SessionID,
+		Capability:          actor.Capability,
+		TrustedSurfaceKey:   actor.TrustedSurfaceKey,
+		TrustedSurfaceLabel: actor.TrustedSurfaceLabel,
+	}, nil
+}
+
+func parseCompetitionActor(actorUserID string, actorSessionID string, actorRole string, capability authz.Capability, trustedSurfaceKey string, trustedSurfaceLabel string) (competition.StaffActor, error) {
+	role, err := authz.NormalizeRole(strings.TrimSpace(actorRole))
+	if err != nil {
+		return competition.StaffActor{}, err
+	}
+
+	var userID uuid.UUID
+	if strings.TrimSpace(actorUserID) != "" {
+		userID, err = uuid.Parse(strings.TrimSpace(actorUserID))
+		if err != nil {
+			return competition.StaffActor{}, err
+		}
+	}
+
+	var sessionID uuid.UUID
+	if strings.TrimSpace(actorSessionID) != "" {
+		sessionID, err = uuid.Parse(strings.TrimSpace(actorSessionID))
+		if err != nil {
+			return competition.StaffActor{}, err
+		}
+	}
+
+	label := strings.TrimSpace(trustedSurfaceLabel)
+	if label == "" {
+		label = strings.TrimSpace(trustedSurfaceKey)
+	}
+
+	return competition.StaffActor{
+		UserID:              userID,
+		SessionID:           sessionID,
+		Role:                role,
+		Capability:          capability,
+		TrustedSurfaceKey:   strings.TrimSpace(trustedSurfaceKey),
+		TrustedSurfaceLabel: label,
+	}, nil
+}
+
+func applyCompetitionCommandIDFlags(command *competition.CompetitionCommand, sessionID string, teamID string, matchID string, userID string) error {
+	if strings.TrimSpace(sessionID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(sessionID))
+		if err != nil {
+			return err
+		}
+		command.SessionID = parsed
+	}
+	if strings.TrimSpace(teamID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(teamID))
+		if err != nil {
+			return err
+		}
+		command.TeamID = parsed
+	}
+	if strings.TrimSpace(matchID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(matchID))
+		if err != nil {
+			return err
+		}
+		command.MatchID = parsed
+	}
+	if strings.TrimSpace(userID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(userID))
+		if err != nil {
+			return err
+		}
+		command.UserID = parsed
+	}
+	return nil
+}
+
 func parseScheduleActor(cmd *cobra.Command, actorUserID string, actorSessionID string, actorRole string, trustedSurfaceKey string, trustedSurfaceLabel string, capability authz.Capability, requireOwner bool) (schedule.StaffActor, error) {
 	userID, err := uuid.Parse(strings.TrimSpace(actorUserID))
 	if err != nil {
@@ -1168,6 +1502,95 @@ func writeJSONOutput(cmd *cobra.Command, value any) error {
 	encoder := json.NewEncoder(cmd.OutOrStdout())
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
+}
+
+func writeCompetitionSessionListText(cmd *cobra.Command, sessions []competition.SessionSummary) error {
+	for _, session := range sessions {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"id=%s name=%q sport=%s facility=%s status=%s queue_version=%d participants_per_side=%d\n",
+			session.ID,
+			session.DisplayName,
+			session.SportKey,
+			session.FacilityKey,
+			session.Status,
+			session.QueueVersion,
+			session.ParticipantsPerSide,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeCompetitionSessionText(cmd *cobra.Command, session competition.Session) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"id=%s name=%q sport=%s facility=%s status=%s queue_version=%d teams=%d matches=%d queue_members=%d\n",
+		session.ID,
+		session.DisplayName,
+		session.SportKey,
+		session.FacilityKey,
+		session.Status,
+		session.QueueVersion,
+		len(session.Teams),
+		len(session.Matches),
+		len(session.Queue),
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeCompetitionReadinessText(cmd *cobra.Command, readiness competition.CompetitionCommandReadiness) error {
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "status=%s role=%s message=%q\n", readiness.Status, readiness.Actor.Role, readiness.Message); err != nil {
+		return err
+	}
+	for _, item := range readiness.Commands {
+		reason := item.UnavailableReason
+		if reason == "" {
+			reason = "available"
+		}
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"command=%s available=%t capability=%s dry_run=%t apply=%t reason=%q\n",
+			item.Name,
+			item.Available,
+			item.RequiredCapability,
+			item.DryRunSupported,
+			item.ApplySupported,
+			reason,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeCompetitionCommandOutcomeText(cmd *cobra.Command, outcome competition.CompetitionCommandOutcome) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"name=%s status=%s dry_run=%t mutated=%t capability=%s message=%q\n",
+		outcome.Name,
+		outcome.Status,
+		outcome.DryRun,
+		outcome.Mutated,
+		outcome.RequiredCapability,
+		outcome.Message,
+	); err != nil {
+		return err
+	}
+	if outcome.Error != "" {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "error=%q\n", outcome.Error); err != nil {
+			return err
+		}
+	}
+	for _, step := range outcome.Plan {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "plan=%s resource_type=%s resource_id=%s description=%q\n", step.Action, step.ResourceType, step.ResourceID, step.Description); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeSportListText(cmd *cobra.Command, sportsList []sports.Sport) error {
