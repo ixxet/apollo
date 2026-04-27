@@ -56,9 +56,11 @@ recommendations, and the ARES matchmaking subsystem.
 > through the generic schedule-block cancel path. Phase 3B.11 adds the
 > competition command foundation: shared command/outcome DTOs, readiness and
 > capability checks, dry-run plan output, and a service-backed competition CLI
-> command runner over existing competition behavior, while result trust,
-> OpenSkill, analytics, tournaments, public competition surfaces, and game
-> identity stay deferred.
+> command runner over existing competition behavior. Phase 3B.12 adds the
+> trusted match/result spine: canonical result identity, recorded/finalized/
+> disputed/corrected/voided facts, correction supersession, and rating
+> consumption guards. OpenSkill, rating extraction, analytics, tournaments,
+> public competition surfaces, and game identity stay deferred.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -163,9 +165,9 @@ flowchart LR
 | Competition session create | `POST /api/v1/competition/sessions` | Real in repo/runtime | Requires `competition_structure_manage` plus trusted-surface proof and writes durable actor attribution on success |
 | Competition team / roster / match structure writes | `POST /api/v1/competition/sessions/{id}/teams`, `.../teams/{teamID}/members`, `.../matches`, and archive/remove actions | Real in repo/runtime | Structure mutations require `competition_structure_manage` plus trusted-surface proof; provenance columns remain domain truth, not the sole authz key |
 | Competition queue open / join / remove | `POST /api/v1/competition/sessions/{id}/queue/open`, `.../queue/members`, and `.../queue/members/{userID}/remove` | Real in repo/runtime | Live-manage mutations require `competition_live_manage` plus trusted-surface proof over explicit joined lobby membership plus current eligibility |
-| Competition assignment / lifecycle / result | `POST /api/v1/competition/sessions/{id}/assignment`, `.../start`, `.../archive`, and `.../matches/{matchID}/result` | Real in repo/runtime | Deterministic live-manage mutations require `competition_live_manage` plus trusted-surface proof; stale queue/state replay still fails safely |
+| Competition assignment / lifecycle / result | `POST /api/v1/competition/sessions/{id}/assignment`, `.../start`, `.../archive`, `.../matches/{matchID}/result`, and `.../result/{finalize,dispute,correct,void}` | Real in repo/runtime | Deterministic live-manage mutations require `competition_live_manage` plus trusted-surface proof; result commands require `expected_result_version`, preserve canonical result identity, and record lifecycle facts instead of silently editing history |
 | Competition command readiness | `GET /api/v1/competition/commands/readiness` | Real in repo/runtime | Authenticated APOLLO-backed readiness/capability truth for staff competition ops; unsupported roles receive an explicit unsupported payload instead of fake capability |
-| Competition command execution | `POST /api/v1/competition/commands` and `apollo competition command run` | Real in repo/runtime | Shared command/outcome/dry-run contract over existing competition services; live commands require role capability plus trusted-surface proof, idempotency support is reported explicitly, and `record_match_result` command apply remains deferred/dry-run-only until result trust work |
+| Competition command execution | `POST /api/v1/competition/commands` and `apollo competition command run` | Real in repo/runtime | Shared command/outcome/dry-run contract over existing competition services; live commands require role capability plus trusted-surface proof, idempotency support is reported explicitly, and result lifecycle commands support dry-run/apply with result-version guards |
 | Ops facility overview | `GET /api/v1/ops/facilities/{facilityKey}/overview?from=<RFC3339>&until=<RFC3339>[&bucket_minutes=N]` | Real in repo/runtime | Requires `ops_read`, is supervisor/manager/owner only, composes APOLLO schedule calendar truth with ATHENA current occupancy and bounded analytics, and returns sanitized aggregate ops truth without booking writes, raw tap hashes, or identity-level presence detail |
 | Staff schedule blocks | `GET /api/v1/schedule/blocks?facility_key=...`, `POST /api/v1/schedule/blocks`, `POST /api/v1/schedule/blocks/{id}/cancel` | Real in repo/runtime | Reads require `schedule_read` and return `X-Apollo-Schedule-Can-Manage`; writes require `schedule_manage` plus trusted-surface proof, create typed APOLLO schedule blocks through existing conflict rules, and generic cancel requires `expected_version` while refusing booking-linked reservations |
 | Booking request list/detail | `GET /api/v1/booking/requests`, `GET /api/v1/booking/requests/{id}` | Real in repo/runtime | Requires `booking_read`; supervisor, manager, and owner can read request state, source/channel, and APOLLO-computed availability without payment fields |
@@ -221,7 +223,7 @@ eligibility, or any social state.
 | `apollo.booking_request_idempotency_keys` | Real in repo/runtime | Stores hashed public idempotency keys, normalized payload hashes, and linked request IDs so duplicate public submits cannot create duplicate requests |
 | `apollo.public_booking_receipts` | Real in repo/runtime | Stores opaque public receipt codes and optional public-safe customer messages linked internally to booking requests without exposing request UUIDs or internal notes |
 | `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth |
-| `apollo.competition_match_results`, `apollo.competition_match_result_sides`, and `apollo.competition_member_ratings` | Real in repo/runtime | Stores immutable internal result truth plus current legacy rating projections derived from completed competition results; OpenSkill is not active yet |
+| `apollo.competition_match_results`, `apollo.competition_match_result_sides`, `apollo.competition_lifecycle_events`, and `apollo.competition_member_ratings` | Real in repo/runtime | Stores canonical result identity, recorded/finalized/disputed/corrected/voided lifecycle facts, correction supersession, immutable result sides, and current legacy rating projections derived only from finalized or corrected canonical results; OpenSkill is not active yet |
 | `apollo.competition_staff_action_attributions` | Real in repo/runtime | Stores durable actor/session/role/capability/trusted-surface attribution for successful staff-sensitive competition mutations |
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
 | `apollo.recommendations` | Schema authored | Tracer 7 recommendation reads are derived at read time; persisted recommendation records remain deferred |
@@ -229,14 +231,14 @@ eligibility, or any social state.
 
 ## Current Phase 3B Line
 
-Phase 3B.11 competition command foundation is now real in repo/runtime on
+Phase 3B.12 competition lifecycle/result trust is now real in repo/runtime on
 `main`, but deployed truth stays separate and unchanged. It builds on the closed
-competition authz/staff-boundary line and the bounded schedule/booking line:
-APOLLO owns shared competition command and command outcome shapes,
-readiness/capability truth, dry-run plan output, and service-backed CLI parity
-for existing competition behavior. The command surface reports unsupported
-idempotency/version behavior explicitly and keeps `record_match_result` apply
-dry-run-only until result trust is reopened in Phase 3B.12.
+3B.11 command foundation: APOLLO now owns canonical match/result state,
+`canonical_result_id`, `result_version`, result statuses, dispute status,
+correction/supersession IDs, finalized/corrected timestamps, and lifecycle
+events for started, recorded, finalized, disputed, corrected, and voided facts.
+Ratings may consume only finalized or corrected canonical results; recorded,
+disputed, voided, and non-canonical results are excluded from rating paths.
 
 | Topic | Locked statement |
 | --- | --- |
@@ -257,10 +259,11 @@ schedule blocks and cancel eligible schedule-managed blocks through existing
 trusted-surface schedule APIs, and booking-linked reservations remain owned by
 the booking request lifecycle rather than the generic schedule-control path.
 
-Phase 3B.11 closes only the command/readiness/CLI foundation. OpenSkill remains
-deferred to Phase 3B.14, result trust to Phase 3B.12, analytics to Phase 3B.16,
-tournament runtime to Phase 3B.17, public competition surfaces to Phase 3B.19,
-and CP, badges, rivalry, and squads to Phase 3B.20.
+Phase 3B.12 closes only lifecycle/result trust. Rating engine extraction
+remains deferred to Phase 3B.13, OpenSkill to Phase 3B.14, ARES v2 to
+Phase 3B.15, analytics to Phase 3B.16, tournament runtime to Phase 3B.17,
+public competition surfaces to Phase 3B.19, and CP, badges, rivalry, and squads
+to Phase 3B.20.
 
 ## Launch Expansion Source Of Truth
 
@@ -312,7 +315,8 @@ Current ruling:
 | Ops read foundation | read-only facility overview over APOLLO schedule truth and ATHENA occupancy/analytics truth | Closure-clean on `main` | `Phase 3B.1` | Keep it internal, aggregate, supervisor/manager/owner-only, and separate from booking, staff shell UI, gateway work, and deployment claims |
 | Request-first booking runtime | staff-entered and public-submitted booking requests with conflict-aware approval into APOLLO schedule reservations, approved cancellation of linked reservations, public-safe availability hints, public-safe receipt/status/message lookup, pending request edit, and approved replacement requests | Closure-clean on `main` | `Phase 3B.9` | Keep it request-first and approval-first; public intake/status stays neutral and non-reserving while payments, quotes, instant booking, public self-edit/rebook, broader customer self-service, in-place approved mutation, owner policy writes, gateway work, HERMES, AI/LLM negotiation, and deployment claims remain deferred |
 | Bounded staff schedule controls | APOLLO schedule manage hint plus trusted-surface create/cancel guardrails for supported one-off staff blocks | Closure-clean on `main` | `Phase 3B.10` | Keep APOLLO as schedule authority; supervisors read-only; manager/owner writes trusted-surface gated; booking-linked reservations cancellable only through booking requests; recurrence, broad hours policy, tournament controls, supervisor proposals, and deploy claims remain deferred |
-| Competition command foundation | shared APOLLO competition command/outcome DTOs, readiness/capability truth, dry-run plan output, and CLI parity over existing competition services | Closure-clean on `main` | `Phase 3B.11` | Keep APOLLO as competition truth and Themis as a consumer; `record_match_result` command apply, result trust, OpenSkill, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, and deploy claims remain deferred |
+| Competition command foundation | shared APOLLO competition command/outcome DTOs, readiness/capability truth, dry-run plan output, and CLI parity over existing competition services | Closure-clean on `main` | `Phase 3B.11` | Kept APOLLO as competition truth and Themis as a consumer; result trust is closed separately in 3B.12 while OpenSkill, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, and deploy claims remain deferred |
+| Competition lifecycle/result trust | canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, lifecycle events, and finalized/corrected-only rating guards | Closure-clean on `main` | `Phase 3B.12` | Keep APOLLO as canonical result truth and Themis as a consumer; rating extraction, OpenSkill, ARES v2, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, and deploy claims remain deferred |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
@@ -601,7 +605,8 @@ exercise, recommendations, or matchmaking.
 | `Phase 3B.8` | - | Runtime-local on `main` | Staff-side pending request edit plus approved booking replacement request flow with version checks, APOLLO availability truth, and rebook idempotency | public self-edit/rebook, instant booking, in-place approved booking mutation, payments, quotes, invoices/deposits, direct staff schedule controls, owner policy writes, admin role widening, AI/LLM negotiation, HERMES/gateway/deploy work |
 | `Phase 3B.9` | - | Runtime-local on `main` | Public-safe availability/request calendar read for public booking options with requestable windows, generic unavailable hints, strict RFC3339 windows, and no request creation | public self-booking, public self-edit/rebook, in-place approved booking mutation, payments, quotes, invoices/deposits, direct staff schedule controls, owner policy writes, admin role widening, AI/LLM negotiation, HERMES/gateway/deploy work |
 | `Phase 3B.10` | - | Runtime-local on `main` | Bounded staff schedule-control support over existing APOLLO schedule APIs, including schedule manage hints and generic-cancel protection for booking-linked reservations | recurring schedule controls, broad operating-hours policy editing, approved booking mutation through schedule controls, public self-booking, payments, quotes, owner policy writes, admin role widening, HERMES/gateway/deploy work |
-| `Phase 3B.11` | - | Runtime-local on `main` | Competition command/readiness foundation: shared APOLLO command/outcome DTOs, dry-run plan shape, readiness/capability checks, and service-backed CLI parity over existing competition behavior | result trust/finalization, OpenSkill, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, booking/commercial work, and deploy claims |
+| `Phase 3B.11` | - | Runtime-local on `main` | Competition command/readiness foundation: shared APOLLO command/outcome DTOs, dry-run plan shape, readiness/capability checks, and service-backed CLI parity over existing competition behavior | result trust closed separately in 3B.12; OpenSkill, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, booking/commercial work, and deploy claims remain deferred |
+| `Phase 3B.12` | - | Runtime-local on `main` | Competition lifecycle/result trust: canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, direct and command-backed result transitions, and rating consumption limited to finalized/corrected canonical results | rating engine extraction, OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, booking/commercial work, and deploy claims |
 
 ## Release Lines
 
@@ -622,7 +627,8 @@ lines begin below.
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
 | later than `Phase 3B.1` | `Phase 3B.10 bounded staff schedule controls` on `main`: staff-entered and public-submitted booking request truth plus a bounded internal schedule-control contract over APOLLO schedule truth | keep schedule authority in APOLLO, supervisors read-only, manager/owner writes trusted-surface gated, booking-linked reservations cancellable only through booking requests, public availability public-safe, and deployment truth unchanged | do not widen into instant booking, public self-booking, public self-edit/rebook, broader customer self-service/status portals, in-place approved booking mutation, quotes/payments, recurrence, broad hours policy editing, owner policy writes, admin role widening, AI/LLM negotiation, HERMES, gateway, or deploy claims |
-| `Phase 3B.11` | competition command foundation on `main`: shared APOLLO competition command/outcome DTOs, readiness/capability truth, dry-run plan output, and service-backed CLI parity over existing competition services | keep APOLLO as competition truth, preserve authz/trusted-surface boundaries, and report idempotency/version support explicitly | do not widen into result trust, OpenSkill, analytics, tournament runtime, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, booking/commercial work, or deploy claims |
+| `Phase 3B.11` | competition command foundation on `main`: shared APOLLO competition command/outcome DTOs, readiness/capability truth, dry-run plan output, and service-backed CLI parity over existing competition services | keep APOLLO as competition truth, preserve authz/trusted-surface boundaries, and report idempotency/version support explicitly | closed by 3B.12 result trust; do not widen into OpenSkill, analytics, tournament runtime, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, booking/commercial work, or deploy claims |
+| `Phase 3B.12` | competition lifecycle/result trust on `main`: canonical result identity, explicit result status facts, correction supersession, finalization/correction timestamps, lifecycle events, and rating guards | keep APOLLO as canonical result truth, keep corrections additive/auditable, and allow ratings to consume only finalized or corrected canonical results | do not widen into rating engine extraction, OpenSkill, ARES v2, analytics, tournament runtime, public/member competition surfaces, CP/badges/rivalry/squads, proposal workflow, booking/commercial work, or deploy claims |
 
 ## Versioning Discipline
 

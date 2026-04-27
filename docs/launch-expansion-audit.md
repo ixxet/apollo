@@ -21,8 +21,9 @@ The correct strategic pattern is:
 7. Add social safety before public surfaces.
 8. Add retention mechanics after public trust is durable.
 
-The immediate next packet after 3B.11 should be competition lifecycle and result
-trust, not badges, tournaments, public pages, or OpenSkill hard swap.
+Phase 3B.12 has now closed the immediate lifecycle/result trust packet after
+3B.11. The next packet should be rating foundation, not badges, tournaments,
+public pages, or OpenSkill hard swap.
 
 ## Evidence Anchors
 
@@ -136,6 +137,12 @@ APOLLO currently has:
   competition behavior.
 - Competition command readiness/capability checks, dry-run plan output, and
   service-backed CLI parity through `apollo competition command`.
+- Canonical match/result lifecycle trust: `match_status`, `result_status`,
+  `canonical_result_id`, `dispute_status`, `correction_id`,
+  `supersedes_result_id`, `finalized_at`, `corrected_at`, and lifecycle events
+  for started, recorded, finalized, disputed, corrected, and voided facts.
+- Rating paths consume only finalized or corrected canonical results; recorded,
+  disputed, voided, and non-canonical results are excluded.
 - Schedule substrate, booking request lifecycle, public-safe booking intake/status/availability.
 - Presence, visit, tap-link, facility streak, and ATHENA-backed ops overview surfaces.
 - Minimal member shell with existing API-backed routes.
@@ -158,12 +165,11 @@ APOLLO does not yet have:
 - Durable command idempotency storage or replay.
 - Universal command/dry-run coverage outside the supported Phase 3B.11
   competition command surface.
-- Command-surface result finalization beyond dry-run planning.
 - OpenSkill.
 - Rating policy versioning, rating events, or rating audit log.
 - Match tier classification.
 - Player consensus result voting.
-- Dispute/correction ledger.
+- Full proposal/approval workflow for disputes or corrections.
 - Rating-aware ARES.
 - Sport/mode/facility queue intent.
 - Calibration, decay, comeback bonus, upset bonus, climbing caps.
@@ -672,9 +678,9 @@ Initial allowed scope:
 - Competition session list/detail.
 - Queue membership view.
 - Existing staff actions already represented by APOLLO APIs.
-- Match preview, assignment, start/archive, and result capture only where
-  backend contracts are real. In Phase 3B.11, result command apply remains
-  dry-run-only until result trust work reopens it.
+- Match preview, assignment, start/archive, and result lifecycle controls only
+  where backend contracts are real. Since Phase 3B.12, result command apply is
+  available only through APOLLO-backed versioned lifecycle/result contracts.
 - Error, empty, loading, and denied states for every route.
 
 Hard stops:
@@ -1156,6 +1162,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-26 | CLI should start as a service-backed wrapper and evolve toward a shared application command layer; no independent CLI domain model. | This audit consolidation. |
 | 2026-04-27 | Substrate decomposition accepted: internal Themis ops shell, approval/proposal workflow, match lifecycle, notifications, schedule policy, and resource splitting are reusable primitives, not public surfaces. | This audit consolidation. |
 | 2026-04-27 | Phase 3B.11 shipped only command/readiness/CLI/Themis ops foundation; result trust, OpenSkill, analytics, tournament runtime, public competition surfaces, and game identity remain deferred. | 3B.11 closeout. |
+| 2026-04-27 | Phase 3B.12 shipped lifecycle/result trust only: canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, and finalized/corrected-only rating consumption. Rating extraction, OpenSkill, analytics, tournament runtime, public surfaces, and game identity remain deferred. | 3B.12 closeout. |
 
 ## Kill Criteria
 
@@ -1175,11 +1182,11 @@ Kill or defer a tracer if any of these are true:
 
 ## Immediate Action List
 
-1. Closed by 3B.11: APOLLO command/outcome/readiness DTOs, service-backed
-   competition CLI parity, and first internal Themis ops shell over APOLLO
-   contracts.
-2. Next: 3B.12 competition lifecycle and result trust.
-3. Then: rating extraction/policy/audit before OpenSkill.
+1. Closed by 3B.12: APOLLO canonical lifecycle/result trust, correction
+   supersession, and finalized/corrected-only rating consumption boundary;
+   Themis renders APOLLO-backed result states without owning result truth.
+2. Next: 3B.13 rating extraction/policy/audit.
+3. Then: OpenSkill dual-run/cutover only after extraction.
 4. Later: analytics, tournament runtime, public competition surfaces, and game
    identity only after their gates are met.
 
@@ -1280,5 +1287,54 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Next packet if launch expansion continues: 3B.12 Competition Lifecycle + Result
-Trust.
+## 3B.12 Closeout Addendum
+
+Date: 2026-04-27
+
+Phase 3B.12 `Competition Lifecycle + Result Trust` is closed in repo/runtime
+truth for APOLLO and Themis, with platform docs synced. It shipped only the
+trusted match/result spine:
+
+- APOLLO canonical `match_status`, `result_status`, `canonical_result_id`, and
+  `result_version` truth on competition match projections.
+- APOLLO result facts for recorded, finalized, disputed, corrected, and voided
+  states.
+- APOLLO lifecycle events for `competition.match.started`,
+  `competition.result.recorded`, `competition.result.finalized`,
+  `competition.result.disputed`, `competition.result.corrected`, and
+  `competition.result.voided`.
+- APOLLO correction linkage through `correction_id` and
+  `supersedes_result_id`, plus `finalized_at` and `corrected_at`.
+- APOLLO command and direct HTTP integration for result transitions, with
+  result-version guards and dry-run support through the command path.
+- APOLLO rating consumption guards: only finalized or corrected canonical
+  results feed current rating/stat/history paths.
+- Themis internal `/ops/competition` rendering of APOLLO-backed match/result
+  state, dry-runs, denied/rejected outcomes, disabled states, and correction/
+  supersession fields without local result truth or fake data.
+
+Verification notes:
+
+- APOLLO `git diff --check`, `go build ./cmd/apollo`, focused
+  lifecycle/result/rating-boundary tests, `go test -count=1 ./cmd/apollo`, and
+  `go test -count=1 ./...` passed.
+- Themis `git diff --check`, `npm run check`, `npm test`, `npm run build`, and
+  focused `competition|result` Playwright tests passed.
+- Hestia stayed untouched.
+- Deployed truth stayed unchanged.
+
+Still deferred:
+
+- Rating engine extraction: Phase 3B.13.
+- OpenSkill: Phase 3B.14.
+- ARES v2: Phase 3B.15.
+- Analytics: Phase 3B.16.
+- Tournament runtime: Phase 3B.17.
+- Social safety: Phase 3B.18.
+- Public competition surfaces: Phase 3B.19.
+- CP, badges, rivalry, and squads: Phase 3B.20.
+- Proposal workflow, recurring schedule, court splitting, booking/commercial
+  work, browser trusted-surface token, and public/Hestia competition expansion
+  remain out of scope until separately reopened.
+
+Next packet if launch expansion continues: 3B.13 Rating Foundation.

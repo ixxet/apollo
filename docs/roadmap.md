@@ -7,7 +7,7 @@ jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3B.11 competition command foundation
+Current repo/runtime working line on `main`: Phase 3B.12 competition lifecycle/result trust
 over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
@@ -142,13 +142,14 @@ schedule-control lines
   writes stay trusted-surface gated, generic schedule-block cancel uses
   `expected_version`, and booking-linked reservations can only be cancelled
   through the booking request lifecycle
-- Phase 3B.11 competition command foundation is now real in repo/runtime on
-  `main`: APOLLO exposes shared competition command and command outcome DTOs,
-  readiness/capability truth, dry-run plan output, and a service-backed
-  competition CLI command runner over existing competition behavior; privileged
-  live commands still require role capability plus trusted-surface proof,
-  idempotency is reported unsupported until a durable substrate exists, and
-  result finalization remains deferred beyond dry-run command planning
+- Phase 3B.12 competition lifecycle/result trust is now real in repo/runtime on
+  `main`: APOLLO exposes canonical result identity, result/version status
+  truth, recorded/finalized/disputed/corrected/voided lifecycle facts,
+  correction supersession, direct and command-backed result transitions, and
+  rating guards so only finalized or corrected canonical results feed rating
+  paths; privileged live commands still require role capability plus
+  trusted-surface proof, idempotency remains reported unsupported until a
+  durable substrate exists, and deployed truth is unchanged
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -183,7 +184,7 @@ They should not be used as permission to skip the launch-expansion gates.
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime working line on
-`main` is Phase 3B.11 competition command foundation over the closed
+`main` is Phase 3B.12 competition lifecycle/result trust over the closed
 Tracer 28 authz/staff-boundary truth, Milestone 2.0 hardening follow-up,
 scheduling substrate, member-safe calendar, ops-read, approved booking
 lifecycle, public request/status/availability lines, and staff-side
@@ -200,23 +201,24 @@ edit/replacement plus bounded staff schedule-control lines.
 | `v0.19.0` | role/authz, actor attribution, trusted-surface primitives, and staff runtime boundary substrate | keep authority explicit and reviewable | do not widen into polished ops product or speculative contracts |
 | `v0.19.1` | Milestone 2.0 hardening follow-up for runtime boundaries, workout safety, and docs truth | keep the line patch-only and non-widening | do not add new member/staff product capability or deploy claims |
 | later than `Phase 3B.1` | `Phase 3B.10 bounded staff schedule controls` on `main`: APOLLO-owned booking request truth plus bounded internal schedule-control support over typed schedule blocks | keep members denied, supervisors read-only, manager/owner writes trusted-surface gated, public availability sanitized, and booking-linked reservations cancellable only through booking requests | do not widen into instant booking, public self-edit/rebook, broader customer self-service/status portals, quotes/payments, in-place approved booking mutation through schedule controls, recurring schedule rules, broad hours policy editing, owner policy writes, admin role widening, AI/LLM negotiation, HERMES widening, gateway widening, or deploy claims |
-| `Phase 3B.11` | competition command foundation on `main`: shared APOLLO competition command/outcome DTOs, readiness/capability checks, dry-run plan shape, and service-backed CLI parity over existing competition behavior | keep APOLLO as competition truth, keep Themis as a consumer, preserve existing authz/trusted-surface boundaries, report unsupported idempotency/version behavior explicitly, and keep result command apply dry-run-only | do not widen into OpenSkill, result disputes/corrections/finalization, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, browser trusted-surface tokens, proposal workflow, booking, or deploy claims |
+| `Phase 3B.11` | competition command foundation on `main`: shared APOLLO competition command/outcome DTOs, readiness/capability checks, dry-run plan shape, and service-backed CLI parity over existing competition behavior | keep APOLLO as competition truth, keep Themis as a consumer, preserve existing authz/trusted-surface boundaries, and report unsupported idempotency/version behavior explicitly | closed by 3B.12 result trust; do not widen into OpenSkill, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, browser trusted-surface tokens, proposal workflow, booking, or deploy claims |
+| `Phase 3B.12` | competition lifecycle/result trust on `main`: canonical result identity, result statuses, dispute status, correction supersession, direct and command-backed result transitions, lifecycle events, and finalized/corrected-only rating guards | keep APOLLO as canonical result truth, keep Themis as a consumer, preserve authz/trusted-surface/version boundaries, and keep corrections additive/auditable | do not widen into rating engine extraction, OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, browser trusted-surface tokens, proposal workflow, booking, or deploy claims |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, CP, badges, squads, public rivalry, or public leaderboards |
 
 ## Current Phase 3B Line
 
-Phase 3B.11 competition command foundation is now real in repo/runtime on
+Phase 3B.12 competition lifecycle/result trust is now real in repo/runtime on
 `main`, with deployed truth still separate and unchanged. APOLLO now exposes the
-shared command/outcome/readiness contract and CLI entrypoint needed by later
-competition lifecycle, result trust, ratings, analytics, tournaments, and public
-surface work. It does not finalize canonical results, run OpenSkill, expose
-public competition pages, or move competition truth into Themis.
+canonical result identity, lifecycle/result facts, correction supersession, and
+finalized/corrected-only rating boundary needed by later rating extraction,
+analytics, tournaments, and public surface work. It does not extract the rating
+engine, run OpenSkill, expose public competition pages, or move competition
+truth into Themis.
 
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
-- result lifecycle and trust in Phase 3B.12
-- rating extraction and OpenSkill migration in later 3B lines
+- rating extraction in Phase 3B.13 and OpenSkill migration in Phase 3B.14
 - analytics, tournament runtime, public competition surfaces, and game identity
 - public self-edit/rebook, broader customer self-service/status portal, and instant booking
 - in-place approved-booking editing
