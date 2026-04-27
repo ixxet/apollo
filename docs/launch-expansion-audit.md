@@ -1221,3 +1221,64 @@ The durable architecture is:
 - Cross-repo compatibility is explicit.
 
 Hybrid OpenSkill plus legacy Elo is the right migration path if "hybrid" means OpenSkill as the durable kernel, APOLLO policy as the product layer, and legacy Elo as characterization/fallback during migration. It is not durable if it means two competing scoring systems forever.
+
+## 3B.11 Closeout Addendum
+
+Date: 2026-04-27
+
+Phase 3B.11 `Competition Command + Ops Foundation` is closed in repo/runtime
+truth for APOLLO and Themis, with platform docs synced. It shipped only the
+agentic and staff-operable foundation:
+
+- APOLLO shared competition command DTO.
+- APOLLO shared command outcome DTO.
+- APOLLO competition command readiness/capability truth.
+- APOLLO dry-run plan shape over supported existing competition commands.
+- APOLLO service-backed CLI parity through `apollo competition command`.
+- APOLLO internal HTTP command readiness and command execution routes.
+- Themis internal `/ops/competition` shell consuming APOLLO readiness, session,
+  command, and outcome contracts.
+- Themis disabled, denied, rejected, planned, accepted, and unavailable states
+  over APOLLO-backed payloads only.
+- Platform, APOLLO, and Themis docs synchronized to this shipped scope.
+
+Phase 3B.11.1 `Cohesion Hardening` is also closed. It patched two cohesion
+findings:
+
+- Themis now preserves structured APOLLO command outcomes on non-2xx command
+  responses, so denied and rejected outcomes render from APOLLO truth instead
+  of a generic client error.
+- This audit no longer points to pre-3B.11 docs/CLI planning as the immediate
+  next tracer.
+
+Verification notes:
+
+- APOLLO focused 3B.11 competition tests passed.
+- APOLLO `go build ./cmd/apollo` passed.
+- APOLLO `go test -count=1 ./...` passed during 3B.11.1.
+- The named APOLLO presence test
+  `TestPresenceRuntimeExposesFacilityScopedSummaryAndStaysDeterministic`
+  passed during 3B.11.1; the earlier `ashtonbee streak current_count = 1, want
+  2` failure was not reproduced and is not treated as a 3B.11 regression.
+- Themis `npm run check`, `npm test`, `npm run build`, and focused
+  `competition|ops shell` Playwright tests passed.
+- Hestia stayed untouched.
+- Deployed truth stayed unchanged.
+
+Still deferred:
+
+- Result lifecycle/trust: Phase 3B.12.
+- Rating extraction: Phase 3B.13.
+- OpenSkill: Phase 3B.14.
+- ARES v2: Phase 3B.15.
+- Analytics: Phase 3B.16.
+- Tournament runtime: Phase 3B.17.
+- Social safety: Phase 3B.18.
+- Public competition surfaces: Phase 3B.19.
+- CP, badges, rivalry, and squads: Phase 3B.20.
+- Proposal workflow, recurring schedule, court splitting, booking/commercial
+  work, browser trusted-surface token, and public/Hestia competition expansion
+  remain out of scope until separately reopened.
+
+Next packet if launch expansion continues: 3B.12 Competition Lifecycle + Result
+Trust.
