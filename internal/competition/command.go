@@ -15,26 +15,31 @@ import (
 type CommandName string
 
 const (
-	CommandCreateSession        CommandName = "create_session"
-	CommandOpenQueue            CommandName = "open_queue"
-	CommandAddQueueMember       CommandName = "add_queue_member"
-	CommandRemoveQueueMember    CommandName = "remove_queue_member"
-	CommandUpdateQueueIntent    CommandName = "update_queue_intent"
-	CommandGenerateMatchPreview CommandName = "generate_match_preview"
-	CommandAssignQueue          CommandName = "assign_queue"
-	CommandStartSession         CommandName = "start_session"
-	CommandArchiveSession       CommandName = "archive_session"
-	CommandCreateTeam           CommandName = "create_team"
-	CommandRemoveTeam           CommandName = "remove_team"
-	CommandAddRosterMember      CommandName = "add_roster_member"
-	CommandRemoveRosterMember   CommandName = "remove_roster_member"
-	CommandCreateMatch          CommandName = "create_match"
-	CommandArchiveMatch         CommandName = "archive_match"
-	CommandRecordMatchResult    CommandName = "record_match_result"
-	CommandFinalizeMatchResult  CommandName = "finalize_match_result"
-	CommandDisputeMatchResult   CommandName = "dispute_match_result"
-	CommandCorrectMatchResult   CommandName = "correct_match_result"
-	CommandVoidMatchResult      CommandName = "void_match_result"
+	CommandCreateSession          CommandName = "create_session"
+	CommandOpenQueue              CommandName = "open_queue"
+	CommandAddQueueMember         CommandName = "add_queue_member"
+	CommandRemoveQueueMember      CommandName = "remove_queue_member"
+	CommandUpdateQueueIntent      CommandName = "update_queue_intent"
+	CommandGenerateMatchPreview   CommandName = "generate_match_preview"
+	CommandAssignQueue            CommandName = "assign_queue"
+	CommandStartSession           CommandName = "start_session"
+	CommandArchiveSession         CommandName = "archive_session"
+	CommandCreateTeam             CommandName = "create_team"
+	CommandRemoveTeam             CommandName = "remove_team"
+	CommandAddRosterMember        CommandName = "add_roster_member"
+	CommandRemoveRosterMember     CommandName = "remove_roster_member"
+	CommandCreateMatch            CommandName = "create_match"
+	CommandArchiveMatch           CommandName = "archive_match"
+	CommandRecordMatchResult      CommandName = "record_match_result"
+	CommandFinalizeMatchResult    CommandName = "finalize_match_result"
+	CommandDisputeMatchResult     CommandName = "dispute_match_result"
+	CommandCorrectMatchResult     CommandName = "correct_match_result"
+	CommandVoidMatchResult        CommandName = "void_match_result"
+	CommandCreateTournament       CommandName = "create_tournament"
+	CommandSeedTournament         CommandName = "seed_tournament"
+	CommandLockTournamentTeam     CommandName = "lock_tournament_team"
+	CommandBindTournamentMatch    CommandName = "bind_tournament_match"
+	CommandAdvanceTournamentRound CommandName = "advance_tournament_round"
 )
 
 const (
@@ -46,41 +51,56 @@ const (
 )
 
 var (
-	ErrCommandNameRequired       = errors.New("competition command name is required")
-	ErrCommandUnsupported        = errors.New("competition command is unsupported")
-	ErrCommandSessionIDRequired  = errors.New("competition command session_id is required")
-	ErrCommandTeamIDRequired     = errors.New("competition command team_id is required")
-	ErrCommandMatchIDRequired    = errors.New("competition command match_id is required")
-	ErrCommandUserIDRequired     = errors.New("competition command user_id is required")
-	ErrCommandActorRequired      = errors.New("competition command actor is required")
-	ErrCommandActorSession       = errors.New("competition command actor_session_id is required")
-	ErrCommandTrustedSurface     = errors.New("competition command trusted surface is required")
-	ErrCommandApplyUnsupported   = errors.New("competition command apply is unsupported")
-	ErrCommandExpectedVersion    = errors.New("competition command expected_version is required")
-	ErrCommandCreateSessionInput = errors.New("competition command create_session input is required")
-	ErrCommandCreateTeamInput    = errors.New("competition command create_team input is required")
-	ErrCommandRosterInput        = errors.New("competition command roster input is required")
-	ErrCommandQueueMemberInput   = errors.New("competition command queue member input is required")
-	ErrCommandCreateMatchInput   = errors.New("competition command create_match input is required")
-	ErrCommandMatchResultInput   = errors.New("competition command record_match_result input is required")
+	ErrCommandNameRequired                = errors.New("competition command name is required")
+	ErrCommandUnsupported                 = errors.New("competition command is unsupported")
+	ErrCommandSessionIDRequired           = errors.New("competition command session_id is required")
+	ErrCommandTeamIDRequired              = errors.New("competition command team_id is required")
+	ErrCommandMatchIDRequired             = errors.New("competition command match_id is required")
+	ErrCommandTournamentIDRequired        = errors.New("competition command tournament_id is required")
+	ErrCommandUserIDRequired              = errors.New("competition command user_id is required")
+	ErrCommandActorRequired               = errors.New("competition command actor is required")
+	ErrCommandActorSession                = errors.New("competition command actor_session_id is required")
+	ErrCommandTrustedSurface              = errors.New("competition command trusted surface is required")
+	ErrCommandApplyUnsupported            = errors.New("competition command apply is unsupported")
+	ErrCommandExpectedVersion             = errors.New("competition command expected_version is required")
+	ErrCommandCreateSessionInput          = errors.New("competition command create_session input is required")
+	ErrCommandCreateTeamInput             = errors.New("competition command create_team input is required")
+	ErrCommandRosterInput                 = errors.New("competition command roster input is required")
+	ErrCommandQueueMemberInput            = errors.New("competition command queue member input is required")
+	ErrCommandCreateMatchInput            = errors.New("competition command create_match input is required")
+	ErrCommandMatchResultInput            = errors.New("competition command record_match_result input is required")
+	ErrCommandCreateTournamentInput       = errors.New("competition command create_tournament input is required")
+	ErrCommandSeedTournamentInput         = errors.New("competition command seed_tournament input is required")
+	ErrCommandLockTournamentTeamInput     = errors.New("competition command lock_tournament_team input is required")
+	ErrCommandBindTournamentMatchInput    = errors.New("competition command bind_tournament_match input is required")
+	ErrCommandAdvanceTournamentRoundInput = errors.New("competition command advance_tournament_round input is required")
 )
 
 type CompetitionCommand struct {
-	Name            CommandName             `json:"name"`
-	DryRun          bool                    `json:"dry_run"`
-	IdempotencyKey  string                  `json:"idempotency_key,omitempty"`
-	ExpectedVersion *int                    `json:"expected_version,omitempty"`
-	Actor           CompetitionCommandActor `json:"actor,omitempty"`
-	SessionID       uuid.UUID               `json:"session_id,omitempty"`
-	TeamID          uuid.UUID               `json:"team_id,omitempty"`
-	MatchID         uuid.UUID               `json:"match_id,omitempty"`
-	UserID          uuid.UUID               `json:"user_id,omitempty"`
-	CreateSession   *CreateSessionInput     `json:"create_session,omitempty"`
-	CreateTeam      *CreateTeamInput        `json:"create_team,omitempty"`
-	QueueMember     *QueueMemberInput       `json:"queue_member,omitempty"`
-	RosterMember    *AddRosterMemberInput   `json:"roster_member,omitempty"`
-	CreateMatch     *CreateMatchInput       `json:"create_match,omitempty"`
-	MatchResult     *RecordMatchResultInput `json:"match_result,omitempty"`
+	Name                   CommandName                  `json:"name"`
+	DryRun                 bool                         `json:"dry_run"`
+	IdempotencyKey         string                       `json:"idempotency_key,omitempty"`
+	ExpectedVersion        *int                         `json:"expected_version,omitempty"`
+	Actor                  CompetitionCommandActor      `json:"actor,omitempty"`
+	SessionID              uuid.UUID                    `json:"session_id,omitempty"`
+	TeamID                 uuid.UUID                    `json:"team_id,omitempty"`
+	MatchID                uuid.UUID                    `json:"match_id,omitempty"`
+	TournamentID           uuid.UUID                    `json:"tournament_id,omitempty"`
+	BracketID              uuid.UUID                    `json:"bracket_id,omitempty"`
+	TeamSnapshotID         uuid.UUID                    `json:"team_snapshot_id,omitempty"`
+	MatchBindingID         uuid.UUID                    `json:"match_binding_id,omitempty"`
+	UserID                 uuid.UUID                    `json:"user_id,omitempty"`
+	CreateSession          *CreateSessionInput          `json:"create_session,omitempty"`
+	CreateTeam             *CreateTeamInput             `json:"create_team,omitempty"`
+	QueueMember            *QueueMemberInput            `json:"queue_member,omitempty"`
+	RosterMember           *AddRosterMemberInput        `json:"roster_member,omitempty"`
+	CreateMatch            *CreateMatchInput            `json:"create_match,omitempty"`
+	MatchResult            *RecordMatchResultInput      `json:"match_result,omitempty"`
+	CreateTournament       *CreateTournamentInput       `json:"create_tournament,omitempty"`
+	SeedTournament         *SeedTournamentInput         `json:"seed_tournament,omitempty"`
+	LockTournamentTeam     *LockTournamentTeamInput     `json:"lock_tournament_team,omitempty"`
+	BindTournamentMatch    *BindTournamentMatchInput    `json:"bind_tournament_match,omitempty"`
+	AdvanceTournamentRound *AdvanceTournamentRoundInput `json:"advance_tournament_round,omitempty"`
 }
 
 type CompetitionCommandActor struct {
@@ -169,6 +189,11 @@ var commandDefinitions = []CompetitionCommandDefinition{
 	{Name: CommandDisputeMatchResult, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "result_version", Description: "Mark the canonical match result as disputed."},
 	{Name: CommandCorrectMatchResult, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "result_version", Description: "Create a corrected canonical result that supersedes the previous result."},
 	{Name: CommandVoidMatchResult, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "result_version", Description: "Void the canonical match result so ratings cannot consume it."},
+	{Name: CommandCreateTournament, RequiredCapability: authz.CapabilityCompetitionStructureManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Create an internal staff-only tournament container and bracket."},
+	{Name: CommandSeedTournament, RequiredCapability: authz.CapabilityCompetitionStructureManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "tournament_version", Description: "Record deterministic tournament seed facts from APOLLO team truth."},
+	{Name: CommandLockTournamentTeam, RequiredCapability: authz.CapabilityCompetitionStructureManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "tournament_version", Description: "Lock an immutable tournament team snapshot from APOLLO roster truth."},
+	{Name: CommandBindTournamentMatch, RequiredCapability: authz.CapabilityCompetitionStructureManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "tournament_version", Description: "Bind a tournament round slot to an APOLLO competition match."},
+	{Name: CommandAdvanceTournamentRound, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "tournament_version", Description: "Advance a tournament round from finalized or corrected canonical result truth."},
 }
 
 func CompetitionCommandDefinitions() []CompetitionCommandDefinition {
@@ -314,6 +339,10 @@ func (s *Service) ExecuteCommand(ctx context.Context, command CompetitionCommand
 			}
 		}
 		version := session.QueueVersion
+		outcome.ActualVersion = &version
+	}
+	if tournament, ok := result.(Tournament); ok {
+		version := tournament.TournamentVersion
 		outcome.ActualVersion = &version
 	}
 	if preview, ok := result.(ares.CompetitionMatchPreview); ok {
@@ -473,6 +502,54 @@ func validateCompetitionCommand(command CompetitionCommand, definition Competiti
 		if command.ExpectedVersion == nil || *command.ExpectedVersion < 0 {
 			return ErrCommandExpectedVersion
 		}
+	case CommandCreateTournament:
+		if command.CreateTournament == nil {
+			return ErrCommandCreateTournamentInput
+		}
+	case CommandSeedTournament:
+		if err := requireTournamentID(command); err != nil {
+			return err
+		}
+		if command.ExpectedVersion == nil || *command.ExpectedVersion <= 0 {
+			return ErrCommandExpectedVersion
+		}
+		if command.SeedTournament == nil {
+			return ErrCommandSeedTournamentInput
+		}
+		command.SeedTournament.ExpectedTournamentVersion = *command.ExpectedVersion
+	case CommandLockTournamentTeam:
+		if err := requireTournamentID(command); err != nil {
+			return err
+		}
+		if command.ExpectedVersion == nil || *command.ExpectedVersion <= 0 {
+			return ErrCommandExpectedVersion
+		}
+		if command.LockTournamentTeam == nil {
+			return ErrCommandLockTournamentTeamInput
+		}
+		command.LockTournamentTeam.ExpectedTournamentVersion = *command.ExpectedVersion
+	case CommandBindTournamentMatch:
+		if err := requireTournamentID(command); err != nil {
+			return err
+		}
+		if command.ExpectedVersion == nil || *command.ExpectedVersion <= 0 {
+			return ErrCommandExpectedVersion
+		}
+		if command.BindTournamentMatch == nil {
+			return ErrCommandBindTournamentMatchInput
+		}
+		command.BindTournamentMatch.ExpectedTournamentVersion = *command.ExpectedVersion
+	case CommandAdvanceTournamentRound:
+		if err := requireTournamentID(command); err != nil {
+			return err
+		}
+		if command.ExpectedVersion == nil || *command.ExpectedVersion <= 0 {
+			return ErrCommandExpectedVersion
+		}
+		if command.AdvanceTournamentRound == nil {
+			return ErrCommandAdvanceTournamentRoundInput
+		}
+		command.AdvanceTournamentRound.ExpectedTournamentVersion = *command.ExpectedVersion
 	default:
 		return ErrCommandUnsupported
 	}
@@ -486,7 +563,22 @@ func requireSessionID(command CompetitionCommand) error {
 	return nil
 }
 
+func requireTournamentID(command CompetitionCommand) error {
+	if command.TournamentID == uuid.Nil {
+		return ErrCommandTournamentIDRequired
+	}
+	return nil
+}
+
 func (s *Service) commandActualVersion(ctx context.Context, command CompetitionCommand) (*int, error) {
+	if command.TournamentID != uuid.Nil {
+		tournament, err := s.loadTournament(ctx, command.TournamentID)
+		if err != nil {
+			return nil, err
+		}
+		version := tournament.TournamentVersion
+		return &version, nil
+	}
 	if command.MatchID != uuid.Nil {
 		match, err := s.repository.GetMatchByID(ctx, command.MatchID)
 		if err != nil {
@@ -516,6 +608,14 @@ func commandResource(command CompetitionCommand) *CompetitionResourceRef {
 	switch {
 	case command.MatchID != uuid.Nil:
 		return &CompetitionResourceRef{Type: "competition_match", ID: command.MatchID}
+	case command.MatchBindingID != uuid.Nil:
+		return &CompetitionResourceRef{Type: "competition_tournament_match_binding", ID: command.MatchBindingID}
+	case command.TeamSnapshotID != uuid.Nil:
+		return &CompetitionResourceRef{Type: "competition_tournament_team_snapshot", ID: command.TeamSnapshotID}
+	case command.BracketID != uuid.Nil:
+		return &CompetitionResourceRef{Type: "competition_tournament_bracket", ID: command.BracketID}
+	case command.TournamentID != uuid.Nil:
+		return &CompetitionResourceRef{Type: "competition_tournament", ID: command.TournamentID}
 	case command.TeamID != uuid.Nil:
 		return &CompetitionResourceRef{Type: "competition_team", ID: command.TeamID}
 	case command.SessionID != uuid.Nil:
@@ -592,6 +692,24 @@ func (s *Service) applyCompetitionCommand(ctx context.Context, command Competiti
 		return s.CorrectMatchResult(ctx, actor, command.SessionID, command.MatchID, input)
 	case CommandVoidMatchResult:
 		return s.VoidMatchResult(ctx, actor, command.SessionID, command.MatchID, *command.ExpectedVersion)
+	case CommandCreateTournament:
+		return s.CreateTournament(ctx, actor, *command.CreateTournament)
+	case CommandSeedTournament:
+		input := *command.SeedTournament
+		input.ExpectedTournamentVersion = *command.ExpectedVersion
+		return s.SeedTournament(ctx, actor, command.TournamentID, input)
+	case CommandLockTournamentTeam:
+		input := *command.LockTournamentTeam
+		input.ExpectedTournamentVersion = *command.ExpectedVersion
+		return s.LockTournamentTeam(ctx, actor, command.TournamentID, input)
+	case CommandBindTournamentMatch:
+		input := *command.BindTournamentMatch
+		input.ExpectedTournamentVersion = *command.ExpectedVersion
+		return s.BindTournamentMatch(ctx, actor, command.TournamentID, input)
+	case CommandAdvanceTournamentRound:
+		input := *command.AdvanceTournamentRound
+		input.ExpectedTournamentVersion = *command.ExpectedVersion
+		return s.AdvanceTournamentRound(ctx, actor, command.TournamentID, input)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrCommandUnsupported, command.Name)
 	}

@@ -81,6 +81,8 @@ type PlannerManager interface {
 type CompetitionManager interface {
 	ListSessions(ctx context.Context) ([]competition.SessionSummary, error)
 	GetSession(ctx context.Context, sessionID uuid.UUID) (competition.Session, error)
+	ListTournaments(ctx context.Context) ([]competition.TournamentSummary, error)
+	GetTournament(ctx context.Context, tournamentID uuid.UUID) (competition.Tournament, error)
 	ListMemberStats(ctx context.Context, userID uuid.UUID) ([]competition.MemberStat, error)
 	CompetitionReadiness(actor competition.StaffActor) competition.CompetitionCommandReadiness
 	ExecuteCommand(ctx context.Context, command competition.CompetitionCommand) (competition.CompetitionCommandOutcome, error)
@@ -102,6 +104,11 @@ type CompetitionManager interface {
 	DisputeMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, expectedResultVersion int) (competition.Session, error)
 	CorrectMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, input competition.RecordMatchResultInput) (competition.Session, error)
 	VoidMatchResult(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, matchID uuid.UUID, expectedResultVersion int) (competition.Session, error)
+	CreateTournament(ctx context.Context, actor competition.StaffActor, input competition.CreateTournamentInput) (competition.Tournament, error)
+	SeedTournament(ctx context.Context, actor competition.StaffActor, tournamentID uuid.UUID, input competition.SeedTournamentInput) (competition.Tournament, error)
+	LockTournamentTeam(ctx context.Context, actor competition.StaffActor, tournamentID uuid.UUID, input competition.LockTournamentTeamInput) (competition.Tournament, error)
+	BindTournamentMatch(ctx context.Context, actor competition.StaffActor, tournamentID uuid.UUID, input competition.BindTournamentMatchInput) (competition.Tournament, error)
+	AdvanceTournamentRound(ctx context.Context, actor competition.StaffActor, tournamentID uuid.UUID, input competition.AdvanceTournamentRoundInput) (competition.Tournament, error)
 }
 
 type CompetitionHistoryReader interface {
@@ -275,6 +282,15 @@ type recordCompetitionMatchResultRequest struct {
 
 type competitionMatchResultTransitionRequest struct {
 	ExpectedResultVersion *int `json:"expected_result_version"`
+}
+
+type createCompetitionTournamentRequest struct {
+	DisplayName         string  `json:"display_name"`
+	Format              string  `json:"format"`
+	SportKey            string  `json:"sport_key"`
+	FacilityKey         string  `json:"facility_key"`
+	ZoneKey             *string `json:"zone_key"`
+	ParticipantsPerSide int     `json:"participants_per_side"`
 }
 
 type scheduleBlockMutationRequest struct {
@@ -799,6 +815,136 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, sessions)
+		}))
+		authenticated.Get("/api/v1/competition/tournaments", withCompetitionAccess(authz.CapabilityCompetitionRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ competition.StaffActor) {
+			tournaments, err := deps.Competition.ListTournaments(r.Context())
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, tournaments)
+		}))
+		authenticated.Post("/api/v1/competition/tournaments", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			var request createCompetitionTournamentRequest
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			tournament, err := deps.Competition.CreateTournament(r.Context(), actor, competition.CreateTournamentInput{
+				DisplayName:         request.DisplayName,
+				Format:              request.Format,
+				SportKey:            request.SportKey,
+				FacilityKey:         request.FacilityKey,
+				ZoneKey:             request.ZoneKey,
+				ParticipantsPerSide: request.ParticipantsPerSide,
+			})
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, tournament)
+		}))
+		authenticated.Get("/api/v1/competition/tournaments/{tournamentID}", withCompetitionAccess(authz.CapabilityCompetitionRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ competition.StaffActor) {
+			tournamentID, err := parseUUIDParam(r, "tournamentID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			tournament, err := deps.Competition.GetTournament(r.Context(), tournamentID)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, tournament)
+		}))
+		authenticated.Post("/api/v1/competition/tournaments/{tournamentID}/seed", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			tournamentID, err := parseUUIDParam(r, "tournamentID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request competition.SeedTournamentInput
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			tournament, err := deps.Competition.SeedTournament(r.Context(), actor, tournamentID, request)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, tournament)
+		}))
+		authenticated.Post("/api/v1/competition/tournaments/{tournamentID}/teams/lock", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			tournamentID, err := parseUUIDParam(r, "tournamentID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request competition.LockTournamentTeamInput
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			tournament, err := deps.Competition.LockTournamentTeam(r.Context(), actor, tournamentID, request)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, tournament)
+		}))
+		authenticated.Post("/api/v1/competition/tournaments/{tournamentID}/matches/bind", withCompetitionAccess(authz.CapabilityCompetitionStructureManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			tournamentID, err := parseUUIDParam(r, "tournamentID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request competition.BindTournamentMatchInput
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			tournament, err := deps.Competition.BindTournamentMatch(r.Context(), actor, tournamentID, request)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, tournament)
+		}))
+		authenticated.Post("/api/v1/competition/tournaments/{tournamentID}/rounds/advance", withCompetitionAccess(authz.CapabilityCompetitionLiveManage, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			tournamentID, err := parseUUIDParam(r, "tournamentID")
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			var request competition.AdvanceTournamentRoundInput
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			tournament, err := deps.Competition.AdvanceTournamentRound(r.Context(), actor, tournamentID, request)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, tournament)
 		}))
 		authenticated.Get("/api/v1/competition/member-stats", func(w http.ResponseWriter, r *http.Request) {
 			principal := principalFromContext(r.Context())
@@ -2491,6 +2637,11 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 	case errors.Is(err, competition.ErrSessionNotFound),
 		errors.Is(err, competition.ErrTeamNotFound),
 		errors.Is(err, competition.ErrMatchNotFound),
+		errors.Is(err, competition.ErrTournamentNotFound),
+		errors.Is(err, competition.ErrTournamentBracketNotFound),
+		errors.Is(err, competition.ErrTournamentSeedNotFound),
+		errors.Is(err, competition.ErrTournamentTeamSnapshotNotFound),
+		errors.Is(err, competition.ErrTournamentMatchBindingNotFound),
 		errors.Is(err, competition.ErrQueueIntentNotFound),
 		errors.Is(err, competition.ErrUserNotFound),
 		errors.Is(err, competition.ErrSportNotFound):
@@ -2500,6 +2651,7 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 		errors.Is(err, competition.ErrCommandSessionIDRequired),
 		errors.Is(err, competition.ErrCommandTeamIDRequired),
 		errors.Is(err, competition.ErrCommandMatchIDRequired),
+		errors.Is(err, competition.ErrCommandTournamentIDRequired),
 		errors.Is(err, competition.ErrCommandUserIDRequired),
 		errors.Is(err, competition.ErrCommandExpectedVersion),
 		errors.Is(err, competition.ErrCommandCreateSessionInput),
@@ -2508,7 +2660,19 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 		errors.Is(err, competition.ErrCommandQueueMemberInput),
 		errors.Is(err, competition.ErrCommandCreateMatchInput),
 		errors.Is(err, competition.ErrCommandMatchResultInput),
+		errors.Is(err, competition.ErrCommandCreateTournamentInput),
+		errors.Is(err, competition.ErrCommandSeedTournamentInput),
+		errors.Is(err, competition.ErrCommandLockTournamentTeamInput),
+		errors.Is(err, competition.ErrCommandBindTournamentMatchInput),
+		errors.Is(err, competition.ErrCommandAdvanceTournamentRoundInput),
 		errors.Is(err, competition.ErrSessionNameRequired),
+		errors.Is(err, competition.ErrTournamentNameRequired),
+		errors.Is(err, competition.ErrTournamentFormatUnsupported),
+		errors.Is(err, competition.ErrTournamentVersionRequired),
+		errors.Is(err, competition.ErrTournamentSeedInvalid),
+		errors.Is(err, competition.ErrTournamentSeedCount),
+		errors.Is(err, competition.ErrTournamentRoundInvalid),
+		errors.Is(err, competition.ErrTournamentAdvanceReason),
 		errors.Is(err, competition.ErrParticipantsPerSide),
 		errors.Is(err, competition.ErrFacilityUnsupported),
 		errors.Is(err, competition.ErrZoneUnsupported),
@@ -2558,7 +2722,17 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 		errors.Is(err, competition.ErrMatchResultNotCanonical),
 		errors.Is(err, competition.ErrMatchResultNotFinal),
 		errors.Is(err, competition.ErrMatchResultVoided),
-		errors.Is(err, competition.ErrMatchResultTeamMismatch):
+		errors.Is(err, competition.ErrMatchResultTeamMismatch),
+		errors.Is(err, competition.ErrTournamentStatus),
+		errors.Is(err, competition.ErrDuplicateTournament),
+		errors.Is(err, competition.ErrTournamentStateStale),
+		errors.Is(err, competition.ErrTournamentSeedDuplicate),
+		errors.Is(err, competition.ErrTournamentTeamSnapshotLocked),
+		errors.Is(err, competition.ErrTournamentTeamMismatch),
+		errors.Is(err, competition.ErrTournamentMatchBindingDuplicate),
+		errors.Is(err, competition.ErrTournamentAdvanceDuplicate),
+		errors.Is(err, competition.ErrTournamentAdvanceResultRequired),
+		errors.Is(err, competition.ErrTournamentAdvanceResultOutcome):
 		return http.StatusConflict
 	default:
 		if outcome.Status == competition.CommandStatusDenied {
@@ -2574,6 +2748,11 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrTeamNotFound),
 		errors.Is(err, competition.ErrMatchNotFound),
 		errors.Is(err, competition.ErrMatchResultNotFound),
+		errors.Is(err, competition.ErrTournamentNotFound),
+		errors.Is(err, competition.ErrTournamentBracketNotFound),
+		errors.Is(err, competition.ErrTournamentSeedNotFound),
+		errors.Is(err, competition.ErrTournamentTeamSnapshotNotFound),
+		errors.Is(err, competition.ErrTournamentMatchBindingNotFound),
 		errors.Is(err, competition.ErrQueueIntentNotFound),
 		errors.Is(err, competition.ErrRosterMemberNotFound),
 		errors.Is(err, competition.ErrUserNotFound),
@@ -2585,6 +2764,13 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, authz.ErrTrustedSurfaceInvalid):
 		writeError(w, http.StatusForbidden, err)
 	case errors.Is(err, competition.ErrSessionNameRequired),
+		errors.Is(err, competition.ErrTournamentNameRequired),
+		errors.Is(err, competition.ErrTournamentFormatUnsupported),
+		errors.Is(err, competition.ErrTournamentVersionRequired),
+		errors.Is(err, competition.ErrTournamentSeedInvalid),
+		errors.Is(err, competition.ErrTournamentSeedCount),
+		errors.Is(err, competition.ErrTournamentRoundInvalid),
+		errors.Is(err, competition.ErrTournamentAdvanceReason),
 		errors.Is(err, competition.ErrParticipantsPerSide),
 		errors.Is(err, competition.ErrFacilityUnsupported),
 		errors.Is(err, competition.ErrZoneUnsupported),
@@ -2632,7 +2818,17 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrMatchResultNotCanonical),
 		errors.Is(err, competition.ErrMatchResultNotFinal),
 		errors.Is(err, competition.ErrMatchResultVoided),
-		errors.Is(err, competition.ErrMatchResultTeamMismatch):
+		errors.Is(err, competition.ErrMatchResultTeamMismatch),
+		errors.Is(err, competition.ErrTournamentStatus),
+		errors.Is(err, competition.ErrDuplicateTournament),
+		errors.Is(err, competition.ErrTournamentStateStale),
+		errors.Is(err, competition.ErrTournamentSeedDuplicate),
+		errors.Is(err, competition.ErrTournamentTeamSnapshotLocked),
+		errors.Is(err, competition.ErrTournamentTeamMismatch),
+		errors.Is(err, competition.ErrTournamentMatchBindingDuplicate),
+		errors.Is(err, competition.ErrTournamentAdvanceDuplicate),
+		errors.Is(err, competition.ErrTournamentAdvanceResultRequired),
+		errors.Is(err, competition.ErrTournamentAdvanceResultOutcome):
 		writeError(w, http.StatusConflict, err)
 	default:
 		writeError(w, http.StatusInternalServerError, err)

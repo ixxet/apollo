@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS apollo.competition_tournament_events;
+DROP TABLE IF EXISTS apollo.competition_tournament_advancements;
+DROP TABLE IF EXISTS apollo.competition_tournament_match_bindings;
+DROP TABLE IF EXISTS apollo.competition_tournament_team_snapshot_members;
+DROP TABLE IF EXISTS apollo.competition_tournament_team_snapshots;
+DROP TABLE IF EXISTS apollo.competition_tournament_seeds;
+DROP TABLE IF EXISTS apollo.competition_tournament_brackets;
+DROP TABLE IF EXISTS apollo.competition_tournaments;
+DROP FUNCTION IF EXISTS apollo.reject_competition_tournament_fact_update();

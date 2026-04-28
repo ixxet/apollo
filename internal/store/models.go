@@ -407,6 +407,116 @@ type ApolloCompetitionTeamRosterMember struct {
 	CreatedAt                pgtype.Timestamptz
 }
 
+type ApolloCompetitionTournament struct {
+	ID                  uuid.UUID
+	OwnerUserID         uuid.UUID
+	DisplayName         string
+	Format              string
+	Visibility          string
+	SportKey            string
+	FacilityKey         string
+	ZoneKey             *string
+	ParticipantsPerSide int32
+	Status              string
+	TournamentVersion   int32
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	ArchivedAt          pgtype.Timestamptz
+}
+
+type ApolloCompetitionTournamentAdvancement struct {
+	ID                    uuid.UUID
+	TournamentID          uuid.UUID
+	BracketID             uuid.UUID
+	MatchBindingID        uuid.UUID
+	Round                 int32
+	WinningTeamSnapshotID uuid.UUID
+	LosingTeamSnapshotID  uuid.UUID
+	CompetitionMatchID    uuid.UUID
+	CanonicalResultID     uuid.UUID
+	AdvanceReason         string
+	AdvancedAt            pgtype.Timestamptz
+	CreatedAt             pgtype.Timestamptz
+}
+
+type ApolloCompetitionTournamentBracket struct {
+	ID           uuid.UUID
+	TournamentID uuid.UUID
+	BracketIndex int32
+	Format       string
+	Status       string
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type ApolloCompetitionTournamentEvent struct {
+	ID                       uuid.UUID
+	TournamentID             uuid.UUID
+	BracketID                pgtype.UUID
+	EventType                string
+	TournamentSeedID         pgtype.UUID
+	TeamSnapshotID           pgtype.UUID
+	MatchBindingID           pgtype.UUID
+	Round                    *int32
+	Seed                     *int32
+	AdvanceReason            *string
+	CompetitionSessionTeamID pgtype.UUID
+	CompetitionMatchID       pgtype.UUID
+	CanonicalResultID        pgtype.UUID
+	ActorUserID              pgtype.UUID
+	ActorRole                *string
+	ActorSessionID           pgtype.UUID
+	Capability               *string
+	TrustedSurfaceKey        *string
+	TrustedSurfaceLabel      *string
+	OccurredAt               pgtype.Timestamptz
+	CreatedAt                pgtype.Timestamptz
+}
+
+type ApolloCompetitionTournamentMatchBinding struct {
+	ID                    uuid.UUID
+	TournamentID          uuid.UUID
+	BracketID             uuid.UUID
+	Round                 int32
+	MatchNumber           int32
+	CompetitionMatchID    uuid.UUID
+	SideOneTeamSnapshotID uuid.UUID
+	SideTwoTeamSnapshotID uuid.UUID
+	BoundAt               pgtype.Timestamptz
+	CreatedAt             pgtype.Timestamptz
+}
+
+type ApolloCompetitionTournamentSeed struct {
+	ID                       uuid.UUID
+	TournamentID             uuid.UUID
+	BracketID                uuid.UUID
+	Seed                     int32
+	CompetitionSessionTeamID uuid.UUID
+	SeededAt                 pgtype.Timestamptz
+	CreatedAt                pgtype.Timestamptz
+}
+
+type ApolloCompetitionTournamentTeamSnapshot struct {
+	ID                       uuid.UUID
+	TournamentID             uuid.UUID
+	BracketID                uuid.UUID
+	TournamentSeedID         uuid.UUID
+	Seed                     int32
+	CompetitionSessionID     uuid.UUID
+	CompetitionSessionTeamID uuid.UUID
+	RosterHash               string
+	LockedAt                 pgtype.Timestamptz
+	CreatedAt                pgtype.Timestamptz
+}
+
+type ApolloCompetitionTournamentTeamSnapshotMember struct {
+	TeamSnapshotID uuid.UUID
+	UserID         uuid.UUID
+	DisplayName    string
+	SlotIndex      int32
+	CreatedAt      pgtype.Timestamptz
+}
+
 type ApolloEmailVerificationToken struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID

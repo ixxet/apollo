@@ -405,6 +405,13 @@ func newCompetitionCmd() *cobra.Command {
 	sessionCmd.AddCommand(newCompetitionSessionListCmd())
 	sessionCmd.AddCommand(newCompetitionSessionShowCmd())
 
+	tournamentCmd := &cobra.Command{
+		Use:   "tournament",
+		Short: "Read APOLLO internal tournament runtime truth.",
+	}
+	tournamentCmd.AddCommand(newCompetitionTournamentListCmd())
+	tournamentCmd.AddCommand(newCompetitionTournamentShowCmd())
+
 	commandCmd := &cobra.Command{
 		Use:   "command",
 		Short: "Run APOLLO competition command DTOs.",
@@ -413,6 +420,7 @@ func newCompetitionCmd() *cobra.Command {
 	commandCmd.AddCommand(newCompetitionCommandRunCmd())
 
 	competitionCmd.AddCommand(sessionCmd)
+	competitionCmd.AddCommand(tournamentCmd)
 	competitionCmd.AddCommand(commandCmd)
 	return competitionCmd
 }
@@ -488,6 +496,77 @@ func newCompetitionSessionShowCmd() *cobra.Command {
 	return cmd
 }
 
+func newCompetitionTournamentListCmd() *cobra.Command {
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List APOLLO internal tournaments.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			tournaments, err := service.ListTournaments(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, tournaments)
+			case "text":
+				return writeCompetitionTournamentListText(cmd, tournaments)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	return cmd
+}
+
+func newCompetitionTournamentShowCmd() *cobra.Command {
+	var tournamentID string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "show",
+		Short: "Show one APOLLO internal tournament.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			parsedTournamentID, err := uuid.Parse(strings.TrimSpace(tournamentID))
+			if err != nil {
+				return err
+			}
+			tournament, err := service.GetTournament(cmd.Context(), parsedTournamentID)
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, tournament)
+			case "text":
+				return writeCompetitionTournamentText(cmd, tournament)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&tournamentID, "tournament-id", "", "competition tournament id")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("tournament-id")
+	return cmd
+}
+
 func newCompetitionCommandReadinessCmd() *cobra.Command {
 	var actorUserID string
 	var actorSessionID string
@@ -537,6 +616,10 @@ func newCompetitionCommandRunCmd() *cobra.Command {
 	var sessionID string
 	var teamID string
 	var matchID string
+	var tournamentID string
+	var bracketID string
+	var teamSnapshotID string
+	var matchBindingID string
 	var userID string
 	var actorUserID string
 	var actorSessionID string
@@ -571,7 +654,7 @@ func newCompetitionCommandRunCmd() *cobra.Command {
 			if cmd.Flags().Changed("expected-version") {
 				command.ExpectedVersion = &expectedVersion
 			}
-			if err := applyCompetitionCommandIDFlags(&command, sessionID, teamID, matchID, userID); err != nil {
+			if err := applyCompetitionCommandIDFlags(&command, sessionID, teamID, matchID, tournamentID, bracketID, teamSnapshotID, matchBindingID, userID); err != nil {
 				return err
 			}
 			actor, err := parseCompetitionCommandActor(actorUserID, actorSessionID, actorRole, trustedSurfaceKey, trustedSurfaceLabel, dryRun)
@@ -607,6 +690,10 @@ func newCompetitionCommandRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "competition session id")
 	cmd.Flags().StringVar(&teamID, "team-id", "", "competition team id")
 	cmd.Flags().StringVar(&matchID, "match-id", "", "competition match id")
+	cmd.Flags().StringVar(&tournamentID, "tournament-id", "", "competition tournament id")
+	cmd.Flags().StringVar(&bracketID, "bracket-id", "", "competition tournament bracket id")
+	cmd.Flags().StringVar(&teamSnapshotID, "team-snapshot-id", "", "competition tournament team snapshot id")
+	cmd.Flags().StringVar(&matchBindingID, "match-binding-id", "", "competition tournament match binding id")
 	cmd.Flags().StringVar(&userID, "user-id", "", "competition user id")
 	cmd.Flags().StringVar(&actorUserID, "actor-user-id", "", "actor user id for attribution")
 	cmd.Flags().StringVar(&actorSessionID, "actor-session-id", "", "actor session id for attribution")
@@ -1241,7 +1328,7 @@ func parseCompetitionActor(actorUserID string, actorSessionID string, actorRole 
 	}, nil
 }
 
-func applyCompetitionCommandIDFlags(command *competition.CompetitionCommand, sessionID string, teamID string, matchID string, userID string) error {
+func applyCompetitionCommandIDFlags(command *competition.CompetitionCommand, sessionID string, teamID string, matchID string, tournamentID string, bracketID string, teamSnapshotID string, matchBindingID string, userID string) error {
 	if strings.TrimSpace(sessionID) != "" {
 		parsed, err := uuid.Parse(strings.TrimSpace(sessionID))
 		if err != nil {
@@ -1262,6 +1349,34 @@ func applyCompetitionCommandIDFlags(command *competition.CompetitionCommand, ses
 			return err
 		}
 		command.MatchID = parsed
+	}
+	if strings.TrimSpace(tournamentID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(tournamentID))
+		if err != nil {
+			return err
+		}
+		command.TournamentID = parsed
+	}
+	if strings.TrimSpace(bracketID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(bracketID))
+		if err != nil {
+			return err
+		}
+		command.BracketID = parsed
+	}
+	if strings.TrimSpace(teamSnapshotID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(teamSnapshotID))
+		if err != nil {
+			return err
+		}
+		command.TeamSnapshotID = parsed
+	}
+	if strings.TrimSpace(matchBindingID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(matchBindingID))
+		if err != nil {
+			return err
+		}
+		command.MatchBindingID = parsed
 	}
 	if strings.TrimSpace(userID) != "" {
 		parsed, err := uuid.Parse(strings.TrimSpace(userID))
@@ -1536,6 +1651,60 @@ func writeCompetitionSessionText(cmd *cobra.Command, session competition.Session
 		len(session.Teams),
 		len(session.Matches),
 		len(session.Queue),
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeCompetitionTournamentListText(cmd *cobra.Command, tournaments []competition.TournamentSummary) error {
+	for _, tournament := range tournaments {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"id=%s name=%q format=%s visibility=%s sport=%s facility=%s status=%s tournament_version=%d participants_per_side=%d\n",
+			tournament.ID,
+			tournament.DisplayName,
+			tournament.Format,
+			tournament.Visibility,
+			tournament.SportKey,
+			tournament.FacilityKey,
+			tournament.Status,
+			tournament.TournamentVersion,
+			tournament.ParticipantsPerSide,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeCompetitionTournamentText(cmd *cobra.Command, tournament competition.Tournament) error {
+	seedCount := 0
+	snapshotCount := 0
+	bindingCount := 0
+	advancementCount := 0
+	for _, bracket := range tournament.Brackets {
+		seedCount += len(bracket.Seeds)
+		snapshotCount += len(bracket.TeamSnapshots)
+		bindingCount += len(bracket.MatchBindings)
+		advancementCount += len(bracket.Advancements)
+	}
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"id=%s name=%q format=%s visibility=%s sport=%s facility=%s status=%s tournament_version=%d brackets=%d seeds=%d snapshots=%d bindings=%d advancements=%d\n",
+		tournament.ID,
+		tournament.DisplayName,
+		tournament.Format,
+		tournament.Visibility,
+		tournament.SportKey,
+		tournament.FacilityKey,
+		tournament.Status,
+		tournament.TournamentVersion,
+		len(tournament.Brackets),
+		seedCount,
+		snapshotCount,
+		bindingCount,
+		advancementCount,
 	); err != nil {
 		return err
 	}
