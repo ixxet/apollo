@@ -154,6 +154,10 @@ APOLLO currently has:
   legacy/OpenSkill values, deltas, accepted budgets, scenarios, and explicit
   delta flags from the same finalized/corrected canonical result order while
   leaving the legacy projection as the active read path.
+- ARES v2 proposal/match-preview foundation: explicit queue intent facts,
+  internal match-preview projections/events, deterministic match quality,
+  predicted win probability, and explanation codes over trusted APOLLO queue,
+  rating, result, session, and team projections.
 - Schedule substrate, booking request lifecycle, public-safe booking intake/status/availability.
 - Presence, visit, tap-link, facility streak, and ATHENA-backed ops overview surfaces.
 - Minimal member shell with existing API-backed routes.
@@ -176,12 +180,10 @@ APOLLO does not yet have:
 - Durable command idempotency storage or replay.
 - Universal command/dry-run coverage outside the supported Phase 3B.11
   competition command surface.
-- OpenSkill.
+- OpenSkill read-path switch.
 - Match tier classification.
 - Player consensus result voting.
 - Full proposal/approval workflow for disputes or corrections.
-- Rating-aware ARES.
-- Sport/mode/facility queue intent.
 - Calibration, decay, comeback bonus, upset bonus, climbing caps.
 - Cross-sport transfer.
 - Carry/tank/stability analytics.
@@ -528,7 +530,7 @@ Likelihood columns mean "likelihood of succeeding without damaging system agilit
 | Rating multipliers | Needs rating policy | High | High | High | Policy wrapper, not raw DB fields only |
 | Consensus voting | Needs result workflow change | Medium-high | High | High | Pending result state before completion |
 | Disputes/corrections | Needs new ledger | Medium-high | Very high | High | Add before public stakes |
-| Rating-aware ARES | Needs queue intent and rating reads | Medium-high | High | High | Sport/mode/facility queue intent first |
+| Rating-aware ARES | First proposal foundation closed in 3B.15 | Medium-high | High | High | Further widening still needs explicit packets; keep proposal-only |
 | Climbing cap | Needs rating policy | High | Medium | High | Policy wrapper with golden tests |
 | Calibration | Needs policy and status fields | High | Medium | High | First N matches provisional |
 | Inactivity decay | Needs job/audit | Medium-high | Medium | High | Sigma inflation only; audit every tick |
@@ -623,7 +625,7 @@ These are not public-stakes features. They can begin alongside Phase 1 when writ
 
 | Tracer | Module | Adds | Required gates |
 | --- | --- | --- | --- |
-| T29 | `internal/ares` | Sport/mode/facility queue intent and rating-aware previews | 4, 5, 6 |
+| T29 | `internal/ares` | Closed by 3B.15 as proposal-only sport/mode/facility queue intent and rating-aware preview foundation | 4, 5, 6 |
 | T30 | `internal/rating/calibration` | Provisional/hidden mu, boosted sigma shrink, comeback framing | 4 |
 | T31 | `internal/rating/decay` | Nightly sigma inflation for inactive players | 4, 6 |
 | T32 | `internal/competition/upset` | Win probability, upset flag, small underdog bonus | 4, 5 |
@@ -887,20 +889,19 @@ Durability: very high. This is foundational.
 
 ### ARES V2
 
-ARES today pairs eligible joined lobby members by stable user ID. That is intentionally narrow.
+The historical lobby preview still pairs eligible joined lobby members by stable
+user ID. Phase 3B.15 adds the separate competition ARES v2 proposal foundation
+over explicit queue intent and rating facts.
 
 Best approach:
 
-- Add explicit matchmaking intent:
-  - sport
-  - mode
-  - facility
-  - tier
-  - queue type
-  - mentor/practice/ranked flags
-- Read ratings from `internal/rating`.
-- Produce previews with quality/explanations.
-- Do not mutate competition execution state on preview.
+- Keep explicit matchmaking intent facts for sport, mode, facility, and tier.
+- Read active ratings from the versioned legacy projection while OpenSkill
+  remains internal comparison only.
+- Produce previews with APOLLO-computed quality, win probability, and
+  explanations.
+- Do not mutate competition execution state, result truth, or rating truth on
+  preview.
 
 Durability: high if ARES remains proposal engine, not result/rating owner.
 
@@ -1206,6 +1207,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-27 | Phase 3B.13 shipped legacy rating foundation only: current rating math is explicit, versioned, golden-tested, auditable, bound to finalized/corrected canonical results, and stored with deterministic projection watermarks. OpenSkill remains deferred to 3B.14. | 3B.13 closeout. |
 | 2026-04-28 | Phase 3B.14 shipped OpenSkill dual-run comparison only: internal OpenSkill comparison rows/events, legacy/OpenSkill deltas, accepted budgets, scenarios, and delta flags are real while the legacy rating projection remains the active read path. OpenSkill cutover, ARES v2, analytics, tournaments, public surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.14 closeout. |
 | 2026-04-28 | Phase 3B.14.1 cohesion hardening fixed OpenSkill delta flag/storage boundary coherence, added focused boundary coverage, and corrected stale 3B.14/SemVer docs truth. OpenSkill remains internal dual-run only, the legacy read path remains active, canonical-result-only rating guards still hold, comparison facts remain deterministic/auditable, and no Hestia 3B.14 comparison leak was proven. | 3B.14.1 hardening closeout. |
+| 2026-04-28 | Phase 3B.15 shipped ARES v2 proposal/match-preview foundation only: queue intent facts, internal preview projections/events, match quality, predicted win probability, and explanation codes are real over trusted APOLLO projections while ARES remains a proposal engine and not a result, rating, booking, or public competition owner. OpenSkill read-path switch, analytics, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.15 closeout. |
 
 ## Kill Criteria
 
@@ -1233,7 +1235,8 @@ Kill or defer a tracer if any of these are true:
    projection watermarks.
 3. Closed by 3B.14: OpenSkill dual-run comparison beside the legacy baseline,
    with read-path cutover still deferred until comparison evidence is accepted.
-4. Next: ARES v2 only after trusted rating evidence remains coherent.
+4. Closed by 3B.15: ARES v2 proposal/match-preview foundation over trusted
+   APOLLO queue intent and rating facts.
 5. Later: analytics, tournament runtime, public competition surfaces, and game
    identity only after their gates are met.
 
@@ -1324,7 +1327,8 @@ Still deferred:
 - Result lifecycle/trust: Phase 3B.12.
 - Rating extraction: Phase 3B.13.
 - OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
-- ARES v2: Phase 3B.15.
+- ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
+  requires a separate packet.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
@@ -1373,7 +1377,8 @@ Verification notes:
 Still deferred:
 
 - OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
-- ARES v2: Phase 3B.15.
+- ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
+  requires a separate packet.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
@@ -1383,7 +1388,7 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Next packet if launch expansion continues: 3B.15 ARES v2.
+Next packet if launch expansion continues: 3B.16 Competition Analytics Foundation.
 
 ## 3B.12.1 Cohesion Hardening Addendum
 
@@ -1419,7 +1424,8 @@ Verification notes:
 Still deferred:
 
 - OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
-- ARES v2: Phase 3B.15.
+- ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
+  requires a separate packet.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
@@ -1429,7 +1435,7 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Next packet if launch expansion continues: 3B.15 ARES v2.
+Next packet if launch expansion continues: 3B.16 Competition Analytics Foundation.
 
 ## 3B.13 Rating Foundation Addendum
 
@@ -1460,7 +1466,8 @@ engine/policy versions until a later packet explicitly proves the cutover.
 Still deferred:
 
 - OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
-- ARES v2: Phase 3B.15.
+- ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
+  requires a separate packet.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
@@ -1496,7 +1503,8 @@ no Themis or Hestia runtime changes. It shipped only internal comparison truth:
 Still deferred:
 
 - OpenSkill read-path switch remains deferred.
-- ARES v2: Phase 3B.15.
+- ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
+  requires a separate packet.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
@@ -1541,7 +1549,54 @@ Confirmed unchanged:
 Still deferred:
 
 - OpenSkill read-path switch remains deferred.
-- ARES v2: Phase 3B.15.
+- ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
+  requires a separate packet.
+- Analytics: Phase 3B.16.
+- Tournament runtime: Phase 3B.17.
+- Social safety: Phase 3B.18.
+- Public competition surfaces: Phase 3B.19.
+- CP, badges, rivalry, and squads: Phase 3B.20.
+- Project-wide SemVer governance, proposal workflow, recurring schedule, court
+  splitting, booking/commercial work, browser trusted-surface token, and
+  public/Hestia competition expansion remain out of scope until separately
+  reopened.
+
+## 3B.15 ARES v2 Addendum
+
+Date: 2026-04-28
+
+Phase 3B.15 `ARES v2` is closed in APOLLO repo/runtime truth, with no Themis
+or Hestia runtime changes and deployed truth unchanged. It shipped only the
+internal proposal/match-preview foundation:
+
+- APOLLO stores explicit competition queue intent facts with
+  `queue_intent_id`, `facility_key`, `sport_key`, `mode_key`, and `tier`.
+- APOLLO records `competition.queue_intent.updated` facts for queue intent
+  create/update/withdrawal changes.
+- APOLLO generates deterministic internal match-preview proposals from trusted
+  APOLLO queue, rating, result, session, and team projections.
+- APOLLO computes `match_quality`, `predicted_win_probability`, and explicit
+  `explanation_code` / `explanation_codes` server-side.
+- APOLLO records `competition.match_preview.generated` facts and preview member
+  projections for internal inspection.
+- The command foundation can update queue intent tier facts and generate match
+  previews through APOLLO command contracts.
+
+Confirmed unchanged:
+
+- ARES remains a proposal engine only.
+- ARES does not own match lifecycle, canonical result truth, result
+  finalization/correction/voiding, or active rating truth.
+- `apollo.competition_member_ratings` remains the legacy active rating read
+  path.
+- OpenSkill remains internal dual-run comparison only.
+- Themis and Hestia do not compute match quality, predicted win probability,
+  explanation codes, or rating truth.
+- Hestia has no public/member matchmaking expansion from this packet.
+
+Still deferred:
+
+- OpenSkill read-path switch remains deferred.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.

@@ -64,8 +64,10 @@ recommendations, and the ARES matchmaking subsystem.
 > rating events/projection watermarks, and keeps ratings limited to finalized
 > or corrected canonical results. Phase 3B.14 runs OpenSkill beside that
 > legacy baseline as internal comparison truth only; the active read path
-> remains legacy while ARES v2, analytics, tournaments, public competition
-> surfaces, and game identity stay deferred.
+> remains legacy. Phase 3B.15 adds ARES v2 as an internal explainable
+> proposal/match-preview foundation over APOLLO queue intent and legacy rating
+> facts only, while OpenSkill read-path switch, analytics, tournaments, public
+> competition surfaces, and game identity stay deferred.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -172,7 +174,7 @@ flowchart LR
 | Competition queue open / join / remove | `POST /api/v1/competition/sessions/{id}/queue/open`, `.../queue/members`, and `.../queue/members/{userID}/remove` | Real in repo/runtime | Live-manage mutations require `competition_live_manage` plus trusted-surface proof over explicit joined lobby membership plus current eligibility |
 | Competition assignment / lifecycle / result | `POST /api/v1/competition/sessions/{id}/assignment`, `.../start`, `.../archive`, `.../matches/{matchID}/result`, and `.../result/{finalize,dispute,correct,void}` | Real in repo/runtime | Deterministic live-manage mutations require `competition_live_manage` plus trusted-surface proof; result commands require `expected_result_version`, preserve canonical result identity, and record lifecycle facts instead of silently editing history |
 | Competition command readiness | `GET /api/v1/competition/commands/readiness` | Real in repo/runtime | Authenticated APOLLO-backed readiness/capability truth for staff competition ops; unsupported roles receive an explicit unsupported payload instead of fake capability |
-| Competition command execution | `POST /api/v1/competition/commands` and `apollo competition command run` | Real in repo/runtime | Shared command/outcome/dry-run contract over existing competition services; live commands require role capability plus trusted-surface proof, idempotency support is reported explicitly, and result lifecycle commands support dry-run/apply with result-version guards |
+| Competition command execution | `POST /api/v1/competition/commands` and `apollo competition command run` | Real in repo/runtime | Shared command/outcome/dry-run contract over existing competition services; live commands require role capability plus trusted-surface proof, idempotency support is reported explicitly, result lifecycle commands support dry-run/apply with result-version guards, and the internal command path can update queue intent tier facts and generate ARES v2 match previews |
 | Ops facility overview | `GET /api/v1/ops/facilities/{facilityKey}/overview?from=<RFC3339>&until=<RFC3339>[&bucket_minutes=N]` | Real in repo/runtime | Requires `ops_read`, is supervisor/manager/owner only, composes APOLLO schedule calendar truth with ATHENA current occupancy and bounded analytics, and returns sanitized aggregate ops truth without booking writes, raw tap hashes, or identity-level presence detail |
 | Staff schedule blocks | `GET /api/v1/schedule/blocks?facility_key=...`, `POST /api/v1/schedule/blocks`, `POST /api/v1/schedule/blocks/{id}/cancel` | Real in repo/runtime | Reads require `schedule_read` and return `X-Apollo-Schedule-Can-Manage`; writes require `schedule_manage` plus trusted-surface proof, create typed APOLLO schedule blocks through existing conflict rules, and generic cancel requires `expected_version` while refusing booking-linked reservations |
 | Booking request list/detail | `GET /api/v1/booking/requests`, `GET /api/v1/booking/requests/{id}` | Real in repo/runtime | Requires `booking_read`; supervisor, manager, and owner can read request state, source/channel, and APOLLO-computed availability without payment fields |
@@ -229,6 +231,7 @@ eligibility, or any social state.
 | `apollo.public_booking_receipts` | Real in repo/runtime | Stores opaque public receipt codes and optional public-safe customer messages linked internally to booking requests without exposing request UUIDs or internal notes |
 | `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth |
 | `apollo.competition_match_results`, `apollo.competition_match_result_sides`, `apollo.competition_lifecycle_events`, `apollo.competition_rating_events`, `apollo.competition_rating_comparisons`, and `apollo.competition_member_ratings` | Real in repo/runtime | Stores canonical result identity, recorded/finalized/disputed/corrected/voided lifecycle facts, correction supersession, immutable result sides, auditable legacy rating compute/policy/rebuild events, internal OpenSkill dual-run comparison facts/events, and current versioned legacy rating projections derived only from finalized or corrected canonical results; OpenSkill is not the active read path |
+| `apollo.competition_queue_intents`, `apollo.competition_queue_intent_events`, `apollo.competition_match_previews`, `apollo.competition_match_preview_members`, and `apollo.competition_match_preview_events` | Real in repo/runtime | Stores explicit internal queue intent facts and deterministic ARES v2 match-preview proposal facts, including facility/sport/mode/tier, match quality, predicted win probability, and explanation code output; this is proposal truth only and does not own match lifecycle, results, ratings, booking, or public competition truth |
 | `apollo.competition_staff_action_attributions` | Real in repo/runtime | Stores durable actor/session/role/capability/trusted-surface attribution for successful staff-sensitive competition mutations |
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
 | `apollo.recommendations` | Schema authored | Tracer 7 recommendation reads are derived at read time; persisted recommendation records remain deferred |
@@ -267,13 +270,15 @@ schedule blocks and cancel eligible schedule-managed blocks through existing
 trusted-surface schedule APIs, and booking-linked reservations remain owned by
 the booking request lifecycle rather than the generic schedule-control path.
 
-Phase 3B.14 closes only OpenSkill dual-run comparison: OpenSkill values,
-legacy values, deltas, accepted budgets, scenarios, and delta flags are
-internal audit/comparison facts. The active rating read path remains the
-legacy projection. OpenSkill read-path switch remains deferred, ARES v2 to
-Phase 3B.15, analytics to Phase 3B.16, tournament runtime to Phase 3B.17,
-public competition surfaces to Phase 3B.19, and CP, badges, rivalry, and
-squads to Phase 3B.20.
+Phase 3B.15 closes only the ARES v2 proposal/match-preview foundation:
+queue intent facts, internal preview projections/events, APOLLO-computed
+match quality, APOLLO-computed predicted win probability, and explicit
+explanation codes are real. ARES remains a proposal engine and does not own
+match lifecycle, canonical results, rating truth, booking/commercial truth, or
+public competition truth. The active rating read path remains the legacy
+projection; OpenSkill read-path switch remains deferred, analytics to Phase
+3B.16, tournament runtime to Phase 3B.17, public competition surfaces to Phase
+3B.19, and CP, badges, rivalry, and squads to Phase 3B.20.
 
 ## Launch Expansion Source Of Truth
 
@@ -329,6 +334,7 @@ Current ruling:
 | Competition lifecycle/result trust | canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, lifecycle events, and finalized/corrected-only rating guards | Closure-clean on `main` | `Phase 3B.12` | Keep APOLLO as canonical result truth and Themis as a consumer; legacy rating foundation is closed separately in 3B.13 while OpenSkill, ARES v2, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, and deploy claims remain deferred |
 | Legacy rating foundation | extracted APOLLO legacy rating engine/policy identifiers, golden cases, rating compute/policy/rebuild events, source result IDs, rating event IDs, and deterministic projection watermarks | Closure-clean on `main` | `Phase 3B.13` | Keep current public/member rating reads unchanged and consume finalized/corrected canonical results only; OpenSkill, ARES v2, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, and deploy claims remain deferred |
 | OpenSkill dual-run comparison | OpenSkill values computed beside legacy rating outputs, internal comparison rows/events, delta budgets, delta flags, and deterministic comparison rebuilds over finalized/corrected canonical result truth | Closure-clean on `main` | `Phase 3B.14` | Keep the legacy rating projection as the active read path; OpenSkill cutover, ARES v2, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, and deploy claims remain deferred |
+| ARES v2 proposal foundation | Explicit competition queue intent facts plus deterministic internal match-preview proposals with APOLLO-computed match quality, predicted win probability, and explanation codes | Closure-clean on `main` | `Phase 3B.15` | Keep ARES proposal-only; OpenSkill read-path switch, analytics, tournament runtime, public/member competition surfaces, CP, badges, rivalry, squads, proposal workflow, booking/commercial work, and deploy claims remain deferred |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
@@ -621,13 +627,15 @@ exercise, recommendations, or matchmaking.
 | `Phase 3B.12` | - | Runtime-local on `main` | Competition lifecycle/result trust: canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, direct and command-backed result transitions, and rating consumption limited to finalized/corrected canonical results | rating engine extraction, OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, booking/commercial work, and deploy claims |
 | `Phase 3B.13` | - | Runtime-local on `main` | Legacy rating foundation: current rating math behind explicit engine/policy versions, golden cases, rating events, source result IDs, rating event IDs, and deterministic projection watermarks | OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, booking/commercial work, and deploy claims |
 | `Phase 3B.14` | - | Runtime-local on `main` | OpenSkill dual-run comparison: internal comparison rows/events beside legacy outputs, accepted delta budgets, delta flags, and deterministic rebuilds over finalized/corrected canonical result truth | OpenSkill read-path switch, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, booking/commercial work, and deploy claims |
+| `Phase 3B.15` | - | Runtime-local on `main` | ARES v2 proposal/match-preview foundation: explicit queue intent facts, `competition.queue_intent.updated` and `competition.match_preview.generated` facts, deterministic match previews, match quality, predicted win probability, and explanation codes over trusted APOLLO projections | OpenSkill read-path switch, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, booking/commercial work, and deploy claims |
 
 ## Release Lines
 
 Tracer 24 remains the tagged coaching line on `v0.15.0`, and `v0.15.1`
 remains the narrow hardening patch on that same line. The current
-repo/runtime closeout truth on `main` includes Phase 3B.14 OpenSkill dual-run
-comparison over the Phase 3B.13 legacy rating foundation, Tracer 28
+repo/runtime closeout truth on `main` includes Phase 3B.15 ARES v2 proposal
+foundation over the Phase 3B.13 legacy rating foundation and Phase 3B.14
+OpenSkill comparison evidence, Tracer 28
 authz/staff-boundary truth, and the Milestone 2.0 hardening follow-up closed
 on `v0.19.1`. Later planned lines begin below.
 
@@ -646,6 +654,7 @@ on `v0.19.1`. Later planned lines begin below.
 | `Phase 3B.12` | competition lifecycle/result trust on `main`: canonical result identity, explicit result status facts, correction supersession, finalization/correction timestamps, lifecycle events, and rating guards | keep APOLLO as canonical result truth, keep corrections additive/auditable, and allow ratings to consume only finalized or corrected canonical results | do not widen into rating engine extraction, OpenSkill, ARES v2, analytics, tournament runtime, public/member competition surfaces, CP/badges/rivalry/squads, proposal workflow, booking/commercial work, or deploy claims |
 | `Phase 3B.13` | legacy rating foundation on `main`: explicit `legacy_elo_like` engine/policy versions, golden cases, rating compute/policy/rebuild events, source result binding, rating event IDs, and projection watermarks | preserve current rating outputs and public/member read contracts while deriving active ratings only from finalized/corrected canonical results | do not widen into OpenSkill, ARES v2, analytics, tournament runtime, public/member competition surfaces, CP/badges/rivalry/squads, proposal workflow, booking/commercial work, or deploy claims |
 | `Phase 3B.14` | OpenSkill dual-run comparison on `main`: internal OpenSkill comparison facts/events beside legacy outputs, accepted delta budgets, delta flags, and deterministic rebuilds over finalized/corrected canonical result truth | preserve the legacy active rating read path and keep OpenSkill values internal-only until comparison evidence is accepted | do not widen into OpenSkill read-path switch, ARES v2, analytics, tournament runtime, public/member competition surfaces, CP/badges/rivalry/squads, proposal workflow, booking/commercial work, or deploy claims |
+| `Phase 3B.15` | ARES v2 proposal/match-preview foundation on `main`: explicit queue intent facts, internal preview projections/events, deterministic match quality, predicted win probability, and explanation codes over trusted APOLLO projections | keep ARES proposal-only, keep APOLLO as queue intent and preview fact owner, and keep legacy rating read path active | do not widen into OpenSkill read-path switch, analytics, tournament runtime, public/member competition surfaces, CP/badges/rivalry/squads, proposal workflow, booking/commercial work, or deploy claims |
 
 ## Versioning Discipline
 
