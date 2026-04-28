@@ -1205,6 +1205,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-27 | Phase 3B.12.1 cohesion hardening found no runtime, Themis, Hestia, or docs truth drift; no patch worker changes were required. | 3B.12.1 hardening closeout. |
 | 2026-04-27 | Phase 3B.13 shipped legacy rating foundation only: current rating math is explicit, versioned, golden-tested, auditable, bound to finalized/corrected canonical results, and stored with deterministic projection watermarks. OpenSkill remains deferred to 3B.14. | 3B.13 closeout. |
 | 2026-04-28 | Phase 3B.14 shipped OpenSkill dual-run comparison only: internal OpenSkill comparison rows/events, legacy/OpenSkill deltas, accepted budgets, scenarios, and delta flags are real while the legacy rating projection remains the active read path. OpenSkill cutover, ARES v2, analytics, tournaments, public surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.14 closeout. |
+| 2026-04-28 | Phase 3B.14.1 cohesion hardening fixed OpenSkill delta flag/storage boundary coherence, added focused boundary coverage, and corrected stale 3B.14/SemVer docs truth. OpenSkill remains internal dual-run only, the legacy read path remains active, canonical-result-only rating guards still hold, comparison facts remain deterministic/auditable, and no Hestia 3B.14 comparison leak was proven. | 3B.14.1 hardening closeout. |
 
 ## Kill Criteria
 
@@ -1491,6 +1492,51 @@ no Themis or Hestia runtime changes. It shipped only internal comparison truth:
 - Rating projections and comparison facts continue to consume only finalized or
   corrected canonical results; recorded, disputed, voided, superseded, and
   non-canonical results stay out of the active rating path.
+
+Still deferred:
+
+- OpenSkill read-path switch remains deferred.
+- ARES v2: Phase 3B.15.
+- Analytics: Phase 3B.16.
+- Tournament runtime: Phase 3B.17.
+- Social safety: Phase 3B.18.
+- Public competition surfaces: Phase 3B.19.
+- CP, badges, rivalry, and squads: Phase 3B.20.
+- Project-wide SemVer governance, proposal workflow, recurring schedule, court
+  splitting, booking/commercial work, browser trusted-surface token, and
+  public/Hestia competition expansion remain out of scope until separately
+  reopened.
+
+## 3B.14.1 Cohesion Hardening Addendum
+
+Date: 2026-04-28
+
+Phase 3B.14.1 `Cohesion Hardening` is closed in APOLLO repo/runtime truth and
+platform docs truth. It did not add product scope, migrations, APIs, public
+surfaces, Themis runtime changes, or Hestia runtime changes.
+
+Confirmed and fixed:
+
+- APOLLO OpenSkill `delta_flagged` now uses the same 4-decimal persisted
+  numeric boundary as `delta_from_legacy` and `accepted_delta_budget`, matching
+  the Postgres audit constraint and avoiding near-budget rebuild rejection.
+- APOLLO added focused comparison-boundary coverage for the persisted
+  delta-budget scale.
+- APOLLO docs no longer contain stale pre-3B.14 statements that OpenSkill is
+  not implemented or that OpenSkill dual-run is the next step.
+- APOLLO and platform docs now distinguish current bounded pre-`1.0.0` tag
+  discipline from deferred project-wide SemVer governance.
+
+Confirmed unchanged:
+
+- OpenSkill remains internal dual-run comparison only.
+- `apollo.competition_member_ratings` remains the legacy active read path.
+- Ratings and comparison facts still consume only finalized or corrected
+  canonical results.
+- OpenSkill comparison facts remain deterministic and auditable.
+- Hestia's existing proxy-boundary risk does not expose 3B.14 OpenSkill
+  comparison truth because APOLLO exposes no OpenSkill comparison API route.
+- Deployed truth remains unchanged.
 
 Still deferred:
 
