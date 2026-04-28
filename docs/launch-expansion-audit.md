@@ -8,7 +8,7 @@ Date: 2026-04-26
 
 Do not launch the full expansion as one line. The system can support the vision, but only if the trust substrate lands before public excitement mechanics.
 
-The current APOLLO codebase is strongest at bounded, authenticated, backend-first workflows: member auth, profile state, presence-derived member context, lobby intent, competition sessions, queueing, assignment, match result capture, staff attribution, schedule/booking controls, and public-safe booking intake. It is not yet ready for public ratings, public leaderboards, rivalry, badges, tournaments with public stakes, social reporting, or broad public competition surfaces.
+The current APOLLO codebase is strongest at bounded, authenticated, backend-first workflows: member auth, profile state, presence-derived member context, lobby intent, competition sessions, queueing, assignment, match result capture, staff attribution, schedule/booking controls, public-safe booking intake, internal tournaments, and manager/internal safety and reliability facts. It is not yet ready for public ratings, public leaderboards, rivalry, badges, tournaments with public stakes, public/member safety UI, messaging/chat, or broad public competition surfaces.
 
 The correct strategic pattern is:
 
@@ -21,11 +21,12 @@ The correct strategic pattern is:
 7. Add social safety before public surfaces.
 8. Add retention mechanics after public trust is durable.
 
-Phase 3B.17 has now closed the internal tournament runtime after 3B.12 result
-trust, 3B.13 legacy rating, 3B.14 OpenSkill comparison, 3B.15 ARES v2 proposal
-facts, and 3B.16 internal analytics. The next launch-expansion packet should
-stay on social safety/reliability or a bounded hardening pass, not dashboards,
-public profiles, public tournaments, badges, or an OpenSkill hard swap.
+Phase 3B.18 has now closed the internal social safety/reliability foundation
+after 3B.12 result trust, 3B.13 legacy rating, 3B.14 OpenSkill comparison,
+3B.15 ARES v2 proposal facts, 3B.16 internal analytics, and 3B.17 internal
+tournaments. The next launch-expansion packet should stay on public competition
+readiness or a bounded hardening pass, not dashboards, public profiles, public
+tournaments, badges, messaging/chat, or an OpenSkill hard swap.
 
 ## Evidence Anchors
 
@@ -183,7 +184,7 @@ These are easy to misread as real runtime because the schema exists:
 | `apollo.ares_ratings`, `apollo.ares_matches`, `apollo.ares_match_players` | Authored in the initial migration, but not the active competition rating/result runtime. | Do not build new rating behavior on these without a deliberate migration decision. |
 | `apollo.recommendations` | Authored table; current recommendation/coaching reads are primarily deterministic read-time surfaces. | Do not treat the table as evidence of a persisted recommendation engine. |
 
-The active competition rating projection is `apollo.competition_member_ratings`, created by the competition-history runtime. Phase 3B.13 adds explicit legacy rating metadata to that projection and writes rating audit events in `apollo.competition_rating_events`. Phase 3B.14 adds internal OpenSkill comparison facts in `apollo.competition_rating_comparisons` and OpenSkill comparison events without switching that active projection. Phase 3B.16 adds internal derived analytics in `apollo.competition_analytics_events` and `apollo.competition_analytics_projections` without creating a public/member analytics surface.
+The active competition rating projection is `apollo.competition_member_ratings`, created by the competition-history runtime. Phase 3B.13 adds explicit legacy rating metadata to that projection and writes rating audit events in `apollo.competition_rating_events`. Phase 3B.14 adds internal OpenSkill comparison facts in `apollo.competition_rating_comparisons` and OpenSkill comparison events without switching that active projection. Phase 3B.16 adds internal derived analytics in `apollo.competition_analytics_events` and `apollo.competition_analytics_projections` without creating a public/member analytics surface. Phase 3B.17 adds internal tournament facts, and Phase 3B.18 adds manager/internal report, block, reliability, and safety audit facts without creating public/member safety surfaces.
 
 ### Not Real Yet
 
@@ -200,9 +201,10 @@ APOLLO does not yet have:
 - Cross-sport transfer.
 - Carry/tank/stability coefficients and broader scouting/profile analytics.
 - Persistent/sediment teams.
-- Tournament, season, league, bracket, or seeding containers.
+- Public tournament, season, league, bracket, or seeding surfaces.
 - Replay/event logs.
-- Social reports, silent block list, honor/trust, no-show reliability.
+- Public/member social reports, public block lists, honor/trust, no-show scores,
+  or messaging/chat surfaces.
 - Public competition reads, leaderboards, records, rivalry, badges, XP, quests, guilds, bounty, prestige, or live events.
 - Frontend contract matrix for Hestia/Themis route/API completeness.
 - Cross-repo compatibility matrix.
@@ -1226,6 +1228,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-28 | Phase 3B.15 shipped ARES v2 proposal/match-preview foundation only: queue intent facts, internal preview projections/events, match quality, predicted win probability, and explanation codes are real over trusted APOLLO projections while ARES remains a proposal engine and not a result, rating, booking, or public competition owner. OpenSkill read-path switch, analytics, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.15 closeout. |
 | 2026-04-28 | Phase 3B.16 shipped competition analytics foundation only: internal stat events and analytics projections are deterministic, versioned, and derived from finalized/corrected canonical results plus legacy active rating facts. Dashboard-first work, public profiles/stats/scouting, carry coefficient, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, OpenSkill read-path switch, and SemVer governance remain deferred. | 3B.16 closeout. |
 | 2026-04-28 | Phase 3B.17 shipped internal tournament runtime only: staff-only tournament, bracket, seed, immutable team snapshot, match binding, round advancement, advance-reason, and tournament event facts are real; advancement consumes finalized/corrected canonical result truth only and does not own result, rating, analytics, ARES, public, or game identity truth. Public tournaments remain deferred to 3B.19. | 3B.17 closeout. |
+| 2026-04-28 | Phase 3B.18 shipped internal social safety/reliability foundation only: competition-scoped report facts, block facts, reliability events, safety audit events, capability-gated manager readiness/review reads, and aligned safety/reliability commands are real; safety facts remain private manager/internal truth and do not mutate result, rating, analytics, ARES, tournament, public, member, or game identity truth. Public competition readiness remains deferred to 3B.19. | 3B.18 closeout. |
 
 ## Kill Criteria
 
@@ -1259,7 +1262,9 @@ Kill or defer a tracer if any of these are true:
    result/rating facts only.
 6. Closed by 3B.17: internal staff tournament runtime over trusted APOLLO
    team/match/result truth only.
-7. Later: public competition surfaces, carry coefficients,
+7. Closed by 3B.18: internal manager-first report, block, reliability, and
+   safety audit facts over APOLLO competition truth only.
+8. Later: public competition surfaces, carry coefficients,
    public profiles/stats/scouting, and game identity only after their gates are
    met.
 
@@ -1413,8 +1418,8 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Current next packet if launch expansion continues: 3B.17 Internal Tournament
-Runtime, unless a 3B.16.1 hardening pass is needed.
+Current next packet if launch expansion continues after 3B.18: 3B.19 Public
+Competition Readiness, unless a 3B.18.1 hardening pass is needed.
 
 ## 3B.12.1 Cohesion Hardening Addendum
 
@@ -1462,8 +1467,8 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Current next packet if launch expansion continues: 3B.17 Internal Tournament
-Runtime, unless a 3B.16.1 hardening pass is needed.
+Current next packet if launch expansion continues after 3B.18: 3B.19 Public
+Competition Readiness, unless a 3B.18.1 hardening pass is needed.
 
 ## 3B.13 Rating Foundation Addendum
 
@@ -1739,10 +1744,11 @@ Confirmed boundaries:
 
 Still deferred:
 
-- Social safety/reliability remains deferred to Phase 3B.18.
 - Public competition readiness and public tournaments remain deferred to Phase
   3B.19.
 - CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- Messaging/chat, public/member safety UI, public profiles, scouting, and
+  leaderboards remain deferred.
 - OpenSkill read-path switch remains deferred.
 - Dashboard-first analytics, public profiles/stats/scouting, and carry
   coefficient remain deferred.
@@ -1750,3 +1756,62 @@ Still deferred:
   splitting, booking/commercial work, browser trusted-surface token, and
   public/Hestia competition expansion remain out of scope until separately
   reopened.
+
+## 3B.18 Social Safety + Reliability Addendum
+
+Date: 2026-04-28
+
+Phase 3B.18 `Social Safety + Reliability` is closed in APOLLO repo/runtime
+truth, with Themis consuming manager-only APOLLO safety/reliability read
+contracts and with no Hestia, Prometheus, or deployed-truth changes. It shipped
+only internal social safety and reliability facts:
+
+- APOLLO stores competition-scoped report facts in
+  `apollo.competition_safety_reports`.
+- APOLLO stores competition-scoped active block facts in
+  `apollo.competition_safety_blocks`.
+- APOLLO stores operational reliability events in
+  `apollo.competition_reliability_events`.
+- APOLLO stores auditable safety/reliability event facts in
+  `apollo.competition_safety_events`.
+- APOLLO exposes manager-only safety/reliability readiness and review reads
+  through capability-gated, trusted-surface-gated HTTP contracts.
+- APOLLO accepts aligned safety/reliability commands through the existing
+  command/outcome foundation without changing public competition contracts.
+- Themis renders manager/internal safety and reliability visibility from APOLLO
+  contracts only, with unavailable/denied states when APOLLO does not provide
+  the manager contract.
+
+Confirmed boundaries:
+
+- Reports and blocks are private safety facts, not public truth.
+- Reliability events are internal operational facts.
+- Safety/reliability facts are immutable and auditable once recorded.
+- Manager-only access requires `competition_safety_review` and trusted-surface
+  proof.
+- Private reporter, subject, actor, and report details are excluded from public
+  and member-safe projections.
+- Safety/reliability facts do not mutate canonical result, lifecycle, rating,
+  analytics, ARES, tournament, booking, public, member, UI, or game identity
+  truth.
+- Hestia has no public/member safety, report, block, social, public profile,
+  leaderboard, tournament, CP, badge, squad, rivalry, messaging, or chat
+  expansion from this packet.
+
+Still deferred:
+
+- Public competition readiness remains deferred to Phase 3B.19.
+- Public tournaments remain deferred to Phase 3B.19.
+- Public/social/member safety surfaces, messaging/chat, public profiles,
+  scouting, and leaderboards remain deferred.
+- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- OpenSkill read-path switch remains deferred.
+- ARES behavior changes remain deferred.
+- Dashboard-first analytics and carry coefficient remain deferred.
+- Project-wide SemVer governance, proposal workflow, recurring schedule, court
+  splitting, booking/commercial work, browser trusted-surface token, and
+  public/Hestia competition expansion remain out of scope until separately
+  reopened.
+
+Current next packet if launch expansion continues: 3B.19 Public Competition
+Readiness, unless a 3B.18.1 safety/reliability hardening pass is needed.
