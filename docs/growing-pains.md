@@ -3,6 +3,75 @@
 Use this document to record real product mistakes, schema changes, recommendation
 failures, matchmaking edge cases, and the fixes that made `apollo` more realistic.
 
+## How To Read This Document
+
+This file has two layers:
+
+- The summary tables below capture the recurring engineering pressures,
+  architectural pivots, and process changes that shaped APOLLO as the platform
+  widened from tracer-scale proofs into cross-repo operational product work.
+- The dated sections below remain the detailed incident ledger and should stay
+  intact as historical evidence.
+
+Use the tables for the high-signal narrative. Use the dated chronology for the
+specific symptom, cause, fix, and rule that closed a given mistake.
+
+## Milestone Pivots
+
+| Pivot | Pressure | Adaptation | Lasting rule |
+| --- | --- | --- | --- |
+| Tracers to bounded packets | Isolated proof work stopped scaling once booking, status, schedule, and staff flows crossed repos | Shift from tracer closure to bounded `3A.x` / `3B.x` packets with hard stops, verification, closeout truth, and post-packet hardening | Once multiple repos or surfaces move together, treat the work as a bounded packet, not a loose tracer |
+| Feature momentum to product-spine discipline | "One more feature" kept widening APOLLO, Hestia, Themis, and docs together | Organize work around the request/status/edit/rebook/availability/schedule spine instead of isolated feature wins | Sequence product around durable operational flows, not around attractive isolated capabilities |
+| Public booking idea to request-first truth | Intake, status, and availability pressure naturally drifted toward self-booking semantics | Keep public booking request-first; staff approval remains the only path that creates confirmed reservation truth | Public affordances may inform a request, but must not imply confirmed booking unless the backend actually confirms it |
+| A/B split to domain-driven stream ownership | Customer-facing booking work no longer fit a simple frontend/backend split | Treat booking/status/availability as part of the B-stream booking/ops spine and park A as the earlier member-shell line | Stream ownership should follow domain truth, not UI/backend stereotypes |
+| Competition ambition to internal ops first | APOLLO had real competition runtime, but no internal ops shell and no trust substrate for public stakes | Reframe near-term tournament work as Themis competition ops over APOLLO runtime, with public tournament/social surfaces gated later | Real backend competition truth does not imply public tournament readiness |
+| Launch expansion to trust-gated expansion | Ratings, badges, rivalry, leaderboards, and public tournament ideas outran correction/privacy/scale controls | Introduce the launch-expansion audit as the governing sequence for post-current competition/rating/tournament/social work | Public excitement mechanics come after trust substrate, not before |
+
+## Recurring Failure Modes And Adjustments
+
+| Failure mode | Where it showed up | Adjustment | Engineering lesson |
+| --- | --- | --- | --- |
+| Partial idempotency | Public intake closed first; staff create and Themis forwarding lagged behind | Standardize key lifecycle: generate at render, carry in form, preserve on failure, forward on submit, replay-test end-to-end | Idempotency is a cross-surface contract, not a backend-only feature |
+| Duplicate-submit UI | Decision, create, edit, rebook, and schedule flows | Add pending/disabled state as a standard hardening expectation | UI submission state is part of correctness, not polish |
+| Repo truth drift from docs truth | Audit findings, release ladders, repo status claims, and route ownership | Tighten README/roadmap/brief/board alignment and treat docs as operating truth | Stale docs create real architecture mistakes |
+| "Done locally" drift | Work described as done before commit/push/docs closeout | Require pushed SHAs, final git status, repo truth, deployed truth, and deferred truth in closeout | Implementation is not done until the operational truth is closed |
+| Dirty workspace ambiguity | Planning and worker handoffs | Add Gate 0 repo-state checks before serious work | Packet work starts from clean known truth or it starts from noise |
+| Cross-repo cohesion gaps | Booking/status/schedule packets landing across APOLLO, Themis, Hestia, and platform docs | Add `.1` hardening passes that patch only real cohesion gaps | Multi-repo features often need a verification-first cleanup pass |
+| Planning by memory | Deferred work, packet boundaries, and UI expectations | Add `DEFERMENTS.md` and `FLOWS.md` as active coordination artifacts | Memory does not scale; the control plane needs explicit registers |
+| Scope drift through naming ambiguity | Tracer vs packet, A vs B, launch vs runtime, milestone vs sub-phase | Standardize packet format and stream ownership language | Naming is part of execution discipline, not cosmetic metadata |
+
+## Truth-Model Lessons
+
+| Lesson | Trigger | Architectural change | Guardrail |
+| --- | --- | --- | --- |
+| Public-safe truth needs its own surface | Receipt/status/message/availability work | Add explicit public-safe booking reads instead of filtering internal objects ad hoc | Never expose internal booking objects directly to public surfaces |
+| Request truth and reservation truth are different layers | Booking lifecycle work | Keep request rows, approval-created reservation blocks, and public receipt/status truth separate | A request is not a reservation |
+| Approved-change behavior needs explicit policy | Edit/rebook and schedule-control work | Use replacement flows and bounded schedule actions instead of casually mutating approved reservation truth | Do not widen into in-place approved mutation without a dedicated policy line |
+| Authority model must drive workflow shape | APOLLO authz showed supervisor live-manage vs manager/owner structure-manage splits | Design supervisor proposal rails instead of silently widening operational authority | Role boundaries should shape the workflow, not be bypassed by UI convenience |
+| Substrate problems can masquerade as UI asks | Court splitting, recurrence, and operating-hours editing | Reclassify these as schedule/resource modeling work instead of shell-level polish | Do not fake substrate gaps in UI |
+| Competition runtime does not equal a public competition product | APOLLO already owns sessions, teams, matches, results, standings, and ratings | Separate internal competition ops from public tournament/social expansion | Backend capability alone is not launch permission |
+| Repo truth does not equal deployed truth | ATHENA and later cross-repo planning | Report runtime, repo, and deploy truth separately in closeout and planning docs | Never collapse code state and live state into one claim |
+
+## Process Changes That Stuck
+
+| Change | Why it happened | What changed |
+| --- | --- | --- |
+| Planning chat / worker chat split | This chat crossed from planning into implementation and contaminated packet flow | Planning chats now own strategy, packet decomposition, and runtime contract reasoning; worker chats own UI execution, implementation, verification, closeout, commits, and pushes |
+| Standard four-prompt worker packet | Ad hoc worker setup caused duplication, missed gates, and muddy closeouts | Every substantial packet now ships with Gate 0, backend prompt, surface prompt, docs/closeout prompt, verification matrix, and commit ladder |
+| `.1` cohesion hardening | Functionally correct packets still landed with state, copy, or wiring gaps | Short verification-first hardening passes became normal after messy cross-repo packets |
+| Docs as control plane | README/roadmap drift repeatedly produced stale assumptions | README, roadmap, deferments, flows, repo briefs, and implementation board now act as operating artifacts, not passive notes |
+| Watch-later demotion for speculative scaling | Some thresholds were reasonable but not measured | Scalability notes moved out of "triggers" and into watch-later guidance unless backed by measured pressure |
+| Hidden activation for AI/commercial ideas | AI and payment ideas risked muddying runtime priorities | Treat AI/commercial lines as planning-first or hidden activation unless they directly strengthen the current product spine |
+
+## Open Frictions
+
+| Area | Friction | Why it matters | Next move | Guardrail |
+| --- | --- | --- | --- | --- |
+| Competition ops | APOLLO owns real competition runtime, but Themis still lacks the internal competition shell that would make the system demo legible | Backend truth exists, but operator truth is still too implicit | Build internal competition ops over existing APOLLO contracts before any public tournament widening | Do not invent a second competition model in the frontend |
+| Supervisor authority | The authz model already implies proposal-style workflows, but that workflow is not yet first-class | Without explicit proposal rails, supervisor capability either stays underused or widens informally | Add bounded supervisor proposal workflow over real contracts | Do not widen supervisor mutation authority by implication |
+| Scheduling substrate | Recurrence, operating-hours editing, and court/resource splitting remain real substrate gaps | These will keep reappearing as "small UI asks" until the substrate is explicit | Treat them as dedicated schedule/resource packets | Do not paper over substrate gaps with shell-only affordances |
+| Demo readiness | Runtime breadth has advanced faster than demo packaging and hosted proof | The system can feel less complete than it is | Treat demo packaging as its own track | Do not confuse runtime progress with demo readiness |
+
 ## 2026-04-01
 
 - Member auth, identity linkage, and matchmaking intent were initially too easy
