@@ -74,6 +74,7 @@ var (
 	ErrCommandLockTournamentTeamInput     = errors.New("competition command lock_tournament_team input is required")
 	ErrCommandBindTournamentMatchInput    = errors.New("competition command bind_tournament_match input is required")
 	ErrCommandAdvanceTournamentRoundInput = errors.New("competition command advance_tournament_round input is required")
+	ErrCommandResourceMismatch            = errors.New("competition command resource ids do not match")
 )
 
 type CompetitionCommand struct {
@@ -548,6 +549,13 @@ func validateCompetitionCommand(command CompetitionCommand, definition Competiti
 		}
 		if command.AdvanceTournamentRound == nil {
 			return ErrCommandAdvanceTournamentRoundInput
+		}
+		if command.MatchBindingID != uuid.Nil {
+			if command.AdvanceTournamentRound.MatchBindingID == uuid.Nil {
+				command.AdvanceTournamentRound.MatchBindingID = command.MatchBindingID
+			} else if command.AdvanceTournamentRound.MatchBindingID != command.MatchBindingID {
+				return ErrCommandResourceMismatch
+			}
 		}
 		command.AdvanceTournamentRound.ExpectedTournamentVersion = *command.ExpectedVersion
 	default:

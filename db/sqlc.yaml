@@ -32,6 +32,7 @@ sql:
       - "migrations/027_competition_ares_input_watermark.up.sql"
       - "migrations/028_competition_analytics_foundation.up.sql"
       - "migrations/029_internal_tournament_runtime.up.sql"
+      - "migrations/030_internal_tournament_cohesion.up.sql"
     queries: "queries"
     gen:
       go:
