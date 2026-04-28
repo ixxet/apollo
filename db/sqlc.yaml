@@ -33,6 +33,7 @@ sql:
       - "migrations/028_competition_analytics_foundation.up.sql"
       - "migrations/029_internal_tournament_runtime.up.sql"
       - "migrations/030_internal_tournament_cohesion.up.sql"
+      - "migrations/031_competition_safety_reliability.up.sql"
     queries: "queries"
     gen:
       go:

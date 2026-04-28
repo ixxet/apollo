@@ -85,7 +85,12 @@ type CompetitionManager interface {
 	GetTournament(ctx context.Context, tournamentID uuid.UUID) (competition.Tournament, error)
 	ListMemberStats(ctx context.Context, userID uuid.UUID) ([]competition.MemberStat, error)
 	CompetitionReadiness(actor competition.StaffActor) competition.CompetitionCommandReadiness
+	CompetitionSafetyReadiness(ctx context.Context, actor competition.StaffActor) (competition.CompetitionSafetyReadiness, error)
+	GetCompetitionSafetyReview(ctx context.Context, actor competition.StaffActor, limit int) (competition.CompetitionSafetyReview, error)
 	ExecuteCommand(ctx context.Context, command competition.CompetitionCommand) (competition.CompetitionCommandOutcome, error)
+	RecordSafetyReport(ctx context.Context, actor competition.StaffActor, input competition.RecordSafetyReportInput) (competition.SafetyReport, error)
+	RecordSafetyBlock(ctx context.Context, actor competition.StaffActor, input competition.RecordSafetyBlockInput) (competition.SafetyBlock, error)
+	RecordReliabilityEvent(ctx context.Context, actor competition.StaffActor, input competition.RecordReliabilityEventInput) (competition.ReliabilityEvent, error)
 	CreateSession(ctx context.Context, actor competition.StaffActor, input competition.CreateSessionInput) (competition.Session, error)
 	OpenQueue(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID) (competition.Session, error)
 	AddQueueMember(ctx context.Context, actor competition.StaffActor, sessionID uuid.UUID, input competition.QueueMemberInput) (competition.Session, error)
@@ -807,6 +812,78 @@ func NewHandler(deps Dependencies) http.Handler {
 			outcome, err := deps.Competition.ExecuteCommand(r.Context(), command)
 			writeJSON(w, competitionCommandHTTPStatus(outcome, err), outcome)
 		})
+		authenticated.Get("/api/v1/competition/safety/readiness", withCompetitionAccess(authz.CapabilityCompetitionSafetyReview, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			readiness, err := deps.Competition.CompetitionSafetyReadiness(r.Context(), actor)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, readiness)
+		}))
+		authenticated.Get("/api/v1/competition/safety/review", withCompetitionAccess(authz.CapabilityCompetitionSafetyReview, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			limit := 0
+			if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+				parsed, err := strconv.Atoi(rawLimit)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, competition.ErrSafetyReviewLimit)
+					return
+				}
+				limit = parsed
+			}
+			review, err := deps.Competition.GetCompetitionSafetyReview(r.Context(), actor, limit)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, review)
+		}))
+		authenticated.Post("/api/v1/competition/safety/reports", withCompetitionAccess(authz.CapabilityCompetitionSafetyReview, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			var request competition.RecordSafetyReportInput
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			report, err := deps.Competition.RecordSafetyReport(r.Context(), actor, request)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, report)
+		}))
+		authenticated.Post("/api/v1/competition/safety/blocks", withCompetitionAccess(authz.CapabilityCompetitionSafetyReview, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			var request competition.RecordSafetyBlockInput
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			block, err := deps.Competition.RecordSafetyBlock(r.Context(), actor, request)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, block)
+		}))
+		authenticated.Post("/api/v1/competition/reliability/events", withCompetitionAccess(authz.CapabilityCompetitionSafetyReview, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
+			var request competition.RecordReliabilityEventInput
+			if err := decodeJSONBody(w, r, &request); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+
+			event, err := deps.Competition.RecordReliabilityEvent(r.Context(), actor, request)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusCreated, event)
+		}))
 		authenticated.Get("/api/v1/competition/sessions", withCompetitionAccess(authz.CapabilityCompetitionRead, false, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, _ competition.StaffActor) {
 			sessions, err := deps.Competition.ListSessions(r.Context())
 			if err != nil {
@@ -2632,7 +2709,9 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 		errors.Is(err, authz.ErrTrustedSurfaceInvalid),
 		errors.Is(err, competition.ErrCommandActorRequired),
 		errors.Is(err, competition.ErrCommandActorSession),
-		errors.Is(err, competition.ErrCommandTrustedSurface):
+		errors.Is(err, competition.ErrCommandTrustedSurface),
+		errors.Is(err, competition.ErrSafetyActorAttribution),
+		errors.Is(err, competition.ErrSafetyActorTrustedSurface):
 		return http.StatusForbidden
 	case errors.Is(err, competition.ErrSessionNotFound),
 		errors.Is(err, competition.ErrTeamNotFound),
@@ -2665,7 +2744,19 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 		errors.Is(err, competition.ErrCommandLockTournamentTeamInput),
 		errors.Is(err, competition.ErrCommandBindTournamentMatchInput),
 		errors.Is(err, competition.ErrCommandAdvanceTournamentRoundInput),
+		errors.Is(err, competition.ErrCommandSafetyReportInput),
+		errors.Is(err, competition.ErrCommandSafetyBlockInput),
+		errors.Is(err, competition.ErrCommandReliabilityEventInput),
 		errors.Is(err, competition.ErrCommandResourceMismatch),
+		errors.Is(err, competition.ErrSafetyTargetType),
+		errors.Is(err, competition.ErrSafetyTargetRequired),
+		errors.Is(err, competition.ErrSafetyReasonCode),
+		errors.Is(err, competition.ErrSafetyReporterRequired),
+		errors.Is(err, competition.ErrSafetySubjectRequired),
+		errors.Is(err, competition.ErrSafetyBlockPairInvalid),
+		errors.Is(err, competition.ErrReliabilityType),
+		errors.Is(err, competition.ErrReliabilitySeverity),
+		errors.Is(err, competition.ErrSafetyReviewLimit),
 		errors.Is(err, competition.ErrSessionNameRequired),
 		errors.Is(err, competition.ErrTournamentNameRequired),
 		errors.Is(err, competition.ErrTournamentFormatUnsupported),
@@ -2733,7 +2824,8 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 		errors.Is(err, competition.ErrTournamentMatchBindingDuplicate),
 		errors.Is(err, competition.ErrTournamentAdvanceDuplicate),
 		errors.Is(err, competition.ErrTournamentAdvanceResultRequired),
-		errors.Is(err, competition.ErrTournamentAdvanceResultOutcome):
+		errors.Is(err, competition.ErrTournamentAdvanceResultOutcome),
+		errors.Is(err, competition.ErrSafetyBlockAlreadyExists):
 		return http.StatusConflict
 	default:
 		if outcome.Status == competition.CommandStatusDenied {
@@ -2762,9 +2854,23 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 	case errors.Is(err, authz.ErrCapabilityDenied),
 		errors.Is(err, authz.ErrTrustedSurfaceMissing),
 		errors.Is(err, authz.ErrTrustedSurfaceKey),
-		errors.Is(err, authz.ErrTrustedSurfaceInvalid):
+		errors.Is(err, authz.ErrTrustedSurfaceInvalid),
+		errors.Is(err, competition.ErrSafetyActorAttribution),
+		errors.Is(err, competition.ErrSafetyActorTrustedSurface):
 		writeError(w, http.StatusForbidden, err)
 	case errors.Is(err, competition.ErrSessionNameRequired),
+		errors.Is(err, competition.ErrCommandSafetyReportInput),
+		errors.Is(err, competition.ErrCommandSafetyBlockInput),
+		errors.Is(err, competition.ErrCommandReliabilityEventInput),
+		errors.Is(err, competition.ErrSafetyTargetType),
+		errors.Is(err, competition.ErrSafetyTargetRequired),
+		errors.Is(err, competition.ErrSafetyReasonCode),
+		errors.Is(err, competition.ErrSafetyReporterRequired),
+		errors.Is(err, competition.ErrSafetySubjectRequired),
+		errors.Is(err, competition.ErrSafetyBlockPairInvalid),
+		errors.Is(err, competition.ErrReliabilityType),
+		errors.Is(err, competition.ErrReliabilitySeverity),
+		errors.Is(err, competition.ErrSafetyReviewLimit),
 		errors.Is(err, competition.ErrTournamentNameRequired),
 		errors.Is(err, competition.ErrTournamentFormatUnsupported),
 		errors.Is(err, competition.ErrTournamentVersionRequired),
@@ -2829,7 +2935,8 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrTournamentMatchBindingDuplicate),
 		errors.Is(err, competition.ErrTournamentAdvanceDuplicate),
 		errors.Is(err, competition.ErrTournamentAdvanceResultRequired),
-		errors.Is(err, competition.ErrTournamentAdvanceResultOutcome):
+		errors.Is(err, competition.ErrTournamentAdvanceResultOutcome),
+		errors.Is(err, competition.ErrSafetyBlockAlreadyExists):
 		writeError(w, http.StatusConflict, err)
 	default:
 		writeError(w, http.StatusInternalServerError, err)

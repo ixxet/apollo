@@ -20,6 +20,7 @@ const (
 	CapabilityCompetitionRead            Capability = "competition_read"
 	CapabilityCompetitionLiveManage      Capability = "competition_live_manage"
 	CapabilityCompetitionStructureManage Capability = "competition_structure_manage"
+	CapabilityCompetitionSafetyReview    Capability = "competition_safety_review"
 	CapabilityOpsRead                    Capability = "ops_read"
 	CapabilityScheduleRead               Capability = "schedule_read"
 	CapabilityScheduleManage             Capability = "schedule_manage"
@@ -38,8 +39,8 @@ var (
 var capabilitiesByRole = map[Role][]Capability{
 	RoleMember:     {},
 	RoleSupervisor: {CapabilityCompetitionRead, CapabilityCompetitionLiveManage},
-	RoleManager:    {CapabilityCompetitionRead, CapabilityCompetitionLiveManage, CapabilityCompetitionStructureManage},
-	RoleOwner:      {CapabilityCompetitionRead, CapabilityCompetitionLiveManage, CapabilityCompetitionStructureManage},
+	RoleManager:    {CapabilityCompetitionRead, CapabilityCompetitionLiveManage, CapabilityCompetitionSafetyReview, CapabilityCompetitionStructureManage},
+	RoleOwner:      {CapabilityCompetitionRead, CapabilityCompetitionLiveManage, CapabilityCompetitionSafetyReview, CapabilityCompetitionStructureManage},
 }
 
 var scheduleCapabilitiesByRole = map[Role][]Capability{

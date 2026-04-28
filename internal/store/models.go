@@ -355,6 +355,98 @@ type ApolloCompetitionRatingEvent struct {
 	ComparisonScenario  *string
 }
 
+type ApolloCompetitionReliabilityEvent struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	CompetitionMatchID   pgtype.UUID
+	SubjectUserID        pgtype.UUID
+	ReliabilityType      string
+	Severity             string
+	PrivacyScope         string
+	Note                 *string
+	ActorUserID          uuid.UUID
+	ActorRole            string
+	ActorSessionID       uuid.UUID
+	Capability           string
+	TrustedSurfaceKey    string
+	TrustedSurfaceLabel  *string
+	OccurredAt           pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+}
+
+type ApolloCompetitionSafetyBlock struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	CompetitionMatchID   pgtype.UUID
+	BlockerUserID        uuid.UUID
+	BlockedUserID        uuid.UUID
+	ReasonCode           string
+	Status               string
+	PrivacyScope         string
+	ActorUserID          uuid.UUID
+	ActorRole            string
+	ActorSessionID       uuid.UUID
+	Capability           string
+	TrustedSurfaceKey    string
+	TrustedSurfaceLabel  *string
+	OccurredAt           pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+}
+
+type ApolloCompetitionSafetyEvent struct {
+	ID                       uuid.UUID
+	EventType                string
+	CompetitionSessionID     pgtype.UUID
+	CompetitionMatchID       pgtype.UUID
+	CompetitionSessionTeamID pgtype.UUID
+	CompetitionTournamentID  pgtype.UUID
+	SafetyReportID           pgtype.UUID
+	SafetyBlockID            pgtype.UUID
+	ReliabilityEventID       pgtype.UUID
+	ReporterUserID           pgtype.UUID
+	SubjectUserID            pgtype.UUID
+	BlockerUserID            pgtype.UUID
+	BlockedUserID            pgtype.UUID
+	TargetType               *string
+	TargetID                 pgtype.UUID
+	ReasonCode               *string
+	ReliabilityType          *string
+	Severity                 *string
+	PrivacyScope             string
+	ActorUserID              uuid.UUID
+	ActorRole                string
+	ActorSessionID           uuid.UUID
+	Capability               string
+	TrustedSurfaceKey        string
+	TrustedSurfaceLabel      *string
+	OccurredAt               pgtype.Timestamptz
+	CreatedAt                pgtype.Timestamptz
+}
+
+type ApolloCompetitionSafetyReport struct {
+	ID                       uuid.UUID
+	CompetitionSessionID     pgtype.UUID
+	CompetitionMatchID       pgtype.UUID
+	CompetitionSessionTeamID pgtype.UUID
+	CompetitionTournamentID  pgtype.UUID
+	ReporterUserID           uuid.UUID
+	SubjectUserID            pgtype.UUID
+	TargetType               string
+	TargetID                 uuid.UUID
+	ReasonCode               string
+	Status                   string
+	PrivacyScope             string
+	Note                     *string
+	ActorUserID              uuid.UUID
+	ActorRole                string
+	ActorSessionID           uuid.UUID
+	Capability               string
+	TrustedSurfaceKey        string
+	TrustedSurfaceLabel      *string
+	OccurredAt               pgtype.Timestamptz
+	CreatedAt                pgtype.Timestamptz
+}
+
 type ApolloCompetitionSession struct {
 	ID                  uuid.UUID
 	OwnerUserID         uuid.UUID

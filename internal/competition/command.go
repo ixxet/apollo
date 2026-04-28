@@ -40,6 +40,9 @@ const (
 	CommandLockTournamentTeam     CommandName = "lock_tournament_team"
 	CommandBindTournamentMatch    CommandName = "bind_tournament_match"
 	CommandAdvanceTournamentRound CommandName = "advance_tournament_round"
+	CommandRecordSafetyReport     CommandName = "record_safety_report"
+	CommandRecordSafetyBlock      CommandName = "record_safety_block"
+	CommandRecordReliabilityEvent CommandName = "record_reliability_event"
 )
 
 const (
@@ -74,6 +77,9 @@ var (
 	ErrCommandLockTournamentTeamInput     = errors.New("competition command lock_tournament_team input is required")
 	ErrCommandBindTournamentMatchInput    = errors.New("competition command bind_tournament_match input is required")
 	ErrCommandAdvanceTournamentRoundInput = errors.New("competition command advance_tournament_round input is required")
+	ErrCommandSafetyReportInput           = errors.New("competition command safety_report input is required")
+	ErrCommandSafetyBlockInput            = errors.New("competition command safety_block input is required")
+	ErrCommandReliabilityEventInput       = errors.New("competition command reliability_event input is required")
 	ErrCommandResourceMismatch            = errors.New("competition command resource ids do not match")
 )
 
@@ -102,6 +108,9 @@ type CompetitionCommand struct {
 	LockTournamentTeam     *LockTournamentTeamInput     `json:"lock_tournament_team,omitempty"`
 	BindTournamentMatch    *BindTournamentMatchInput    `json:"bind_tournament_match,omitempty"`
 	AdvanceTournamentRound *AdvanceTournamentRoundInput `json:"advance_tournament_round,omitempty"`
+	SafetyReport           *RecordSafetyReportInput     `json:"safety_report,omitempty"`
+	SafetyBlock            *RecordSafetyBlockInput      `json:"safety_block,omitempty"`
+	ReliabilityEvent       *RecordReliabilityEventInput `json:"reliability_event,omitempty"`
 }
 
 type CompetitionCommandActor struct {
@@ -195,6 +204,9 @@ var commandDefinitions = []CompetitionCommandDefinition{
 	{Name: CommandLockTournamentTeam, RequiredCapability: authz.CapabilityCompetitionStructureManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "tournament_version", Description: "Lock an immutable tournament team snapshot from APOLLO roster truth."},
 	{Name: CommandBindTournamentMatch, RequiredCapability: authz.CapabilityCompetitionStructureManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "tournament_version", Description: "Bind a tournament round slot to an APOLLO competition match."},
 	{Name: CommandAdvanceTournamentRound, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "tournament_version", Description: "Advance a tournament round from finalized or corrected canonical result truth."},
+	{Name: CommandRecordSafetyReport, RequiredCapability: authz.CapabilityCompetitionSafetyReview, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Record an internal manager-only competition safety report fact."},
+	{Name: CommandRecordSafetyBlock, RequiredCapability: authz.CapabilityCompetitionSafetyReview, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Record an internal manager-only competition block fact."},
+	{Name: CommandRecordReliabilityEvent, RequiredCapability: authz.CapabilityCompetitionSafetyReview, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Record an internal manager-only competition reliability event."},
 }
 
 func CompetitionCommandDefinitions() []CompetitionCommandDefinition {
@@ -558,6 +570,35 @@ func validateCompetitionCommand(command CompetitionCommand, definition Competiti
 			}
 		}
 		command.AdvanceTournamentRound.ExpectedTournamentVersion = *command.ExpectedVersion
+	case CommandRecordSafetyReport:
+		if command.SafetyReport == nil {
+			return ErrCommandSafetyReportInput
+		}
+		if !validSafetyReason(strings.TrimSpace(command.SafetyReport.ReasonCode)) {
+			return ErrSafetyReasonCode
+		}
+		switch strings.TrimSpace(command.SafetyReport.TargetType) {
+		case SafetyTargetCompetitionSession, SafetyTargetCompetitionMatch, SafetyTargetCompetitionTeam, SafetyTargetCompetitionTournament, SafetyTargetCompetitionMember:
+		default:
+			return ErrSafetyTargetType
+		}
+	case CommandRecordSafetyBlock:
+		if command.SafetyBlock == nil {
+			return ErrCommandSafetyBlockInput
+		}
+		if !validSafetyReason(strings.TrimSpace(command.SafetyBlock.ReasonCode)) {
+			return ErrSafetyReasonCode
+		}
+	case CommandRecordReliabilityEvent:
+		if command.ReliabilityEvent == nil {
+			return ErrCommandReliabilityEventInput
+		}
+		if !validReliabilityType(strings.TrimSpace(command.ReliabilityEvent.ReliabilityType)) {
+			return ErrReliabilityType
+		}
+		if !validReliabilitySeverity(strings.TrimSpace(command.ReliabilityEvent.Severity)) {
+			return ErrReliabilitySeverity
+		}
 	default:
 		return ErrCommandUnsupported
 	}
@@ -579,6 +620,15 @@ func requireTournamentID(command CompetitionCommand) error {
 }
 
 func (s *Service) commandActualVersion(ctx context.Context, command CompetitionCommand) (*int, error) {
+	if command.SafetyReport != nil {
+		return s.safetyCommandActualVersion(ctx, command.SafetyReport.CompetitionSessionID, command.SafetyReport.CompetitionMatchID, command.SafetyReport.CompetitionTournamentID)
+	}
+	if command.SafetyBlock != nil {
+		return s.safetyCommandActualVersion(ctx, command.SafetyBlock.CompetitionSessionID, command.SafetyBlock.CompetitionMatchID, uuid.Nil)
+	}
+	if command.ReliabilityEvent != nil {
+		return s.safetyCommandActualVersion(ctx, command.ReliabilityEvent.CompetitionSessionID, command.ReliabilityEvent.CompetitionMatchID, uuid.Nil)
+	}
 	if command.TournamentID != uuid.Nil {
 		tournament, err := s.loadTournament(ctx, command.TournamentID)
 		if err != nil {
@@ -614,6 +664,16 @@ func (s *Service) commandActualVersion(ctx context.Context, command CompetitionC
 
 func commandResource(command CompetitionCommand) *CompetitionResourceRef {
 	switch {
+	case command.SafetyReport != nil && command.SafetyReport.TargetID != uuid.Nil:
+		return &CompetitionResourceRef{Type: command.SafetyReport.TargetType, ID: command.SafetyReport.TargetID}
+	case command.SafetyBlock != nil && command.SafetyBlock.CompetitionMatchID != uuid.Nil:
+		return &CompetitionResourceRef{Type: "competition_match", ID: command.SafetyBlock.CompetitionMatchID}
+	case command.SafetyBlock != nil && command.SafetyBlock.CompetitionSessionID != uuid.Nil:
+		return &CompetitionResourceRef{Type: "competition_session", ID: command.SafetyBlock.CompetitionSessionID}
+	case command.ReliabilityEvent != nil && command.ReliabilityEvent.CompetitionMatchID != uuid.Nil:
+		return &CompetitionResourceRef{Type: "competition_match", ID: command.ReliabilityEvent.CompetitionMatchID}
+	case command.ReliabilityEvent != nil && command.ReliabilityEvent.CompetitionSessionID != uuid.Nil:
+		return &CompetitionResourceRef{Type: "competition_session", ID: command.ReliabilityEvent.CompetitionSessionID}
 	case command.MatchID != uuid.Nil:
 		return &CompetitionResourceRef{Type: "competition_match", ID: command.MatchID}
 	case command.MatchBindingID != uuid.Nil:
@@ -718,9 +778,49 @@ func (s *Service) applyCompetitionCommand(ctx context.Context, command Competiti
 		input := *command.AdvanceTournamentRound
 		input.ExpectedTournamentVersion = *command.ExpectedVersion
 		return s.AdvanceTournamentRound(ctx, actor, command.TournamentID, input)
+	case CommandRecordSafetyReport:
+		return s.RecordSafetyReport(ctx, actor, *command.SafetyReport)
+	case CommandRecordSafetyBlock:
+		return s.RecordSafetyBlock(ctx, actor, *command.SafetyBlock)
+	case CommandRecordReliabilityEvent:
+		return s.RecordReliabilityEvent(ctx, actor, *command.ReliabilityEvent)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrCommandUnsupported, command.Name)
 	}
+}
+
+func (s *Service) safetyCommandActualVersion(ctx context.Context, sessionID uuid.UUID, matchID uuid.UUID, tournamentID uuid.UUID) (*int, error) {
+	if tournamentID != uuid.Nil {
+		tournament, err := s.loadTournament(ctx, tournamentID)
+		if err != nil {
+			return nil, err
+		}
+		version := tournament.TournamentVersion
+		return &version, nil
+	}
+	if matchID != uuid.Nil {
+		match, err := s.repository.GetMatchByID(ctx, matchID)
+		if err != nil {
+			return nil, err
+		}
+		if match == nil {
+			return nil, ErrMatchNotFound
+		}
+		version := match.ResultVersion
+		return &version, nil
+	}
+	if sessionID == uuid.Nil {
+		return nil, nil
+	}
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, ErrSessionNotFound
+	}
+	version := session.QueueVersion
+	return &version, nil
 }
 
 func commandActorFromStaffActor(actor StaffActor) CompetitionCommandActor {
