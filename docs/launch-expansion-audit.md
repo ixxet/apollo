@@ -21,10 +21,11 @@ The correct strategic pattern is:
 7. Add social safety before public surfaces.
 8. Add retention mechanics after public trust is durable.
 
-Phase 3B.13 has now closed the immediate legacy rating foundation packet after
-3B.12 result trust and 3B.12.1 cohesion verification. The next rating packet
-should be OpenSkill dual-run against the stable legacy baseline, not badges,
-tournaments, public pages, or an OpenSkill hard swap.
+Phase 3B.16 has now closed the internal competition analytics foundation after
+3B.12 result trust, 3B.13 legacy rating, 3B.14 OpenSkill comparison, and 3B.15
+ARES v2 proposal facts. The next launch-expansion packet should stay on
+internal tournament runtime or a bounded hardening pass, not dashboards, public
+profiles, public tournaments, badges, or an OpenSkill hard swap.
 
 ## Evidence Anchors
 
@@ -40,6 +41,8 @@ Current APOLLO facts are grounded in these files:
 | Competition container schema | [db/migrations/009_competition_container_runtime.up.sql](../db/migrations/009_competition_container_runtime.up.sql) |
 | Competition execution schema | [db/migrations/010_competition_execution_runtime.up.sql](../db/migrations/010_competition_execution_runtime.up.sql) |
 | Result/rating schema | [db/migrations/011_competition_history_runtime.up.sql](../db/migrations/011_competition_history_runtime.up.sql) |
+| Competition analytics schema | [db/migrations/028_competition_analytics_foundation.up.sql](../db/migrations/028_competition_analytics_foundation.up.sql) |
+| Competition analytics rebuild | [internal/competition/analytics.go](../internal/competition/analytics.go) |
 | Staff authz and attribution schema | [db/migrations/016_competition_authz_runtime.up.sql](../db/migrations/016_competition_authz_runtime.up.sql) |
 | ARES preview | [internal/ares/service.go](../internal/ares/service.go) |
 | CLI root commands | [cmd/apollo/main.go](../cmd/apollo/main.go) |
@@ -158,6 +161,15 @@ APOLLO currently has:
   internal match-preview projections/events, deterministic match quality,
   predicted win probability, and explanation codes over trusted APOLLO queue,
   rating, result, session, and team projections.
+- Competition analytics foundation: internal stat events and analytics
+  projections for matches played, wins/losses/draws, streaks, legacy rating
+  movement, opponent strength, team-vs-solo delta when existing
+  participant-count facts support it, and facility/sport/mode splits.
+  Projection version, sample size, confidence, computed time, source match,
+  source result, and deterministic watermarks are explicit; analytics consume
+  only finalized/corrected canonical result truth plus legacy active rating
+  facts and do not mutate result, rating, ARES, lifecycle, booking, UI, or
+  public truth.
 - Schedule substrate, booking request lifecycle, public-safe booking intake/status/availability.
 - Presence, visit, tap-link, facility streak, and ATHENA-backed ops overview surfaces.
 - Minimal member shell with existing API-backed routes.
@@ -171,7 +183,7 @@ These are easy to misread as real runtime because the schema exists:
 | `apollo.ares_ratings`, `apollo.ares_matches`, `apollo.ares_match_players` | Authored in the initial migration, but not the active competition rating/result runtime. | Do not build new rating behavior on these without a deliberate migration decision. |
 | `apollo.recommendations` | Authored table; current recommendation/coaching reads are primarily deterministic read-time surfaces. | Do not treat the table as evidence of a persisted recommendation engine. |
 
-The active competition rating projection is `apollo.competition_member_ratings`, created by the competition-history runtime. Phase 3B.13 adds explicit legacy rating metadata to that projection and writes rating audit events in `apollo.competition_rating_events`. Phase 3B.14 adds internal OpenSkill comparison facts in `apollo.competition_rating_comparisons` and OpenSkill comparison events without switching that active projection.
+The active competition rating projection is `apollo.competition_member_ratings`, created by the competition-history runtime. Phase 3B.13 adds explicit legacy rating metadata to that projection and writes rating audit events in `apollo.competition_rating_events`. Phase 3B.14 adds internal OpenSkill comparison facts in `apollo.competition_rating_comparisons` and OpenSkill comparison events without switching that active projection. Phase 3B.16 adds internal derived analytics in `apollo.competition_analytics_events` and `apollo.competition_analytics_projections` without creating a public/member analytics surface.
 
 ### Not Real Yet
 
@@ -186,7 +198,7 @@ APOLLO does not yet have:
 - Full proposal/approval workflow for disputes or corrections.
 - Calibration, decay, comeback bonus, upset bonus, climbing caps.
 - Cross-sport transfer.
-- Carry/tank/stability analytics.
+- Carry/tank/stability coefficients and broader scouting/profile analytics.
 - Persistent/sediment teams.
 - Tournament, season, league, bracket, or seeding containers.
 - Replay/event logs.
@@ -1187,7 +1199,10 @@ Minimum persistence rules:
 - Staff action attributions survive as audit facts and are not replaced by derived summaries.
 - Public booking receipt/status truth must keep opaque receipt codes and never require exposing internal IDs.
 - Idempotency keys and expected versions are part of replay safety and must survive process restarts.
-- Backups must preserve result, correction, rating event, staff attribution, booking receipt, and ATHENA observation history before public surfaces depend on them.
+- Analytics projections are derived and rebuildable from canonical result,
+  legacy rating, and analytics event facts; they must never become source
+  result, rating, ARES, or public truth.
+- Backups must preserve result, correction, rating event, analytics event, staff attribution, booking receipt, and ATHENA observation history before public surfaces depend on them.
 
 Postgres-loss recovery target is not defined yet. Before public competition launch, define which projections can be rebuilt, which append-only facts must be restored from backup, and which external sources can be replayed.
 
@@ -1208,6 +1223,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-28 | Phase 3B.14 shipped OpenSkill dual-run comparison only: internal OpenSkill comparison rows/events, legacy/OpenSkill deltas, accepted budgets, scenarios, and delta flags are real while the legacy rating projection remains the active read path. OpenSkill cutover, ARES v2, analytics, tournaments, public surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.14 closeout. |
 | 2026-04-28 | Phase 3B.14.1 cohesion hardening fixed OpenSkill delta flag/storage boundary coherence, added focused boundary coverage, and corrected stale 3B.14/SemVer docs truth. OpenSkill remains internal dual-run only, the legacy read path remains active, canonical-result-only rating guards still hold, comparison facts remain deterministic/auditable, and no Hestia 3B.14 comparison leak was proven. | 3B.14.1 hardening closeout. |
 | 2026-04-28 | Phase 3B.15 shipped ARES v2 proposal/match-preview foundation only: queue intent facts, internal preview projections/events, match quality, predicted win probability, and explanation codes are real over trusted APOLLO projections while ARES remains a proposal engine and not a result, rating, booking, or public competition owner. OpenSkill read-path switch, analytics, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.15 closeout. |
+| 2026-04-28 | Phase 3B.16 shipped competition analytics foundation only: internal stat events and analytics projections are deterministic, versioned, and derived from finalized/corrected canonical results plus legacy active rating facts. Dashboard-first work, public profiles/stats/scouting, carry coefficient, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, OpenSkill read-path switch, and SemVer governance remain deferred. | 3B.16 closeout. |
 
 ## Kill Criteria
 
@@ -1237,8 +1253,11 @@ Kill or defer a tracer if any of these are true:
    with read-path cutover still deferred until comparison evidence is accepted.
 4. Closed by 3B.15: ARES v2 proposal/match-preview foundation over trusted
    APOLLO queue intent and rating facts.
-5. Later: analytics, tournament runtime, public competition surfaces, and game
-   identity only after their gates are met.
+5. Closed by 3B.16: internal derived competition analytics over trusted
+   result/rating facts only.
+6. Later: tournament runtime, public competition surfaces, carry coefficients,
+   public profiles/stats/scouting, and game identity only after their gates are
+   met.
 
 ## Proof Commands
 
@@ -1329,7 +1348,8 @@ Still deferred:
 - OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
 - ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
   requires a separate packet.
-- Analytics: Phase 3B.16.
+- Competition analytics foundation is closed in Phase 3B.16; carry
+  coefficient and broader public/profile/scouting analytics remain deferred.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
 - Public competition surfaces: Phase 3B.19.
@@ -1379,7 +1399,8 @@ Still deferred:
 - OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
 - ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
   requires a separate packet.
-- Analytics: Phase 3B.16.
+- Competition analytics foundation is closed in Phase 3B.16; carry
+  coefficient and broader public/profile/scouting analytics remain deferred.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
 - Public competition surfaces: Phase 3B.19.
@@ -1388,7 +1409,8 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Next packet if launch expansion continues: 3B.16 Competition Analytics Foundation.
+Current next packet if launch expansion continues: 3B.17 Internal Tournament
+Runtime, unless a 3B.16.1 hardening pass is needed.
 
 ## 3B.12.1 Cohesion Hardening Addendum
 
@@ -1426,7 +1448,8 @@ Still deferred:
 - OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
 - ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
   requires a separate packet.
-- Analytics: Phase 3B.16.
+- Competition analytics foundation is closed in Phase 3B.16; carry
+  coefficient and broader public/profile/scouting analytics remain deferred.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
 - Public competition surfaces: Phase 3B.19.
@@ -1435,7 +1458,8 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Next packet if launch expansion continues: 3B.16 Competition Analytics Foundation.
+Current next packet if launch expansion continues: 3B.17 Internal Tournament
+Runtime, unless a 3B.16.1 hardening pass is needed.
 
 ## 3B.13 Rating Foundation Addendum
 
@@ -1468,7 +1492,8 @@ Still deferred:
 - OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
 - ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
   requires a separate packet.
-- Analytics: Phase 3B.16.
+- Competition analytics foundation is closed in Phase 3B.16; carry
+  coefficient and broader public/profile/scouting analytics remain deferred.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
 - Public competition surfaces: Phase 3B.19.
@@ -1505,7 +1530,8 @@ Still deferred:
 - OpenSkill read-path switch remains deferred.
 - ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
   requires a separate packet.
-- Analytics: Phase 3B.16.
+- Competition analytics foundation is closed in Phase 3B.16; carry
+  coefficient and broader public/profile/scouting analytics remain deferred.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
 - Public competition surfaces: Phase 3B.19.
@@ -1551,7 +1577,8 @@ Still deferred:
 - OpenSkill read-path switch remains deferred.
 - ARES v2 proposal foundation is closed in Phase 3B.15; further ARES widening
   requires a separate packet.
-- Analytics: Phase 3B.16.
+- Competition analytics foundation is closed in Phase 3B.16; carry
+  coefficient and broader public/profile/scouting analytics remain deferred.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
 - Public competition surfaces: Phase 3B.19.
@@ -1597,11 +1624,64 @@ Confirmed unchanged:
 Still deferred:
 
 - OpenSkill read-path switch remains deferred.
-- Analytics: Phase 3B.16.
+- Competition analytics foundation is closed in Phase 3B.16; carry
+  coefficient and broader public/profile/scouting analytics remain deferred.
 - Tournament runtime: Phase 3B.17.
 - Social safety: Phase 3B.18.
 - Public competition surfaces: Phase 3B.19.
 - CP, badges, rivalry, and squads: Phase 3B.20.
+- Project-wide SemVer governance, proposal workflow, recurring schedule, court
+  splitting, booking/commercial work, browser trusted-surface token, and
+  public/Hestia competition expansion remain out of scope until separately
+  reopened.
+
+## 3B.16 Competition Analytics Addendum
+
+Date: 2026-04-28
+
+Phase 3B.16 `Competition Analytics Foundation` is closed in APOLLO
+repo/runtime truth, with no Themis or Hestia runtime changes and deployed truth
+unchanged. It shipped only internal derived analytics truth:
+
+- APOLLO stores internal competition stat events in
+  `apollo.competition_analytics_events`.
+- APOLLO stores current internal analytics projections in
+  `apollo.competition_analytics_projections`.
+- Analytics facts expose `stat_type`, `stat_value`, `source_match_id`,
+  `source_result_id`, `sample_size`, `confidence`, `computed_at`,
+  `projection_version`, and deterministic projection watermarks where
+  applicable.
+- APOLLO derives matches played, wins/losses/draws, current streaks, legacy
+  rating movement, opponent strength, facility/sport/mode splits, and
+  team-vs-solo delta only from existing participant-count facts.
+- Analytics rebuilds consume finalized/corrected canonical result truth plus
+  legacy active rating facts only; recorded, disputed, voided, superseded, and
+  non-canonical results are excluded.
+- Analytics rebuilds do not mutate result, rating, ARES, lifecycle, booking,
+  UI, member, or public truth.
+
+Confirmed unchanged:
+
+- `apollo.competition_member_ratings` remains the legacy active rating read
+  path.
+- OpenSkill remains internal dual-run comparison only.
+- ARES remains internal proposal/match-preview truth only.
+- Themis and Hestia do not compute analytics, confidence, sample size, rating
+  movement, opponent strength, or team/solo deltas.
+- Hestia has no public/member analytics, profile, scouting, leaderboard, CP,
+  badge, squad, rivalry, tournament, or public rank expansion from this
+  packet.
+
+Still deferred:
+
+- Dashboard-first analytics work remains deferred.
+- Public profiles/stats/scouting remain deferred until public readiness gates.
+- Carry coefficient remains deferred.
+- Tournament runtime remains deferred to Phase 3B.17.
+- Social safety remains deferred to Phase 3B.18.
+- Public competition surfaces remain deferred to Phase 3B.19.
+- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- OpenSkill read-path switch remains deferred.
 - Project-wide SemVer governance, proposal workflow, recurring schedule, court
   splitting, booking/commercial work, browser trusted-surface token, and
   public/Hestia competition expansion remain out of scope until separately
