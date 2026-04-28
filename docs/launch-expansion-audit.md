@@ -21,11 +21,11 @@ The correct strategic pattern is:
 7. Add social safety before public surfaces.
 8. Add retention mechanics after public trust is durable.
 
-Phase 3B.16 has now closed the internal competition analytics foundation after
-3B.12 result trust, 3B.13 legacy rating, 3B.14 OpenSkill comparison, and 3B.15
-ARES v2 proposal facts. The next launch-expansion packet should stay on
-internal tournament runtime or a bounded hardening pass, not dashboards, public
-profiles, public tournaments, badges, or an OpenSkill hard swap.
+Phase 3B.17 has now closed the internal tournament runtime after 3B.12 result
+trust, 3B.13 legacy rating, 3B.14 OpenSkill comparison, 3B.15 ARES v2 proposal
+facts, and 3B.16 internal analytics. The next launch-expansion packet should
+stay on social safety/reliability or a bounded hardening pass, not dashboards,
+public profiles, public tournaments, badges, or an OpenSkill hard swap.
 
 ## Evidence Anchors
 
@@ -1029,7 +1029,8 @@ Ruling:
 
 ### Frontend Contract
 
-Hestia has an `/app/tournaments` route, but backend tournament runtime is not real yet.
+Hestia has an `/app/tournaments` route, but Phase 3B.17 tournament runtime is
+staff/internal APOLLO truth only. It is not a public/member tournament contract.
 
 Best approach:
 
@@ -1224,6 +1225,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-28 | Phase 3B.14.1 cohesion hardening fixed OpenSkill delta flag/storage boundary coherence, added focused boundary coverage, and corrected stale 3B.14/SemVer docs truth. OpenSkill remains internal dual-run only, the legacy read path remains active, canonical-result-only rating guards still hold, comparison facts remain deterministic/auditable, and no Hestia 3B.14 comparison leak was proven. | 3B.14.1 hardening closeout. |
 | 2026-04-28 | Phase 3B.15 shipped ARES v2 proposal/match-preview foundation only: queue intent facts, internal preview projections/events, match quality, predicted win probability, and explanation codes are real over trusted APOLLO projections while ARES remains a proposal engine and not a result, rating, booking, or public competition owner. OpenSkill read-path switch, analytics, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.15 closeout. |
 | 2026-04-28 | Phase 3B.16 shipped competition analytics foundation only: internal stat events and analytics projections are deterministic, versioned, and derived from finalized/corrected canonical results plus legacy active rating facts. Dashboard-first work, public profiles/stats/scouting, carry coefficient, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, OpenSkill read-path switch, and SemVer governance remain deferred. | 3B.16 closeout. |
+| 2026-04-28 | Phase 3B.17 shipped internal tournament runtime only: staff-only tournament, bracket, seed, immutable team snapshot, match binding, round advancement, advance-reason, and tournament event facts are real; advancement consumes finalized/corrected canonical result truth only and does not own result, rating, analytics, ARES, public, or game identity truth. Public tournaments remain deferred to 3B.19. | 3B.17 closeout. |
 
 ## Kill Criteria
 
@@ -1255,7 +1257,9 @@ Kill or defer a tracer if any of these are true:
    APOLLO queue intent and rating facts.
 5. Closed by 3B.16: internal derived competition analytics over trusted
    result/rating facts only.
-6. Later: tournament runtime, public competition surfaces, carry coefficients,
+6. Closed by 3B.17: internal staff tournament runtime over trusted APOLLO
+   team/match/result truth only.
+7. Later: public competition surfaces, carry coefficients,
    public profiles/stats/scouting, and game identity only after their gates are
    met.
 
@@ -1682,6 +1686,66 @@ Still deferred:
 - Public competition surfaces remain deferred to Phase 3B.19.
 - CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
 - OpenSkill read-path switch remains deferred.
+- Project-wide SemVer governance, proposal workflow, recurring schedule, court
+  splitting, booking/commercial work, browser trusted-surface token, and
+  public/Hestia competition expansion remain out of scope until separately
+  reopened.
+
+## 3B.17 Internal Tournament Runtime Addendum
+
+Date: 2026-04-28
+
+Phase 3B.17 `Internal Tournament Runtime` is closed in APOLLO repo/runtime
+truth, with no Themis, Hestia, Prometheus, or deployed-truth changes. It shipped
+only staff/internal tournament facts:
+
+- APOLLO stores internal tournament containers in
+  `apollo.competition_tournaments`; visibility is constrained to `internal`.
+- APOLLO stores single-elimination bracket and seed facts in
+  `apollo.competition_tournament_brackets` and
+  `apollo.competition_tournament_seeds`.
+- APOLLO stores immutable locked team snapshots and snapshot members in
+  `apollo.competition_tournament_team_snapshots` and
+  `apollo.competition_tournament_team_snapshot_members`.
+- APOLLO stores match bindings in
+  `apollo.competition_tournament_match_bindings`; bindings reference APOLLO
+  competition matches instead of replacing match truth.
+- APOLLO stores explicit round advancement facts in
+  `apollo.competition_tournament_advancements` with
+  `advance_reason = canonical_result_win`.
+- APOLLO records `competition.tournament.created`,
+  `competition.tournament.seeded`, `competition.tournament.team_locked`,
+  `competition.tournament.match_bound`, and
+  `competition.tournament.round_advanced` event facts.
+- APOLLO exposes staff-gated tournament HTTP contracts and CLI reads through
+  existing competition capability/trusted-surface boundaries.
+
+Confirmed boundaries:
+
+- Tournament advancement consumes finalized/corrected canonical result truth
+  only; recorded, disputed, voided, superseded, and non-canonical result states
+  are rejected.
+- Tournaments do not mutate or replace canonical result, lifecycle, rating,
+  analytics, ARES, booking, public, member, UI, or game identity truth.
+- Team snapshots, seeds, match bindings, advancement facts, and tournament
+  events are append-only/immutable once recorded.
+- The first supported format is intentionally narrow:
+  `single_elimination`.
+- Themis may consume APOLLO tournament contracts later, but no Themis runtime
+  shell was required for this packet.
+- Hestia has no public/member tournament, bracket, leaderboard, scouting,
+  analytics, CP, badge, squad, rivalry, or public rank expansion from this
+  packet.
+
+Still deferred:
+
+- Social safety/reliability remains deferred to Phase 3B.18.
+- Public competition readiness and public tournaments remain deferred to Phase
+  3B.19.
+- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- OpenSkill read-path switch remains deferred.
+- Dashboard-first analytics, public profiles/stats/scouting, and carry
+  coefficient remain deferred.
 - Project-wide SemVer governance, proposal workflow, recurring schedule, court
   splitting, booking/commercial work, browser trusted-surface token, and
   public/Hestia competition expansion remain out of scope until separately

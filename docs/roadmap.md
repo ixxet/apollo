@@ -7,8 +7,9 @@ jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3B.16 competition analytics
-foundation over the already-closed Tracer 28 `v0.19.x`, Milestone 2.0 hardening
+Current repo/runtime working line on `main`: Phase 3B.17 internal tournament
+runtime over the already-closed Phase 3B.16 competition analytics foundation,
+Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
 Phase 3B.7 customer status/communication, Phase 3B.8 booking edit/replacement,
@@ -174,6 +175,11 @@ schedule-control lines
   `source_result_id`, `sample_size`, `confidence`, `computed_at`,
   `projection_version`, and deterministic projection watermarks over
   finalized/corrected canonical results plus legacy rating facts only
+- Phase 3B.17 internal tournament runtime is now real in repo/runtime on
+  `main`: APOLLO stores staff/internal tournament containers, single-elimination
+  bracket and seed facts, immutable locked team snapshots, match bindings,
+  explicit advance reasons, audited round advancement facts, and tournament
+  event facts over trusted APOLLO team/match/result truth only
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -193,7 +199,8 @@ tournament ideas into one gated plan:
 
 - docs truth, CLI parity, capabilities/dry-run, and application commands first
 - versioned legacy rating foundation, OpenSkill dual-run, ARES v2 proposal
-  facts, and internal derived analytics before public stakes
+  facts, internal derived analytics, and internal tournament runtime before
+  public stakes
 - match tiers, consensus voting, and disputes before public ratings, badges,
   leaderboards, tournaments, rivalry, CP, or squads
 - internal Themis competition ops can move earlier only as a staff/internal
@@ -208,9 +215,9 @@ They should not be used as permission to skip the launch-expansion gates.
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime working line on
-`main` is Phase 3B.16 competition analytics foundation over the Phase 3B.13
-rating foundation, Phase 3B.14 OpenSkill comparison evidence, Phase 3B.15 ARES
-v2 proposal foundation, and the closed
+`main` is Phase 3B.17 internal tournament runtime over the Phase 3B.16
+competition analytics foundation, Phase 3B.13 rating foundation, Phase 3B.14
+OpenSkill comparison evidence, Phase 3B.15 ARES v2 proposal foundation, and the closed
 Tracer 28 authz/staff-boundary truth,
 Milestone 2.0 hardening follow-up, scheduling substrate, member-safe calendar,
 ops-read, approved booking lifecycle, public request/status/availability lines,
@@ -233,24 +240,25 @@ and staff-side edit/replacement plus bounded staff schedule-control lines.
 | `Phase 3B.14` | OpenSkill dual-run comparison on `main`: OpenSkill comparison values, internal audit rows/events, accepted delta budgets, delta flags, and deterministic rebuilds over finalized/corrected canonical result truth | keep the legacy projection as the active read path, keep comparison facts internal, and preserve APOLLO as rating truth | do not widen into OpenSkill read-path switch, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, proposal workflow, booking, or deploy claims |
 | `Phase 3B.15` | ARES v2 proposal/match-preview foundation on `main`: explicit queue intent facts, deterministic internal match previews, match quality, predicted win probability, and explanation codes over trusted APOLLO projections | keep ARES proposal-only, keep APOLLO as preview fact owner, keep legacy rating read path active, and keep Themis/Hestia as consumers only if separately changed | competition analytics closes separately in 3B.16; do not widen into OpenSkill read-path switch, dashboard-first analytics, public profiles/stats/scouting, carry coefficient, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, proposal workflow, booking, or deploy claims |
 | `Phase 3B.16` | competition analytics foundation on `main`: internal stat events and analytics projections over finalized/corrected canonical results plus legacy rating facts | keep analytics internal, derived, deterministic, versioned, and separate from UI/public truth | do not widen into dashboards, public profiles/stats/scouting, carry coefficient, OpenSkill read-path switch, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, proposal workflow, booking, or deploy claims |
+| `Phase 3B.17` | internal tournament runtime on `main`: staff-only tournament containers, single-elimination bracket/seed/team-snapshot/match-binding/advancement facts, explicit advance reasons, and tournament events over trusted APOLLO competition truth | keep tournaments internal, staff-run, additive, audited, and bound to finalized/corrected canonical result truth only | do not widen into public tournaments, Hestia member/public competition expansion, booking/commercial/proposal workflow, OpenSkill read-path switch, ARES behavior changes, dashboard-first analytics, CP, badges, rivalry, squads, or deploy claims |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, CP, badges, squads, public rivalry, or public leaderboards |
 
 ## Current Phase 3B Line
 
-Phase 3B.16 competition analytics foundation is now real in repo/runtime on
-`main`, with deployed truth still separate and unchanged. APOLLO now records
-internal competition stat events and analytics projections over trusted
-finalized/corrected canonical results and legacy rating facts. Projection
-version, projection watermark, confidence, sample size, computed time, source
-match, and source result are explicit. Analytics do not own or mutate match
-lifecycle, canonical results, rating truth, ARES proposal truth, booking/
-commercial truth, UI truth, or public competition truth.
+Phase 3B.17 internal tournament runtime is now real in repo/runtime on `main`,
+with deployed truth still separate and unchanged. APOLLO now records
+staff/internal tournament, bracket, seed, immutable team snapshot, match
+binding, round advancement, explicit advance-reason, and tournament event facts.
+The first supported format is `single_elimination`. Tournament advancement
+consumes finalized/corrected canonical result truth only and does not own or
+mutate match lifecycle, canonical results, rating truth, analytics truth, ARES
+proposal truth, booking/commercial truth, UI truth, or public competition truth.
 
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
 - OpenSkill read-path switch only after comparison evidence is accepted
-- tournament runtime, public competition surfaces, and game identity
+- public tournaments, public competition surfaces, and game identity
 - carry coefficient and broader scouting/profile analytics until separate gates
 - public self-edit/rebook, broader customer self-service/status portal, and instant booking
 - in-place approved-booking editing
