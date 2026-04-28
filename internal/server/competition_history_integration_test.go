@@ -378,6 +378,7 @@ func TestCompetitionAnalyticsFoundationProjectsTrustedStats(t *testing.T) {
 	if currentStreak.value != -1 || currentStreak.sampleSize != 2 {
 		t.Fatalf("current streak projection = %+v, want one-match loss streak over singles sample", currentStreak)
 	}
+	assertAnalyticsStatEvent(t, env, owner.ID, currentStreak.sourceResultID, "badminton", "ashtonbee", "head_to_head:s2-p1", "all", "current_streak", -1, 2, 0.2)
 
 	ratingMovement := readAnalyticsProjection(t, env, owner.ID, "badminton", "ashtonbee", "head_to_head:s2-p1", "all", "rating_movement")
 	if ratingMovement.sampleSize != 2 || ratingMovement.value == 0 {
@@ -393,6 +394,10 @@ func TestCompetitionAnalyticsFoundationProjectsTrustedStats(t *testing.T) {
 	if teamVsSolo.value != 0.5 || teamVsSolo.sampleSize != 3 || teamVsSolo.confidence != 0.3 {
 		t.Fatalf("team vs solo projection = %+v, want team win-rate delta 0.5 over three trusted results", teamVsSolo)
 	}
+	if teamVsSolo.sourceResultID != doublesWin.Matches[0].Result.ID {
+		t.Fatalf("team vs solo source_result_id = %s, want latest trusted result %s", teamVsSolo.sourceResultID, doublesWin.Matches[0].Result.ID)
+	}
+	assertAnalyticsStatEvent(t, env, owner.ID, teamVsSolo.sourceResultID, "badminton", "all", "all", "all", "team_vs_solo_delta", 0.5, 3, 0.3)
 
 	sportSplit := readAnalyticsProjection(t, env, owner.ID, "badminton", "all", "all", "all", "matches_played")
 	if sportSplit.value != 3 || sportSplit.sampleSize != 3 {
@@ -941,6 +946,40 @@ WHERE event_type = 'competition.analytics.stat_computed'
 	}
 	if count != want {
 		t.Fatalf("analytics stat event count for %s/%s = %d, want %d", sourceResultID, statType, count, want)
+	}
+}
+
+func assertAnalyticsStatEvent(t *testing.T, env *authProfileServerEnv, userID uuid.UUID, sourceResultID uuid.UUID, sportKey string, facilityKey string, modeKey string, teamScope string, statType string, wantValue float64, wantSampleSize int, wantConfidence float64) {
+	t.Helper()
+
+	var value float64
+	var sampleSize int
+	var confidence float64
+	var projectionVersion string
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT stat_value::double precision,
+       sample_size,
+       confidence::double precision,
+       projection_version
+FROM apollo.competition_analytics_events
+WHERE event_type = 'competition.analytics.stat_computed'
+  AND user_id = $1
+  AND source_result_id = $2
+  AND sport_key = $3
+  AND facility_key = $4
+  AND mode_key = $5
+  AND team_scope = $6
+  AND stat_type = $7
+ORDER BY computed_at DESC, id DESC
+LIMIT 1
+`, userID, sourceResultID, sportKey, facilityKey, modeKey, teamScope, statType).Scan(&value, &sampleSize, &confidence, &projectionVersion); err != nil {
+		t.Fatalf("read analytics stat event %s/%s/%s/%s/%s error = %v", sportKey, facilityKey, modeKey, teamScope, statType, err)
+	}
+	if projectionVersion != "competition_analytics_v1" {
+		t.Fatalf("analytics stat event projection_version = %q, want competition_analytics_v1", projectionVersion)
+	}
+	if value != wantValue || sampleSize != wantSampleSize || confidence != wantConfidence {
+		t.Fatalf("analytics stat event %s = value %.4f sample %d confidence %.4f, want value %.4f sample %d confidence %.4f", statType, value, sampleSize, confidence, wantValue, wantSampleSize, wantConfidence)
 	}
 }
 
