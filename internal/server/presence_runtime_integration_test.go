@@ -19,6 +19,17 @@ func TestPresenceRuntimeExposesFacilityScopedSummaryAndStaysDeterministic(t *tes
 
 	cookie, user := createVerifiedSessionViaHTTP(t, env, "student-presence-rt-001", "presence-rt-001@example.com")
 	base := time.Now().UTC().Truncate(time.Second)
+	ashtonbeeCurrentArrival := base.Add(-2 * time.Hour)
+	ashtonbeePreviousArrival := time.Date(
+		ashtonbeeCurrentArrival.Year(),
+		ashtonbeeCurrentArrival.Month(),
+		ashtonbeeCurrentArrival.Day(),
+		12,
+		0,
+		0,
+		0,
+		time.UTC,
+	).AddDate(0, 0, -1)
 	presenceService := presence.NewService(presence.NewRepository(env.db.DB), visits.NewService(visits.NewRepository(env.db.DB)))
 
 	if _, err := env.db.DB.Exec(context.Background(), "INSERT INTO apollo.claimed_tags (user_id, tag_hash, label) VALUES ($1, $2, $3)", user.ID, "presence-tag-ashtonbee", "ashtonbee tag"); err != nil {
@@ -33,7 +44,7 @@ func TestPresenceRuntimeExposesFacilityScopedSummaryAndStaysDeterministic(t *tes
 		FacilityKey:          "ashtonbee",
 		ZoneKey:              stringPtr("gym-floor"),
 		ExternalIdentityHash: "presence-tag-ashtonbee",
-		ArrivedAt:            base.AddDate(0, 0, -1).Add(-3 * time.Hour),
+		ArrivedAt:            ashtonbeePreviousArrival,
 	}); err != nil {
 		t.Fatalf("RecordArrival(ashtonbee day1) error = %v", err)
 	}
@@ -41,7 +52,7 @@ func TestPresenceRuntimeExposesFacilityScopedSummaryAndStaysDeterministic(t *tes
 		SourceEventID:        "presence-ashtonbee-departure-001",
 		FacilityKey:          "ashtonbee",
 		ExternalIdentityHash: "presence-tag-ashtonbee",
-		DepartedAt:           base.AddDate(0, 0, -1).Add(-2 * time.Hour),
+		DepartedAt:           ashtonbeePreviousArrival.Add(time.Hour),
 	}); err != nil {
 		t.Fatalf("RecordDeparture(ashtonbee day1) error = %v", err)
 	}
@@ -50,7 +61,7 @@ func TestPresenceRuntimeExposesFacilityScopedSummaryAndStaysDeterministic(t *tes
 		FacilityKey:          "ashtonbee",
 		ZoneKey:              stringPtr("gym-floor"),
 		ExternalIdentityHash: "presence-tag-ashtonbee",
-		ArrivedAt:            base.Add(-2 * time.Hour),
+		ArrivedAt:            ashtonbeeCurrentArrival,
 	}); err != nil {
 		t.Fatalf("RecordArrival(ashtonbee day2) error = %v", err)
 	}
