@@ -129,6 +129,11 @@ func recomputeCompetitionAnalyticsTx(ctx context.Context, queries *store.Queries
 
 	facts := analyticsProjectionFacts(aggregates)
 	for _, fact := range facts {
+		if analyticsProjectionFactEmitsStatEvent(fact) {
+			if err := createAnalyticsProjectionFactStatEventTx(ctx, queries, fact, projectionWatermark, computedAt); err != nil {
+				return err
+			}
+		}
 		statValue, err := numericFromFloat64(fact.statValue)
 		if err != nil {
 			return err
@@ -174,6 +179,10 @@ func recomputeCompetitionAnalyticsTx(ctx context.Context, queries *store.Queries
 		ComputedAt:          timestamptz(computedAt),
 	})
 	return err
+}
+
+func analyticsProjectionFactEmitsStatEvent(fact analyticsProjectionFact) bool {
+	return fact.statType == analyticsStatCurrentStreak || fact.statType == analyticsStatTeamVsSoloDelta
 }
 
 func buildAnalyticsMatches(rows []store.ListCompetitionAnalyticsParticipantsBySportRow) ([]analyticsMatch, error) {
@@ -280,6 +289,34 @@ func createAnalyticsStatEventTx(ctx context.Context, queries *store.Queries, mat
 		SourceMatchID:       optionalUUID(&match.sourceMatchID),
 		SourceResultID:      optionalUUID(&match.sourceResultID),
 		SampleSize:          int32(sampleSize),
+		Confidence:          confidence,
+		ComputedAt:          timestamptz(computedAt),
+	})
+	return err
+}
+
+func createAnalyticsProjectionFactStatEventTx(ctx context.Context, queries *store.Queries, fact analyticsProjectionFact, projectionWatermark string, computedAt time.Time) error {
+	statValue, err := numericFromFloat64(fact.statValue)
+	if err != nil {
+		return err
+	}
+	confidence, err := numericFromFloat64(fact.confidence)
+	if err != nil {
+		return err
+	}
+	_, err = queries.CreateCompetitionAnalyticsStatEvent(ctx, store.CreateCompetitionAnalyticsStatEventParams{
+		ProjectionVersion:   competitionAnalyticsProjectionVersion,
+		ProjectionWatermark: projectionWatermark,
+		UserID:              optionalUUID(&fact.key.userID),
+		SportKey:            fact.key.sportKey,
+		FacilityKey:         fact.key.facilityKey,
+		ModeKey:             fact.key.modeKey,
+		TeamScope:           fact.key.teamScope,
+		StatType:            fact.statType,
+		StatValue:           statValue,
+		SourceMatchID:       optionalUUID(&fact.sourceMatchID),
+		SourceResultID:      optionalUUID(&fact.sourceResultID),
+		SampleSize:          int32(fact.sampleSize),
 		Confidence:          confidence,
 		ComputedAt:          timestamptz(computedAt),
 	})
