@@ -180,6 +180,7 @@ func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 	if err := testutil.ApplySQLFiles(
 		ctx,
 		postgresEnv.DB,
+		testutil.RepoFilePath("db", "migrations", "030_internal_tournament_cohesion.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "029_internal_tournament_runtime.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "028_competition_analytics_foundation.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "027_competition_ares_input_watermark.down.sql"),
@@ -421,6 +422,86 @@ RETURNING id
 `, tournamentID, bracketID, seedTwoID, sessionID, teamTwoID).Scan(&snapshotTwoID); err != nil {
 		t.Fatalf("insert tournament team snapshot two error = %v", err)
 	}
+
+	var otherTournamentID uuid.UUID
+	if err := postgresEnv.DB.QueryRow(ctx, `
+INSERT INTO apollo.competition_tournaments (
+    owner_user_id,
+    display_name,
+    format,
+    sport_key,
+    facility_key,
+    zone_key,
+    participants_per_side,
+    updated_at
+)
+VALUES ($1, 'Tracer 29 Other Tournament', 'single_elimination', 'badminton', 'ashtonbee', 'gym-floor', 1, NOW())
+RETURNING id
+`, ownerUserID).Scan(&otherTournamentID); err != nil {
+		t.Fatalf("insert other tournament error = %v", err)
+	}
+	var otherBracketID uuid.UUID
+	if err := postgresEnv.DB.QueryRow(ctx, `
+INSERT INTO apollo.competition_tournament_brackets (
+    tournament_id,
+    bracket_index,
+    format,
+    status,
+    updated_at
+)
+VALUES ($1, 1, 'single_elimination', 'draft', NOW())
+RETURNING id
+`, otherTournamentID).Scan(&otherBracketID); err != nil {
+		t.Fatalf("insert other bracket error = %v", err)
+	}
+	var otherSeedID uuid.UUID
+	if err := postgresEnv.DB.QueryRow(ctx, `
+INSERT INTO apollo.competition_tournament_seeds (
+    tournament_id,
+    bracket_id,
+    seed,
+    competition_session_team_id,
+    seeded_at
+)
+VALUES ($1, $2, 1, $3, NOW())
+RETURNING id
+`, otherTournamentID, otherBracketID, teamOneID).Scan(&otherSeedID); err != nil {
+		t.Fatalf("insert other seed error = %v", err)
+	}
+	var otherSnapshotID uuid.UUID
+	if err := postgresEnv.DB.QueryRow(ctx, `
+INSERT INTO apollo.competition_tournament_team_snapshots (
+    tournament_id,
+    bracket_id,
+    tournament_seed_id,
+    seed,
+    competition_session_id,
+    competition_session_team_id,
+    roster_hash,
+    locked_at
+)
+VALUES ($1, $2, $3, 1, $4, $5, 'hash-other', NOW())
+RETURNING id
+`, otherTournamentID, otherBracketID, otherSeedID, sessionID, teamOneID).Scan(&otherSnapshotID); err != nil {
+		t.Fatalf("insert other tournament team snapshot error = %v", err)
+	}
+	_, err = postgresEnv.DB.Exec(ctx, `
+INSERT INTO apollo.competition_tournament_match_bindings (
+    tournament_id,
+    bracket_id,
+    round,
+    match_number,
+    competition_match_id,
+    side_one_team_snapshot_id,
+    side_two_team_snapshot_id,
+    bound_at
+)
+VALUES ($1, $2, 1, 1, $3, $4, $5, NOW())
+`, tournamentID, bracketID, matchID, otherSnapshotID, snapshotTwoID)
+	if err == nil {
+		t.Fatal("insert cross-bracket tournament binding error = nil, want FK violation")
+	}
+
 	if _, err := postgresEnv.DB.Exec(ctx, `
 INSERT INTO apollo.competition_tournament_match_bindings (
     tournament_id,
@@ -436,6 +517,38 @@ VALUES ($1, $2, 1, 1, $3, $4, $5, NOW())
 `, tournamentID, bracketID, matchID, snapshotOneID, snapshotTwoID); err != nil {
 		t.Fatalf("insert tournament match binding error = %v", err)
 	}
+	otherMatchID := insertCompetitionMatch(t, ctx, postgresEnv, sessionID, 2)
+	otherResultID := insertCompetitionResult(t, ctx, postgresEnv, otherMatchID, ownerUserID)
+	_, err = postgresEnv.DB.Exec(ctx, `
+INSERT INTO apollo.competition_tournament_advancements (
+    tournament_id,
+    bracket_id,
+    match_binding_id,
+    round,
+    winning_team_snapshot_id,
+    losing_team_snapshot_id,
+    competition_match_id,
+    canonical_result_id,
+    advance_reason,
+    advanced_at
+)
+SELECT tournament_id,
+       bracket_id,
+       id,
+       round,
+       side_one_team_snapshot_id,
+       side_two_team_snapshot_id,
+       $1,
+       $2,
+       'canonical_result_win',
+       NOW()
+FROM apollo.competition_tournament_match_bindings
+WHERE bracket_id = $3
+`, otherMatchID, otherResultID, bracketID)
+	if err == nil {
+		t.Fatal("insert tournament advancement with drifted match/result error = nil, want coherence rejection")
+	}
+
 	if _, err := postgresEnv.DB.Exec(ctx, `
 INSERT INTO apollo.competition_tournament_advancements (
     tournament_id,

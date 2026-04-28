@@ -147,6 +147,49 @@ func TestCompetitionCommandRecordResultRequiresExpectedVersion(t *testing.T) {
 	}
 }
 
+func TestCompetitionCommandAdvanceTournamentRoundUsesTopLevelMatchBindingID(t *testing.T) {
+	tournamentID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	matchBindingID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	expectedVersion := 4
+	command := CompetitionCommand{
+		Name:            CommandAdvanceTournamentRound,
+		TournamentID:    tournamentID,
+		MatchBindingID:  matchBindingID,
+		ExpectedVersion: &expectedVersion,
+		AdvanceTournamentRound: &AdvanceTournamentRoundInput{
+			AdvanceReason: AdvanceReasonCanonicalResultWin,
+		},
+	}
+
+	if err := validateCompetitionCommand(command, CompetitionCommandDefinition{Name: CommandAdvanceTournamentRound}); err != nil {
+		t.Fatalf("validateCompetitionCommand error = %v", err)
+	}
+	if command.AdvanceTournamentRound.MatchBindingID != matchBindingID {
+		t.Fatalf("nested match_binding_id = %s, want %s", command.AdvanceTournamentRound.MatchBindingID, matchBindingID)
+	}
+	if command.AdvanceTournamentRound.ExpectedTournamentVersion != expectedVersion {
+		t.Fatalf("nested expected version = %d, want %d", command.AdvanceTournamentRound.ExpectedTournamentVersion, expectedVersion)
+	}
+}
+
+func TestCompetitionCommandAdvanceTournamentRoundRejectsMismatchedMatchBindingIDs(t *testing.T) {
+	expectedVersion := 4
+	command := CompetitionCommand{
+		Name:            CommandAdvanceTournamentRound,
+		TournamentID:    uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		MatchBindingID:  uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+		ExpectedVersion: &expectedVersion,
+		AdvanceTournamentRound: &AdvanceTournamentRoundInput{
+			MatchBindingID: uuid.MustParse("33333333-3333-3333-3333-333333333333"),
+			AdvanceReason:  AdvanceReasonCanonicalResultWin,
+		},
+	}
+
+	if err := validateCompetitionCommand(command, CompetitionCommandDefinition{Name: CommandAdvanceTournamentRound}); !errors.Is(err, ErrCommandResourceMismatch) {
+		t.Fatalf("validateCompetitionCommand error = %v, want ErrCommandResourceMismatch", err)
+	}
+}
+
 func assertCommandAvailable(t *testing.T, readiness CompetitionCommandReadiness, name CommandName, want bool) {
 	t.Helper()
 	capability, ok := commandCapability(readiness, name)
