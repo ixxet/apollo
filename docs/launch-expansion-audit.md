@@ -148,6 +148,10 @@ APOLLO currently has:
   identifiers, golden characterization cases, auditable rating compute/policy/
   rebuild events, source result IDs, rating event IDs, and deterministic
   projection watermarks over finalized/corrected canonical result truth.
+- OpenSkill dual-run comparison: internal comparison rows/events record
+  legacy/OpenSkill values, deltas, accepted budgets, scenarios, and explicit
+  delta flags from the same finalized/corrected canonical result order while
+  leaving the legacy projection as the active read path.
 - Schedule substrate, booking request lifecycle, public-safe booking intake/status/availability.
 - Presence, visit, tap-link, facility streak, and ATHENA-backed ops overview surfaces.
 - Minimal member shell with existing API-backed routes.
@@ -161,7 +165,7 @@ These are easy to misread as real runtime because the schema exists:
 | `apollo.ares_ratings`, `apollo.ares_matches`, `apollo.ares_match_players` | Authored in the initial migration, but not the active competition rating/result runtime. | Do not build new rating behavior on these without a deliberate migration decision. |
 | `apollo.recommendations` | Authored table; current recommendation/coaching reads are primarily deterministic read-time surfaces. | Do not treat the table as evidence of a persisted recommendation engine. |
 
-The active competition rating projection is `apollo.competition_member_ratings`, created by the competition-history runtime. Phase 3B.13 adds explicit legacy rating metadata to that projection and writes rating audit events in `apollo.competition_rating_events`.
+The active competition rating projection is `apollo.competition_member_ratings`, created by the competition-history runtime. Phase 3B.13 adds explicit legacy rating metadata to that projection and writes rating audit events in `apollo.competition_rating_events`. Phase 3B.14 adds internal OpenSkill comparison facts in `apollo.competition_rating_comparisons` and OpenSkill comparison events without switching that active projection.
 
 ### Not Real Yet
 
@@ -1197,6 +1201,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-27 | Phase 3B.12 shipped lifecycle/result trust only: canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, and finalized/corrected-only rating consumption. Rating extraction, OpenSkill, analytics, tournament runtime, public surfaces, and game identity remain deferred. | 3B.12 closeout. |
 | 2026-04-27 | Phase 3B.12.1 cohesion hardening found no runtime, Themis, Hestia, or docs truth drift; no patch worker changes were required. | 3B.12.1 hardening closeout. |
 | 2026-04-27 | Phase 3B.13 shipped legacy rating foundation only: current rating math is explicit, versioned, golden-tested, auditable, bound to finalized/corrected canonical results, and stored with deterministic projection watermarks. OpenSkill remains deferred to 3B.14. | 3B.13 closeout. |
+| 2026-04-28 | Phase 3B.14 shipped OpenSkill dual-run comparison only: internal OpenSkill comparison rows/events, legacy/OpenSkill deltas, accepted budgets, scenarios, and delta flags are real while the legacy rating projection remains the active read path. OpenSkill cutover, ARES v2, analytics, tournaments, public surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.14 closeout. |
 
 ## Kill Criteria
 
@@ -1312,7 +1317,7 @@ Still deferred:
 
 - Result lifecycle/trust: Phase 3B.12.
 - Rating extraction: Phase 3B.13.
-- OpenSkill: Phase 3B.14.
+- OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
 - ARES v2: Phase 3B.15.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.
@@ -1361,7 +1366,7 @@ Verification notes:
 
 Still deferred:
 
-- OpenSkill: Phase 3B.14.
+- OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
 - ARES v2: Phase 3B.15.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.
@@ -1372,7 +1377,7 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Next packet if launch expansion continues: 3B.14 OpenSkill Dual-Run.
+Next packet if launch expansion continues: 3B.15 ARES v2.
 
 ## 3B.12.1 Cohesion Hardening Addendum
 
@@ -1407,7 +1412,7 @@ Verification notes:
 
 Still deferred:
 
-- OpenSkill: Phase 3B.14.
+- OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
 - ARES v2: Phase 3B.15.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.
@@ -1418,7 +1423,7 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Next packet if launch expansion continues: 3B.14 OpenSkill Dual-Run.
+Next packet if launch expansion continues: 3B.15 ARES v2.
 
 ## 3B.13 Rating Foundation Addendum
 
@@ -1448,7 +1453,43 @@ engine/policy versions until a later packet explicitly proves the cutover.
 
 Still deferred:
 
-- OpenSkill: Phase 3B.14.
+- OpenSkill dual-run is closed in Phase 3B.14; read-path switch remains deferred.
+- ARES v2: Phase 3B.15.
+- Analytics: Phase 3B.16.
+- Tournament runtime: Phase 3B.17.
+- Social safety: Phase 3B.18.
+- Public competition surfaces: Phase 3B.19.
+- CP, badges, rivalry, and squads: Phase 3B.20.
+- Project-wide SemVer governance, proposal workflow, recurring schedule, court
+  splitting, booking/commercial work, browser trusted-surface token, and
+  public/Hestia competition expansion remain out of scope until separately
+  reopened.
+
+## 3B.14 OpenSkill Dual-Run Addendum
+
+Date: 2026-04-28
+
+Phase 3B.14 `OpenSkill Dual-Run` is closed in APOLLO repo/runtime truth, with
+no Themis or Hestia runtime changes. It shipped only internal comparison truth:
+
+- APOLLO computes OpenSkill values beside legacy rating outputs from the same
+  finalized/corrected canonical result order.
+- APOLLO records `legacy_mu`, `legacy_sigma`, `openskill_mu`,
+  `openskill_sigma`, `delta_from_legacy`, `accepted_delta_budget`, and
+  `comparison_scenario` on internal comparison audit facts/events.
+- APOLLO records `competition.rating.openskill_computed` events and records
+  `competition.rating.delta_flagged` when comparison deltas exceed the accepted
+  budget.
+- APOLLO keeps `apollo.competition_member_ratings` as the legacy active rating
+  projection and does not expose OpenSkill values through public/member rating
+  reads.
+- Rating projections and comparison facts continue to consume only finalized or
+  corrected canonical results; recorded, disputed, voided, superseded, and
+  non-canonical results stay out of the active rating path.
+
+Still deferred:
+
+- OpenSkill read-path switch remains deferred.
 - ARES v2: Phase 3B.15.
 - Analytics: Phase 3B.16.
 - Tournament runtime: Phase 3B.17.

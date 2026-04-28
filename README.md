@@ -62,8 +62,10 @@ recommendations, and the ARES matchmaking subsystem.
 > consumption guards. Phase 3B.13 extracts the current legacy rating math into
 > an explicit `legacy_elo_like` engine/policy foundation, records auditable
 > rating events/projection watermarks, and keeps ratings limited to finalized
-> or corrected canonical results. OpenSkill, ARES v2, analytics, tournaments,
-> public competition surfaces, and game identity stay deferred.
+> or corrected canonical results. Phase 3B.14 runs OpenSkill beside that
+> legacy baseline as internal comparison truth only; the active read path
+> remains legacy while ARES v2, analytics, tournaments, public competition
+> surfaces, and game identity stay deferred.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -226,7 +228,7 @@ eligibility, or any social state.
 | `apollo.booking_request_idempotency_keys` | Real in repo/runtime | Stores hashed public idempotency keys, normalized payload hashes, and linked request IDs so duplicate public submits cannot create duplicate requests |
 | `apollo.public_booking_receipts` | Real in repo/runtime | Stores opaque public receipt codes and optional public-safe customer messages linked internally to booking requests without exposing request UUIDs or internal notes |
 | `apollo.competition_sessions`, `apollo.competition_session_queue_members`, `apollo.competition_session_teams`, `apollo.competition_team_roster_members`, `apollo.competition_matches`, and `apollo.competition_match_side_slots` | Real | Stores APOLLO-local session-rooted queue, assignment, lifecycle, and container truth |
-| `apollo.competition_match_results`, `apollo.competition_match_result_sides`, `apollo.competition_lifecycle_events`, `apollo.competition_rating_events`, and `apollo.competition_member_ratings` | Real in repo/runtime | Stores canonical result identity, recorded/finalized/disputed/corrected/voided lifecycle facts, correction supersession, immutable result sides, auditable legacy rating compute/policy/rebuild events, and current versioned legacy rating projections derived only from finalized or corrected canonical results; OpenSkill is not active yet |
+| `apollo.competition_match_results`, `apollo.competition_match_result_sides`, `apollo.competition_lifecycle_events`, `apollo.competition_rating_events`, `apollo.competition_rating_comparisons`, and `apollo.competition_member_ratings` | Real in repo/runtime | Stores canonical result identity, recorded/finalized/disputed/corrected/voided lifecycle facts, correction supersession, immutable result sides, auditable legacy rating compute/policy/rebuild events, internal OpenSkill dual-run comparison facts/events, and current versioned legacy rating projections derived only from finalized or corrected canonical results; OpenSkill is not the active read path |
 | `apollo.competition_staff_action_attributions` | Real in repo/runtime | Stores durable actor/session/role/capability/trusted-surface attribution for successful staff-sensitive competition mutations |
 | `apollo.ares_*` tables | Schema authored | Historical match and rating writes are deferred; the current preview runtime reads explicit membership and profile state without mutating ARES tables |
 | `apollo.recommendations` | Schema authored | Tracer 7 recommendation reads are derived at read time; persisted recommendation records remain deferred |
@@ -234,13 +236,16 @@ eligibility, or any social state.
 
 ## Current Phase 3B Line
 
-Phase 3B.13 rating foundation is now real in repo/runtime on `main`, but
+Phase 3B.14 OpenSkill dual-run is now real in repo/runtime on `main`, but
 deployed truth stays separate and unchanged. It builds on the closed 3B.12
 result trust spine: APOLLO now owns canonical match/result state,
 `canonical_result_id`, `result_version`, result statuses, dispute status,
 correction/supersession IDs, finalized/corrected timestamps, lifecycle events,
-and a versioned legacy rating foundation. Ratings may consume only finalized or
-corrected canonical results; recorded, disputed, voided, superseded, and
+and a versioned legacy rating foundation. APOLLO now computes OpenSkill
+comparison facts beside legacy outputs from those same trusted inputs, records
+legacy/OpenSkill deltas and out-of-budget flags, and keeps the active member
+rating read path on the legacy projection. Ratings may consume only finalized
+or corrected canonical results; recorded, disputed, voided, superseded, and
 non-canonical results are excluded from active rating projections.
 
 | Topic | Locked statement |
@@ -262,12 +267,13 @@ schedule blocks and cancel eligible schedule-managed blocks through existing
 trusted-surface schedule APIs, and booking-linked reservations remain owned by
 the booking request lifecycle rather than the generic schedule-control path.
 
-Phase 3B.13 closes only the legacy rating foundation: current math is
-versioned, golden-tested, auditable, and stored with explicit engine/policy
-metadata plus projection watermarks. OpenSkill remains deferred to Phase 3B.14,
-ARES v2 to Phase 3B.15, analytics to Phase 3B.16, tournament runtime to Phase
-3B.17, public competition surfaces to Phase 3B.19, and CP, badges, rivalry,
-and squads to Phase 3B.20.
+Phase 3B.14 closes only OpenSkill dual-run comparison: OpenSkill values,
+legacy values, deltas, accepted budgets, scenarios, and delta flags are
+internal audit/comparison facts. The active rating read path remains the
+legacy projection. OpenSkill read-path switch remains deferred, ARES v2 to
+Phase 3B.15, analytics to Phase 3B.16, tournament runtime to Phase 3B.17,
+public competition surfaces to Phase 3B.19, and CP, badges, rivalry, and
+squads to Phase 3B.20.
 
 ## Launch Expansion Source Of Truth
 
@@ -322,6 +328,7 @@ Current ruling:
 | Competition command foundation | shared APOLLO competition command/outcome DTOs, readiness/capability truth, dry-run plan output, and CLI parity over existing competition services | Closure-clean on `main` | `Phase 3B.11` | Kept APOLLO as competition truth and Themis as a consumer; result trust is closed separately in 3B.12 while OpenSkill, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, and deploy claims remain deferred |
 | Competition lifecycle/result trust | canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, lifecycle events, and finalized/corrected-only rating guards | Closure-clean on `main` | `Phase 3B.12` | Keep APOLLO as canonical result truth and Themis as a consumer; legacy rating foundation is closed separately in 3B.13 while OpenSkill, ARES v2, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, and deploy claims remain deferred |
 | Legacy rating foundation | extracted APOLLO legacy rating engine/policy identifiers, golden cases, rating compute/policy/rebuild events, source result IDs, rating event IDs, and deterministic projection watermarks | Closure-clean on `main` | `Phase 3B.13` | Keep current public/member rating reads unchanged and consume finalized/corrected canonical results only; OpenSkill, ARES v2, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, and deploy claims remain deferred |
+| OpenSkill dual-run comparison | OpenSkill values computed beside legacy rating outputs, internal comparison rows/events, delta budgets, delta flags, and deterministic comparison rebuilds over finalized/corrected canonical result truth | Closure-clean on `main` | `Phase 3B.14` | Keep the legacy rating projection as the active read path; OpenSkill cutover, ARES v2, analytics, tournaments, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, and deploy claims remain deferred |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
@@ -636,6 +643,7 @@ lines begin below.
 | `Phase 3B.11` | competition command foundation on `main`: shared APOLLO competition command/outcome DTOs, readiness/capability truth, dry-run plan output, and service-backed CLI parity over existing competition services | keep APOLLO as competition truth, preserve authz/trusted-surface boundaries, and report idempotency/version support explicitly | closed by 3B.12 result trust; do not widen into OpenSkill, analytics, tournament runtime, public competition surfaces, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, booking/commercial work, or deploy claims |
 | `Phase 3B.12` | competition lifecycle/result trust on `main`: canonical result identity, explicit result status facts, correction supersession, finalization/correction timestamps, lifecycle events, and rating guards | keep APOLLO as canonical result truth, keep corrections additive/auditable, and allow ratings to consume only finalized or corrected canonical results | do not widen into rating engine extraction, OpenSkill, ARES v2, analytics, tournament runtime, public/member competition surfaces, CP/badges/rivalry/squads, proposal workflow, booking/commercial work, or deploy claims |
 | `Phase 3B.13` | legacy rating foundation on `main`: explicit `legacy_elo_like` engine/policy versions, golden cases, rating compute/policy/rebuild events, source result binding, rating event IDs, and projection watermarks | preserve current rating outputs and public/member read contracts while deriving active ratings only from finalized/corrected canonical results | do not widen into OpenSkill, ARES v2, analytics, tournament runtime, public/member competition surfaces, CP/badges/rivalry/squads, proposal workflow, booking/commercial work, or deploy claims |
+| `Phase 3B.14` | OpenSkill dual-run comparison on `main`: internal OpenSkill comparison facts/events beside legacy outputs, accepted delta budgets, delta flags, and deterministic rebuilds over finalized/corrected canonical result truth | preserve the legacy active rating read path and keep OpenSkill values internal-only until comparison evidence is accepted | do not widen into OpenSkill read-path switch, ARES v2, analytics, tournament runtime, public/member competition surfaces, CP/badges/rivalry/squads, proposal workflow, booking/commercial work, or deploy claims |
 
 ## Versioning Discipline
 

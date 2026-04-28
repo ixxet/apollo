@@ -158,6 +158,11 @@ schedule-control lines
   `projection_watermark` data on rating projections, and preserves existing
   member rating read behavior while still consuming finalized/corrected
   canonical results only
+- Phase 3B.14 OpenSkill dual-run is now real in repo/runtime on `main`:
+  APOLLO computes OpenSkill comparison facts beside legacy rating outputs from
+  the same finalized/corrected canonical results, records internal
+  legacy/OpenSkill deltas and delta flags, and keeps the active member rating
+  read path on the legacy projection
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -212,21 +217,23 @@ edit/replacement plus bounded staff schedule-control lines.
 | `Phase 3B.11` | competition command foundation on `main`: shared APOLLO competition command/outcome DTOs, readiness/capability checks, dry-run plan shape, and service-backed CLI parity over existing competition behavior | keep APOLLO as competition truth, keep Themis as a consumer, preserve existing authz/trusted-surface boundaries, and report unsupported idempotency/version behavior explicitly | closed by 3B.12 result trust; do not widen into OpenSkill, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, browser trusted-surface tokens, proposal workflow, booking, or deploy claims |
 | `Phase 3B.12` | competition lifecycle/result trust on `main`: canonical result identity, result statuses, dispute status, correction supersession, direct and command-backed result transitions, lifecycle events, and finalized/corrected-only rating guards | keep APOLLO as canonical result truth, keep Themis as a consumer, preserve authz/trusted-surface/version boundaries, and keep corrections additive/auditable | do not widen into rating engine extraction, OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, browser trusted-surface tokens, proposal workflow, booking, or deploy claims |
 | `Phase 3B.13` | legacy rating foundation on `main`: current APOLLO rating math extracted behind explicit engine/policy versions, golden cases, rating compute/policy/rebuild events, source result binding, rating event IDs, and deterministic projection watermarks | keep current public/member rating reads unchanged, keep APOLLO as rating truth, and derive projections only from finalized/corrected canonical results | do not widen into OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, proposal workflow, booking, or deploy claims |
+| `Phase 3B.14` | OpenSkill dual-run comparison on `main`: OpenSkill comparison values, internal audit rows/events, accepted delta budgets, delta flags, and deterministic rebuilds over finalized/corrected canonical result truth | keep the legacy projection as the active read path, keep comparison facts internal, and preserve APOLLO as rating truth | do not widen into OpenSkill read-path switch, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, proposal workflow, booking, or deploy claims |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, CP, badges, squads, public rivalry, or public leaderboards |
 
 ## Current Phase 3B Line
 
-Phase 3B.13 rating foundation is now real in repo/runtime on `main`, with
-deployed truth still separate and unchanged. APOLLO now exposes the legacy
-rating baseline as versioned, golden-tested, auditable rating math over
-finalized/corrected canonical result truth. It does not run OpenSkill, switch
-the rating read path to a new algorithm, expose public competition pages, or
-move competition/rating truth into Themis.
+Phase 3B.14 OpenSkill dual-run is now real in repo/runtime on `main`, with
+deployed truth still separate and unchanged. APOLLO now computes internal
+OpenSkill comparison facts beside the versioned legacy rating baseline over
+finalized/corrected canonical result truth. It does not switch the rating read
+path to OpenSkill, expose public competition pages, or move competition/rating
+truth into Themis.
 
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
-- OpenSkill dual-run in Phase 3B.14
+- OpenSkill read-path switch only after comparison evidence is accepted
+- ARES v2 in Phase 3B.15
 - analytics, tournament runtime, public competition surfaces, and game identity
 - public self-edit/rebook, broader customer self-service/status portal, and instant booking
 - in-place approved-booking editing
