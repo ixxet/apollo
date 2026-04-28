@@ -10,6 +10,7 @@ func TestCapabilitiesForRoleRemainDeterministic(t *testing.T) {
 	expected := []Capability{
 		CapabilityCompetitionLiveManage,
 		CapabilityCompetitionRead,
+		CapabilityCompetitionSafetyReview,
 		CapabilityCompetitionStructureManage,
 	}
 	if len(capabilities) != len(expected) {

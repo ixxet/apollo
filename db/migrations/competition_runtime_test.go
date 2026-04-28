@@ -180,6 +180,7 @@ func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 	if err := testutil.ApplySQLFiles(
 		ctx,
 		postgresEnv.DB,
+		testutil.RepoFilePath("db", "migrations", "031_competition_safety_reliability.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "030_internal_tournament_cohesion.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "029_internal_tournament_runtime.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "028_competition_analytics_foundation.down.sql"),
@@ -220,7 +221,11 @@ WHERE table_schema = 'apollo'
 	    'competition_tournament_team_snapshot_members',
 	    'competition_tournament_match_bindings',
 	    'competition_tournament_advancements',
-	    'competition_tournament_events'
+	    'competition_tournament_events',
+	    'competition_safety_reports',
+	    'competition_safety_blocks',
+	    'competition_reliability_events',
+	    'competition_safety_events'
 	  )
 `).Scan(&remainingCompetitionTables); err != nil {
 		t.Fatalf("count competition tables after down migration error = %v", err)
@@ -228,6 +233,87 @@ WHERE table_schema = 'apollo'
 
 	if remainingCompetitionTables != 0 {
 		t.Fatalf("remaining competition table count = %d, want 0", remainingCompetitionTables)
+	}
+}
+
+func TestCompetitionSafetyReliabilitySchemaEnforcesInternalImmutableFacts(t *testing.T) {
+	ctx := context.Background()
+
+	postgresEnv, err := testutil.StartPostgres(ctx)
+	if err != nil {
+		t.Fatalf("StartPostgres() error = %v", err)
+	}
+	defer func() {
+		if closeErr := postgresEnv.Close(); closeErr != nil {
+			t.Fatalf("Close() error = %v", closeErr)
+		}
+	}()
+
+	if err := testutil.ApplyApolloSchema(ctx, postgresEnv.DB); err != nil {
+		t.Fatalf("ApplyApolloSchema() error = %v", err)
+	}
+
+	ownerUserID := insertCompetitionUser(t, ctx, postgresEnv, "competition-safety-owner-001", "Safety Owner", "competition-safety-owner-001@example.com")
+	memberUserID := insertCompetitionUser(t, ctx, postgresEnv, "competition-safety-member-001", "Safety Member", "competition-safety-member-001@example.com")
+	sessionID := insertCompetitionSession(t, ctx, postgresEnv, ownerUserID, "Safety Schema Session")
+	actorSessionID := insertCompetitionActorSession(t, ctx, postgresEnv, ownerUserID)
+
+	var reportID uuid.UUID
+	if err := postgresEnv.DB.QueryRow(ctx, `
+INSERT INTO apollo.competition_safety_reports (
+    competition_session_id,
+    reporter_user_id,
+    subject_user_id,
+    target_type,
+    target_id,
+    reason_code,
+    note,
+    actor_user_id,
+    actor_role,
+    actor_session_id,
+    capability,
+    trusted_surface_key,
+    occurred_at
+)
+VALUES ($1, $2, $3, 'competition_member', $3, 'conduct', 'private note', $2, 'manager', $4, 'competition_safety_review', 'staff-console', NOW())
+RETURNING id
+`, sessionID, ownerUserID, memberUserID, actorSessionID).Scan(&reportID); err != nil {
+		t.Fatalf("insert competition safety report error = %v", err)
+	}
+
+	_, err = postgresEnv.DB.Exec(ctx, `
+UPDATE apollo.competition_safety_reports
+SET note = 'changed'
+WHERE id = $1
+`, reportID)
+	if err == nil {
+		t.Fatal("update safety report error = nil, want immutable trigger failure")
+	}
+
+	_, err = postgresEnv.DB.Exec(ctx, `
+INSERT INTO apollo.competition_safety_blocks (
+    competition_session_id,
+    blocker_user_id,
+    blocked_user_id,
+    reason_code,
+    actor_user_id,
+    actor_role,
+    actor_session_id,
+    capability,
+    trusted_surface_key,
+    occurred_at
+)
+VALUES ($1, $2, $2, 'conduct', $2, 'manager', $3, 'competition_safety_review', 'staff-console', NOW())
+`, sessionID, ownerUserID, actorSessionID)
+	if err == nil {
+		t.Fatal("insert self block error = nil, want check violation")
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("self block error = %v, want pg error", err)
+	}
+	if pgErr.ConstraintName != "competition_safety_blocks_distinct_members" {
+		t.Fatalf("self block constraint = %q, want competition_safety_blocks_distinct_members", pgErr.ConstraintName)
 	}
 }
 
@@ -957,6 +1043,21 @@ VALUES ($1, $2, 'badminton', 'ashtonbee', 'gym-floor', 1, 'draft')
 RETURNING id
 `, ownerUserID, displayName).Scan(&sessionID); err != nil {
 		t.Fatalf("insert competition session error = %v", err)
+	}
+
+	return sessionID
+}
+
+func insertCompetitionActorSession(t *testing.T, ctx context.Context, postgresEnv *testutil.PostgresEnv, userID uuid.UUID) uuid.UUID {
+	t.Helper()
+
+	var sessionID uuid.UUID
+	if err := postgresEnv.DB.QueryRow(ctx, `
+INSERT INTO apollo.sessions (user_id, expires_at)
+VALUES ($1, NOW() + INTERVAL '1 hour')
+RETURNING id
+`, userID).Scan(&sessionID); err != nil {
+		t.Fatalf("insert actor session error = %v", err)
 	}
 
 	return sessionID

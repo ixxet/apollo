@@ -232,6 +232,7 @@ func TestAuthenticateSessionReturnsDeterministicRoleAndCapabilities(t *testing.T
 		authz.CapabilityBookingRead,
 		authz.CapabilityCompetitionLiveManage,
 		authz.CapabilityCompetitionRead,
+		authz.CapabilityCompetitionSafetyReview,
 		authz.CapabilityCompetitionStructureManage,
 		authz.CapabilityOpsRead,
 		authz.CapabilityScheduleManage,
