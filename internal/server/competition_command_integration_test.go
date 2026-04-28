@@ -27,6 +27,8 @@ func TestCompetitionCommandReadinessIsBackedByAPOLLOCapabilities(t *testing.T) {
 	}
 	supervisorReadiness := decodeCompetitionReadiness(t, supervisorResponse.Body.Bytes())
 	assertReadinessCommand(t, supervisorReadiness, competition.CommandOpenQueue, true)
+	assertReadinessCommand(t, supervisorReadiness, competition.CommandUpdateQueueIntent, true)
+	assertReadinessCommand(t, supervisorReadiness, competition.CommandGenerateMatchPreview, true)
 	assertReadinessCommand(t, supervisorReadiness, competition.CommandCreateTeam, false)
 
 	memberResponse := env.doRequest(t, http.MethodGet, "/api/v1/competition/commands/readiness", nil, memberCookie)
@@ -38,6 +40,7 @@ func TestCompetitionCommandReadinessIsBackedByAPOLLOCapabilities(t *testing.T) {
 		t.Fatalf("memberReadiness.Status = %q, want unsupported_role", memberReadiness.Status)
 	}
 	assertReadinessCommand(t, memberReadiness, competition.CommandOpenQueue, false)
+	assertReadinessCommand(t, memberReadiness, competition.CommandGenerateMatchPreview, false)
 }
 
 func TestCompetitionCommandEndpointDryRunDoesNotMutate(t *testing.T) {

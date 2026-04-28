@@ -180,6 +180,7 @@ func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 	if err := testutil.ApplySQLFiles(
 		ctx,
 		postgresEnv.DB,
+		testutil.RepoFilePath("db", "migrations", "026_competition_ares_v2_preview.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "025_competition_openskill_dual_run.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "024_competition_rating_foundation.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "023_competition_result_trust.down.sql"),
@@ -194,14 +195,19 @@ func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 SELECT count(*)
 FROM information_schema.tables
 WHERE table_schema = 'apollo'
-  AND table_name IN (
-    'competition_sessions',
-    'competition_session_queue_members',
-    'competition_session_teams',
-    'competition_team_roster_members',
-    'competition_matches',
-    'competition_match_side_slots'
-  )
+	AND table_name IN (
+	    'competition_sessions',
+	    'competition_session_queue_members',
+	    'competition_queue_intents',
+	    'competition_queue_intent_events',
+	    'competition_session_teams',
+	    'competition_team_roster_members',
+	    'competition_matches',
+	    'competition_match_side_slots',
+	    'competition_match_previews',
+	    'competition_match_preview_members',
+	    'competition_match_preview_events'
+	  )
 `).Scan(&remainingCompetitionTables); err != nil {
 		t.Fatalf("count competition tables after down migration error = %v", err)
 	}
