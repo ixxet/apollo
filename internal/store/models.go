@@ -91,6 +91,46 @@ type ApolloClaimedTag struct {
 	ClaimedAt pgtype.Timestamptz
 }
 
+type ApolloCompetitionAnalyticsEvent struct {
+	ID                  uuid.UUID
+	EventType           string
+	ProjectionVersion   string
+	ProjectionWatermark string
+	UserID              pgtype.UUID
+	SportKey            string
+	FacilityKey         string
+	ModeKey             string
+	TeamScope           string
+	StatType            string
+	StatValue           pgtype.Numeric
+	SourceMatchID       pgtype.UUID
+	SourceResultID      pgtype.UUID
+	SampleSize          int32
+	Confidence          pgtype.Numeric
+	ComputedAt          pgtype.Timestamptz
+	CreatedAt           pgtype.Timestamptz
+}
+
+type ApolloCompetitionAnalyticsProjection struct {
+	ID                  uuid.UUID
+	UserID              uuid.UUID
+	SportKey            string
+	FacilityKey         string
+	ModeKey             string
+	TeamScope           string
+	StatType            string
+	StatValue           pgtype.Numeric
+	SourceMatchID       pgtype.UUID
+	SourceResultID      pgtype.UUID
+	SampleSize          int32
+	Confidence          pgtype.Numeric
+	ComputedAt          pgtype.Timestamptz
+	ProjectionVersion   string
+	ProjectionWatermark string
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+}
+
 type ApolloCompetitionLifecycleEvent struct {
 	ID                       uuid.UUID
 	CompetitionSessionID     uuid.UUID

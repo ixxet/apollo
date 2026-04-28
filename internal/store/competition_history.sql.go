@@ -149,6 +149,208 @@ func (q *Queries) CountCompetitionIncompleteActiveMatchesBySessionID(ctx context
 	return count, err
 }
 
+const createCompetitionAnalyticsProjectionRebuiltEvent = `-- name: CreateCompetitionAnalyticsProjectionRebuiltEvent :one
+INSERT INTO apollo.competition_analytics_events (
+  event_type,
+  projection_version,
+  projection_watermark,
+  sport_key,
+  stat_type,
+  stat_value,
+  source_match_id,
+  source_result_id,
+  sample_size,
+  confidence,
+  computed_at
+)
+VALUES (
+  'competition.analytics.projection_rebuilt',
+  $1,
+  $2,
+  $3,
+  'projection_rebuilt',
+  0,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8
+)
+RETURNING id,
+          event_type,
+          projection_version,
+          projection_watermark,
+          user_id,
+          sport_key,
+          facility_key,
+          mode_key,
+          team_scope,
+          stat_type,
+          stat_value,
+          source_match_id,
+          source_result_id,
+          sample_size,
+          confidence,
+          computed_at,
+          created_at
+`
+
+type CreateCompetitionAnalyticsProjectionRebuiltEventParams struct {
+	ProjectionVersion   string
+	ProjectionWatermark string
+	SportKey            string
+	SourceMatchID       pgtype.UUID
+	SourceResultID      pgtype.UUID
+	SampleSize          int32
+	Confidence          pgtype.Numeric
+	ComputedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionAnalyticsProjectionRebuiltEvent(ctx context.Context, arg CreateCompetitionAnalyticsProjectionRebuiltEventParams) (ApolloCompetitionAnalyticsEvent, error) {
+	row := q.db.QueryRow(ctx, createCompetitionAnalyticsProjectionRebuiltEvent,
+		arg.ProjectionVersion,
+		arg.ProjectionWatermark,
+		arg.SportKey,
+		arg.SourceMatchID,
+		arg.SourceResultID,
+		arg.SampleSize,
+		arg.Confidence,
+		arg.ComputedAt,
+	)
+	var i ApolloCompetitionAnalyticsEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.ProjectionVersion,
+		&i.ProjectionWatermark,
+		&i.UserID,
+		&i.SportKey,
+		&i.FacilityKey,
+		&i.ModeKey,
+		&i.TeamScope,
+		&i.StatType,
+		&i.StatValue,
+		&i.SourceMatchID,
+		&i.SourceResultID,
+		&i.SampleSize,
+		&i.Confidence,
+		&i.ComputedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createCompetitionAnalyticsStatEvent = `-- name: CreateCompetitionAnalyticsStatEvent :one
+INSERT INTO apollo.competition_analytics_events (
+  event_type,
+  projection_version,
+  projection_watermark,
+  user_id,
+  sport_key,
+  facility_key,
+  mode_key,
+  team_scope,
+  stat_type,
+  stat_value,
+  source_match_id,
+  source_result_id,
+  sample_size,
+  confidence,
+  computed_at
+)
+VALUES (
+  'competition.analytics.stat_computed',
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14
+)
+RETURNING id,
+          event_type,
+          projection_version,
+          projection_watermark,
+          user_id,
+          sport_key,
+          facility_key,
+          mode_key,
+          team_scope,
+          stat_type,
+          stat_value,
+          source_match_id,
+          source_result_id,
+          sample_size,
+          confidence,
+          computed_at,
+          created_at
+`
+
+type CreateCompetitionAnalyticsStatEventParams struct {
+	ProjectionVersion   string
+	ProjectionWatermark string
+	UserID              pgtype.UUID
+	SportKey            string
+	FacilityKey         string
+	ModeKey             string
+	TeamScope           string
+	StatType            string
+	StatValue           pgtype.Numeric
+	SourceMatchID       pgtype.UUID
+	SourceResultID      pgtype.UUID
+	SampleSize          int32
+	Confidence          pgtype.Numeric
+	ComputedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionAnalyticsStatEvent(ctx context.Context, arg CreateCompetitionAnalyticsStatEventParams) (ApolloCompetitionAnalyticsEvent, error) {
+	row := q.db.QueryRow(ctx, createCompetitionAnalyticsStatEvent,
+		arg.ProjectionVersion,
+		arg.ProjectionWatermark,
+		arg.UserID,
+		arg.SportKey,
+		arg.FacilityKey,
+		arg.ModeKey,
+		arg.TeamScope,
+		arg.StatType,
+		arg.StatValue,
+		arg.SourceMatchID,
+		arg.SourceResultID,
+		arg.SampleSize,
+		arg.Confidence,
+		arg.ComputedAt,
+	)
+	var i ApolloCompetitionAnalyticsEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.ProjectionVersion,
+		&i.ProjectionWatermark,
+		&i.UserID,
+		&i.SportKey,
+		&i.FacilityKey,
+		&i.ModeKey,
+		&i.TeamScope,
+		&i.StatType,
+		&i.StatValue,
+		&i.SourceMatchID,
+		&i.SourceResultID,
+		&i.SampleSize,
+		&i.Confidence,
+		&i.ComputedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createCompetitionLifecycleEvent = `-- name: CreateCompetitionLifecycleEvent :one
 INSERT INTO apollo.competition_lifecycle_events (
   competition_session_id,
@@ -489,6 +691,45 @@ func (q *Queries) CreateCompetitionRatingEvent(ctx context.Context, arg CreateCo
 	return i, err
 }
 
+const deleteCompetitionAnalyticsProjectionsBySportVersion = `-- name: DeleteCompetitionAnalyticsProjectionsBySportVersion :execrows
+DELETE FROM apollo.competition_analytics_projections
+WHERE sport_key = $1
+  AND projection_version = $2
+`
+
+type DeleteCompetitionAnalyticsProjectionsBySportVersionParams struct {
+	SportKey          string
+	ProjectionVersion string
+}
+
+func (q *Queries) DeleteCompetitionAnalyticsProjectionsBySportVersion(ctx context.Context, arg DeleteCompetitionAnalyticsProjectionsBySportVersionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCompetitionAnalyticsProjectionsBySportVersion, arg.SportKey, arg.ProjectionVersion)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteCompetitionAnalyticsStatEventsBySportVersion = `-- name: DeleteCompetitionAnalyticsStatEventsBySportVersion :execrows
+DELETE FROM apollo.competition_analytics_events
+WHERE sport_key = $1
+  AND projection_version = $2
+  AND event_type = 'competition.analytics.stat_computed'
+`
+
+type DeleteCompetitionAnalyticsStatEventsBySportVersionParams struct {
+	SportKey          string
+	ProjectionVersion string
+}
+
+func (q *Queries) DeleteCompetitionAnalyticsStatEventsBySportVersion(ctx context.Context, arg DeleteCompetitionAnalyticsStatEventsBySportVersionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCompetitionAnalyticsStatEventsBySportVersion, arg.SportKey, arg.ProjectionVersion)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteCompetitionMemberRatingsBySportKey = `-- name: DeleteCompetitionMemberRatingsBySportKey :execrows
 DELETE FROM apollo.competition_member_ratings
 WHERE sport_key = $1
@@ -562,6 +803,103 @@ func (q *Queries) GetCompetitionCanonicalMatchResultByMatchID(ctx context.Contex
 		&i.CorrectedAt,
 	)
 	return i, err
+}
+
+const listCompetitionAnalyticsParticipantsBySport = `-- name: ListCompetitionAnalyticsParticipantsBySport :many
+SELECT m.id AS source_match_id,
+       r.id AS source_result_id,
+       s.sport_key,
+       s.facility_key,
+       sp.competition_mode,
+       sp.sides_per_match,
+       s.participants_per_side,
+       r.recorded_at,
+       rs.competition_session_team_id,
+       rs.side_index,
+       rs.outcome,
+       rm.user_id,
+       (re.id IS NOT NULL)::bool AS rating_event_found,
+       COALESCE(re.delta_mu, 0)::numeric AS rating_delta_mu,
+       COALESCE(re.mu, 0)::numeric AS rating_mu
+FROM apollo.competition_sessions AS s
+INNER JOIN apollo.sports AS sp
+  ON sp.sport_key = s.sport_key
+INNER JOIN apollo.competition_matches AS m
+  ON m.competition_session_id = s.id
+INNER JOIN apollo.competition_match_results AS r
+  ON r.id = m.canonical_result_id
+INNER JOIN apollo.competition_match_result_sides AS rs
+  ON rs.competition_match_result_id = r.id
+INNER JOIN apollo.competition_team_roster_members AS rm
+  ON rm.competition_session_id = s.id
+ AND rm.competition_session_team_id = rs.competition_session_team_id
+LEFT JOIN apollo.competition_rating_events AS re
+  ON re.event_type = 'competition.rating.legacy_computed'
+ AND re.rating_engine = 'legacy_elo_like'
+ AND re.engine_version = 'legacy_elo_like.v1'
+ AND re.policy_version = 'apollo_legacy_rating_v1'
+ AND re.sport_key = s.sport_key
+ AND re.mode_key = sp.competition_mode || ':s' || sp.sides_per_match::TEXT || '-p' || s.participants_per_side::TEXT
+ AND re.source_result_id = r.id
+ AND re.user_id = rm.user_id
+WHERE s.sport_key = $1
+  AND m.status = 'completed'
+  AND r.result_status IN ('finalized', 'corrected')
+ORDER BY r.recorded_at ASC, r.id ASC, m.id ASC, rs.side_index ASC, rm.user_id ASC
+`
+
+type ListCompetitionAnalyticsParticipantsBySportRow struct {
+	SourceMatchID            uuid.UUID
+	SourceResultID           uuid.UUID
+	SportKey                 string
+	FacilityKey              string
+	CompetitionMode          string
+	SidesPerMatch            int32
+	ParticipantsPerSide      int32
+	RecordedAt               pgtype.Timestamptz
+	CompetitionSessionTeamID uuid.UUID
+	SideIndex                int32
+	Outcome                  string
+	UserID                   uuid.UUID
+	RatingEventFound         bool
+	RatingDeltaMu            pgtype.Numeric
+	RatingMu                 pgtype.Numeric
+}
+
+func (q *Queries) ListCompetitionAnalyticsParticipantsBySport(ctx context.Context, sportKey string) ([]ListCompetitionAnalyticsParticipantsBySportRow, error) {
+	rows, err := q.db.Query(ctx, listCompetitionAnalyticsParticipantsBySport, sportKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCompetitionAnalyticsParticipantsBySportRow
+	for rows.Next() {
+		var i ListCompetitionAnalyticsParticipantsBySportRow
+		if err := rows.Scan(
+			&i.SourceMatchID,
+			&i.SourceResultID,
+			&i.SportKey,
+			&i.FacilityKey,
+			&i.CompetitionMode,
+			&i.SidesPerMatch,
+			&i.ParticipantsPerSide,
+			&i.RecordedAt,
+			&i.CompetitionSessionTeamID,
+			&i.SideIndex,
+			&i.Outcome,
+			&i.UserID,
+			&i.RatingEventFound,
+			&i.RatingDeltaMu,
+			&i.RatingMu,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCompetitionMatchResultRowsBySessionID = `-- name: ListCompetitionMatchResultRowsBySessionID :many
@@ -1027,6 +1365,137 @@ func (q *Queries) UpdateCompetitionMatchResultStatus(ctx context.Context, arg Up
 		&i.SupersedesResultID,
 		&i.FinalizedAt,
 		&i.CorrectedAt,
+	)
+	return i, err
+}
+
+const upsertCompetitionAnalyticsProjection = `-- name: UpsertCompetitionAnalyticsProjection :one
+INSERT INTO apollo.competition_analytics_projections (
+  user_id,
+  sport_key,
+  facility_key,
+  mode_key,
+  team_scope,
+  stat_type,
+  stat_value,
+  source_match_id,
+  source_result_id,
+  sample_size,
+  confidence,
+  computed_at,
+  projection_version,
+  projection_watermark,
+  updated_at
+)
+VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  $15
+)
+ON CONFLICT (
+  projection_version,
+  user_id,
+  sport_key,
+  facility_key,
+  mode_key,
+  team_scope,
+  stat_type
+)
+DO UPDATE SET
+  stat_value = EXCLUDED.stat_value,
+  source_match_id = EXCLUDED.source_match_id,
+  source_result_id = EXCLUDED.source_result_id,
+  sample_size = EXCLUDED.sample_size,
+  confidence = EXCLUDED.confidence,
+  computed_at = EXCLUDED.computed_at,
+  projection_watermark = EXCLUDED.projection_watermark,
+  updated_at = EXCLUDED.updated_at
+RETURNING id,
+          user_id,
+          sport_key,
+          facility_key,
+          mode_key,
+          team_scope,
+          stat_type,
+          stat_value,
+          source_match_id,
+          source_result_id,
+          sample_size,
+          confidence,
+          computed_at,
+          projection_version,
+          projection_watermark,
+          created_at,
+          updated_at
+`
+
+type UpsertCompetitionAnalyticsProjectionParams struct {
+	UserID              uuid.UUID
+	SportKey            string
+	FacilityKey         string
+	ModeKey             string
+	TeamScope           string
+	StatType            string
+	StatValue           pgtype.Numeric
+	SourceMatchID       pgtype.UUID
+	SourceResultID      pgtype.UUID
+	SampleSize          int32
+	Confidence          pgtype.Numeric
+	ComputedAt          pgtype.Timestamptz
+	ProjectionVersion   string
+	ProjectionWatermark string
+	UpdatedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertCompetitionAnalyticsProjection(ctx context.Context, arg UpsertCompetitionAnalyticsProjectionParams) (ApolloCompetitionAnalyticsProjection, error) {
+	row := q.db.QueryRow(ctx, upsertCompetitionAnalyticsProjection,
+		arg.UserID,
+		arg.SportKey,
+		arg.FacilityKey,
+		arg.ModeKey,
+		arg.TeamScope,
+		arg.StatType,
+		arg.StatValue,
+		arg.SourceMatchID,
+		arg.SourceResultID,
+		arg.SampleSize,
+		arg.Confidence,
+		arg.ComputedAt,
+		arg.ProjectionVersion,
+		arg.ProjectionWatermark,
+		arg.UpdatedAt,
+	)
+	var i ApolloCompetitionAnalyticsProjection
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.SportKey,
+		&i.FacilityKey,
+		&i.ModeKey,
+		&i.TeamScope,
+		&i.StatType,
+		&i.StatValue,
+		&i.SourceMatchID,
+		&i.SourceResultID,
+		&i.SampleSize,
+		&i.Confidence,
+		&i.ComputedAt,
+		&i.ProjectionVersion,
+		&i.ProjectionWatermark,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

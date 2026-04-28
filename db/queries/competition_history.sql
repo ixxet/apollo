@@ -167,6 +167,228 @@ WHERE s.sport_key = $1
   AND r.result_status IN ('finalized', 'corrected')
 ORDER BY r.recorded_at ASC, m.id ASC, rs.side_index ASC, rm.user_id ASC;
 
+-- name: ListCompetitionAnalyticsParticipantsBySport :many
+SELECT m.id AS source_match_id,
+       r.id AS source_result_id,
+       s.sport_key,
+       s.facility_key,
+       sp.competition_mode,
+       sp.sides_per_match,
+       s.participants_per_side,
+       r.recorded_at,
+       rs.competition_session_team_id,
+       rs.side_index,
+       rs.outcome,
+       rm.user_id,
+       (re.id IS NOT NULL)::bool AS rating_event_found,
+       COALESCE(re.delta_mu, 0)::numeric AS rating_delta_mu,
+       COALESCE(re.mu, 0)::numeric AS rating_mu
+FROM apollo.competition_sessions AS s
+INNER JOIN apollo.sports AS sp
+  ON sp.sport_key = s.sport_key
+INNER JOIN apollo.competition_matches AS m
+  ON m.competition_session_id = s.id
+INNER JOIN apollo.competition_match_results AS r
+  ON r.id = m.canonical_result_id
+INNER JOIN apollo.competition_match_result_sides AS rs
+  ON rs.competition_match_result_id = r.id
+INNER JOIN apollo.competition_team_roster_members AS rm
+  ON rm.competition_session_id = s.id
+ AND rm.competition_session_team_id = rs.competition_session_team_id
+LEFT JOIN apollo.competition_rating_events AS re
+  ON re.event_type = 'competition.rating.legacy_computed'
+ AND re.rating_engine = 'legacy_elo_like'
+ AND re.engine_version = 'legacy_elo_like.v1'
+ AND re.policy_version = 'apollo_legacy_rating_v1'
+ AND re.sport_key = s.sport_key
+ AND re.mode_key = sp.competition_mode || ':s' || sp.sides_per_match::TEXT || '-p' || s.participants_per_side::TEXT
+ AND re.source_result_id = r.id
+ AND re.user_id = rm.user_id
+WHERE s.sport_key = $1
+  AND m.status = 'completed'
+  AND r.result_status IN ('finalized', 'corrected')
+ORDER BY r.recorded_at ASC, r.id ASC, m.id ASC, rs.side_index ASC, rm.user_id ASC;
+
+-- name: DeleteCompetitionAnalyticsProjectionsBySportVersion :execrows
+DELETE FROM apollo.competition_analytics_projections
+WHERE sport_key = $1
+  AND projection_version = $2;
+
+-- name: DeleteCompetitionAnalyticsStatEventsBySportVersion :execrows
+DELETE FROM apollo.competition_analytics_events
+WHERE sport_key = $1
+  AND projection_version = $2
+  AND event_type = 'competition.analytics.stat_computed';
+
+-- name: CreateCompetitionAnalyticsStatEvent :one
+INSERT INTO apollo.competition_analytics_events (
+  event_type,
+  projection_version,
+  projection_watermark,
+  user_id,
+  sport_key,
+  facility_key,
+  mode_key,
+  team_scope,
+  stat_type,
+  stat_value,
+  source_match_id,
+  source_result_id,
+  sample_size,
+  confidence,
+  computed_at
+)
+VALUES (
+  'competition.analytics.stat_computed',
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14
+)
+RETURNING id,
+          event_type,
+          projection_version,
+          projection_watermark,
+          user_id,
+          sport_key,
+          facility_key,
+          mode_key,
+          team_scope,
+          stat_type,
+          stat_value,
+          source_match_id,
+          source_result_id,
+          sample_size,
+          confidence,
+          computed_at,
+          created_at;
+
+-- name: CreateCompetitionAnalyticsProjectionRebuiltEvent :one
+INSERT INTO apollo.competition_analytics_events (
+  event_type,
+  projection_version,
+  projection_watermark,
+  sport_key,
+  stat_type,
+  stat_value,
+  source_match_id,
+  source_result_id,
+  sample_size,
+  confidence,
+  computed_at
+)
+VALUES (
+  'competition.analytics.projection_rebuilt',
+  $1,
+  $2,
+  $3,
+  'projection_rebuilt',
+  0,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8
+)
+RETURNING id,
+          event_type,
+          projection_version,
+          projection_watermark,
+          user_id,
+          sport_key,
+          facility_key,
+          mode_key,
+          team_scope,
+          stat_type,
+          stat_value,
+          source_match_id,
+          source_result_id,
+          sample_size,
+          confidence,
+          computed_at,
+          created_at;
+
+-- name: UpsertCompetitionAnalyticsProjection :one
+INSERT INTO apollo.competition_analytics_projections (
+  user_id,
+  sport_key,
+  facility_key,
+  mode_key,
+  team_scope,
+  stat_type,
+  stat_value,
+  source_match_id,
+  source_result_id,
+  sample_size,
+  confidence,
+  computed_at,
+  projection_version,
+  projection_watermark,
+  updated_at
+)
+VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  $15
+)
+ON CONFLICT (
+  projection_version,
+  user_id,
+  sport_key,
+  facility_key,
+  mode_key,
+  team_scope,
+  stat_type
+)
+DO UPDATE SET
+  stat_value = EXCLUDED.stat_value,
+  source_match_id = EXCLUDED.source_match_id,
+  source_result_id = EXCLUDED.source_result_id,
+  sample_size = EXCLUDED.sample_size,
+  confidence = EXCLUDED.confidence,
+  computed_at = EXCLUDED.computed_at,
+  projection_watermark = EXCLUDED.projection_watermark,
+  updated_at = EXCLUDED.updated_at
+RETURNING id,
+          user_id,
+          sport_key,
+          facility_key,
+          mode_key,
+          team_scope,
+          stat_type,
+          stat_value,
+          source_match_id,
+          source_result_id,
+          sample_size,
+          confidence,
+          computed_at,
+          projection_version,
+          projection_watermark,
+          created_at,
+          updated_at;
+
 -- name: DeleteCompetitionMemberRatingsBySportKey :execrows
 DELETE FROM apollo.competition_member_ratings
 WHERE sport_key = $1;

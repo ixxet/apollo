@@ -294,6 +294,9 @@ func (r *Repository) transitionMatchResult(ctx context.Context, actor StaffActor
 	if err := recomputeCompetitionRatingsTx(ctx, queries, sport.SportKey, occurredAt); err != nil {
 		return matchResultRecord{}, err
 	}
+	if err := recomputeCompetitionAnalyticsTx(ctx, queries, sport.SportKey, occurredAt); err != nil {
+		return matchResultRecord{}, err
+	}
 	if err := recordLifecycleEventTx(ctx, queries, newLifecycleEvent(actor, session.ID, &match.ID, &updated.ID, eventType, result.ResultStatus, updated, occurredAt)); err != nil {
 		return matchResultRecord{}, err
 	}
@@ -370,6 +373,9 @@ func (r *Repository) CorrectMatchResult(ctx context.Context, actor StaffActor, s
 	}
 
 	if err := recomputeCompetitionRatingsTx(ctx, queries, sport.SportKey, correctedAt); err != nil {
+		return matchResultRecord{}, err
+	}
+	if err := recomputeCompetitionAnalyticsTx(ctx, queries, sport.SportKey, correctedAt); err != nil {
 		return matchResultRecord{}, err
 	}
 	if err := recordLifecycleEventTx(ctx, queries, newLifecycleEvent(actor, session.ID, &match.ID, &corrected.ID, "competition.result.corrected", result.ResultStatus, corrected, correctedAt)); err != nil {
