@@ -87,7 +87,9 @@ func TestCompetitionHistoryRuntimeRecordsResultsCompletesSessionsAndExposesDeriv
 		t.Fatalf("ownerStats[0] = %+v, want positive rating values", ownerStats[0])
 	}
 	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p1", completedSession.Matches[0].Result.ID)
+	assertOpenSkillComparison(t, env, owner.ID, "badminton", "head_to_head:s2-p1", completedSession.Matches[0].Result.ID, false)
 	assertRatingEventCount(t, env, rating.EventLegacyComputed, completedSession.Matches[0].Result.ID, 2)
+	assertRatingEventCount(t, env, rating.EventOpenSkillComputed, completedSession.Matches[0].Result.ID, 2)
 	assertRatingEventCount(t, env, rating.EventProjectionRebuilt, completedSession.Matches[0].Result.ID, 1)
 	assertRatingPolicySelectedEventCount(t, env, "badminton", 1)
 
@@ -266,6 +268,49 @@ func TestCompetitionHistoryRuntimeSeparatesRatingsBySportAndMode(t *testing.T) {
 	}
 }
 
+func TestCompetitionHistoryRuntimeFlagsOpenSkillComparisonDeltas(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-openskill-delta-001", "openskill-delta-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
+	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-openskill-delta-002", "openskill-delta-002@example.com")
+
+	for _, cookie := range []*http.Cookie{ownerCookie, memberTwoCookie} {
+		makeEligibleForLobby(t, env, cookie)
+		joinLobbyMembership(t, env, cookie)
+	}
+
+	first := createStartedCompetitionSession(t, env, ownerCookie, "3B.14 OpenSkill Delta First", "badminton", "gym-floor", 1, []uuid.UUID{owner.ID, memberTwo.ID})
+	first = recordCompetitionResult(t, env, ownerCookie, first.ID.String(), first.Matches[0].ID.String(), first.Matches[0].SideSlots, []string{"win", "loss"})
+	assertOpenSkillComparison(t, env, owner.ID, "badminton", "head_to_head:s2-p1", first.Matches[0].Result.ID, false)
+	assertRatingEventCount(t, env, rating.EventDeltaFlagged, first.Matches[0].Result.ID, 0)
+
+	second := createStartedCompetitionSession(t, env, ownerCookie, "3B.14 OpenSkill Delta Second", "badminton", "gym-floor", 1, []uuid.UUID{owner.ID, memberTwo.ID})
+	second = recordCompetitionResult(t, env, ownerCookie, second.ID.String(), second.Matches[0].ID.String(), second.Matches[0].SideSlots, []string{"win", "loss"})
+	assertOpenSkillComparison(t, env, owner.ID, "badminton", "head_to_head:s2-p1", second.Matches[0].Result.ID, true)
+	assertRatingEventCount(t, env, rating.EventDeltaFlagged, second.Matches[0].Result.ID, 2)
+
+	stats := readCompetitionStats(t, env, ownerCookie)
+	if len(stats) != 1 || stats[0].CurrentRatingMu <= 0 || stats[0].CurrentRatingSigma <= 0 {
+		t.Fatalf("stats = %+v, want legacy rating read path", stats)
+	}
+
+	var ratingEngine string
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT rating_engine
+FROM apollo.competition_member_ratings
+WHERE user_id = $1
+  AND sport_key = 'badminton'
+  AND mode_key = 'head_to_head:s2-p1'
+`, owner.ID).Scan(&ratingEngine); err != nil {
+		t.Fatalf("read rating engine error = %v", err)
+	}
+	if ratingEngine != rating.EngineLegacyEloLike {
+		t.Fatalf("active rating engine = %q, want legacy read path", ratingEngine)
+	}
+}
+
 func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
@@ -293,7 +338,9 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 0)
 	assertRatingProjectionCount(t, env, owner.ID, 0)
+	assertOpenSkillComparisonSourceCount(t, env, recordedMatch.Result.ID, 0)
 	assertRatingEventCount(t, env, rating.EventLegacyComputed, recordedMatch.Result.ID, 0)
+	assertRatingEventCount(t, env, rating.EventOpenSkillComputed, recordedMatch.Result.ID, 0)
 
 	finalizeResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/finalize", session.ID, match.ID), fmt.Sprintf(`{"expected_result_version":%d}`, recordedMatch.ResultVersion), ownerCookie)
 	if finalizeResponse.Code != http.StatusOK {
@@ -306,6 +353,7 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 1)
 	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p1", finalizedMatch.Result.ID)
+	assertOpenSkillComparison(t, env, owner.ID, "badminton", "head_to_head:s2-p1", finalizedMatch.Result.ID, false)
 
 	disputeResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/dispute", session.ID, match.ID), fmt.Sprintf(`{"expected_result_version":%d}`, finalizedMatch.ResultVersion), ownerCookie)
 	if disputeResponse.Code != http.StatusOK {
@@ -318,6 +366,7 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 0)
 	assertRatingProjectionCount(t, env, owner.ID, 0)
+	assertOpenSkillComparisonSourceCount(t, env, finalizedMatch.Result.ID, 0)
 
 	correctResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/correct", session.ID, match.ID), buildResultRequestBodyWithVersion(disputedMatch.SideSlots, []string{"loss", "win"}, disputedMatch.ResultVersion), ownerCookie)
 	if correctResponse.Code != http.StatusOK {
@@ -336,9 +385,13 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("corrected stats = %+v, want corrected loss only", stats)
 	}
 	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p1", correctedMatch.Result.ID)
+	assertOpenSkillComparison(t, env, owner.ID, "badminton", "head_to_head:s2-p1", correctedMatch.Result.ID, false)
 	assertRatingProjectionSourceCount(t, env, finalizedMatch.Result.ID, 0)
+	assertOpenSkillComparisonSourceCount(t, env, finalizedMatch.Result.ID, 0)
 	assertRatingEventCount(t, env, rating.EventLegacyComputed, finalizedMatch.Result.ID, 2)
 	assertRatingEventCount(t, env, rating.EventLegacyComputed, correctedMatch.Result.ID, 2)
+	assertRatingEventCount(t, env, rating.EventOpenSkillComputed, finalizedMatch.Result.ID, 2)
+	assertRatingEventCount(t, env, rating.EventOpenSkillComputed, correctedMatch.Result.ID, 2)
 
 	voidResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result/void", session.ID, match.ID), fmt.Sprintf(`{"expected_result_version":%d}`, correctedMatch.ResultVersion), ownerCookie)
 	if voidResponse.Code != http.StatusOK {
@@ -352,6 +405,7 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 	assertCompetitionStatsCount(t, env, ownerCookie, 0)
 	assertRatingProjectionCount(t, env, owner.ID, 0)
 	assertRatingProjectionSourceCount(t, env, correctedMatch.Result.ID, 0)
+	assertOpenSkillComparisonSourceCount(t, env, correctedMatch.Result.ID, 0)
 
 	var resultCount int
 	if err := env.db.DB.QueryRow(context.Background(), `SELECT count(*) FROM apollo.competition_match_results WHERE competition_match_id = $1`, match.ID).Scan(&resultCount); err != nil {
@@ -571,6 +625,61 @@ WHERE id = $1
 	}
 }
 
+func assertOpenSkillComparison(t *testing.T, env *authProfileServerEnv, userID uuid.UUID, sportKey string, modeKey string, sourceResultID uuid.UUID, wantFlagged bool) {
+	t.Helper()
+
+	var legacyEngine string
+	var openSkillEngine string
+	var legacyMu float64
+	var legacySigma float64
+	var openSkillMu float64
+	var openSkillSigma float64
+	var deltaFromLegacy float64
+	var acceptedDeltaBudget float64
+	var comparisonScenario string
+	var deltaFlagged bool
+	var projectionWatermark string
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT legacy_rating_engine,
+       openskill_rating_engine,
+       legacy_mu::double precision,
+       legacy_sigma::double precision,
+       openskill_mu::double precision,
+       openskill_sigma::double precision,
+       delta_from_legacy::double precision,
+       accepted_delta_budget::double precision,
+       comparison_scenario,
+       delta_flagged,
+       projection_watermark
+FROM apollo.competition_rating_comparisons
+WHERE user_id = $1
+  AND sport_key = $2
+  AND mode_key = $3
+  AND source_result_id = $4
+`, userID, sportKey, modeKey, sourceResultID).Scan(&legacyEngine, &openSkillEngine, &legacyMu, &legacySigma, &openSkillMu, &openSkillSigma, &deltaFromLegacy, &acceptedDeltaBudget, &comparisonScenario, &deltaFlagged, &projectionWatermark); err != nil {
+		t.Fatalf("read OpenSkill comparison error = %v", err)
+	}
+
+	if legacyEngine != rating.EngineLegacyEloLike || openSkillEngine != rating.EngineOpenSkill {
+		t.Fatalf("comparison engines = %s/%s, want legacy/OpenSkill", legacyEngine, openSkillEngine)
+	}
+	if legacyMu <= 0 || legacySigma <= 0 || openSkillMu <= 0 || openSkillSigma <= 0 {
+		t.Fatalf("comparison values = legacy %.4f/%.4f openskill %.4f/%.4f, want positive values", legacyMu, legacySigma, openSkillMu, openSkillSigma)
+	}
+	if acceptedDeltaBudget != rating.AcceptedOpenSkillDeltaBudget {
+		t.Fatalf("accepted_delta_budget = %.4f, want %.4f", acceptedDeltaBudget, rating.AcceptedOpenSkillDeltaBudget)
+	}
+	if comparisonScenario == "" {
+		t.Fatal("comparison_scenario is empty")
+	}
+	if deltaFlagged != wantFlagged {
+		t.Fatalf("delta_flagged = %t, want %t (delta_from_legacy %.4f)", deltaFlagged, wantFlagged, deltaFromLegacy)
+	}
+	if !strings.Contains(projectionWatermark, sourceResultID.String()) {
+		t.Fatalf("projection_watermark = %q, want source result id %s", projectionWatermark, sourceResultID)
+	}
+}
+
 func assertRatingEventCount(t *testing.T, env *authProfileServerEnv, eventType string, sourceResultID uuid.UUID, want int) {
 	t.Helper()
 
@@ -585,6 +694,22 @@ WHERE event_type = $1
 	}
 	if count != want {
 		t.Fatalf("rating event %s count = %d, want %d for source result %s", eventType, count, want, sourceResultID)
+	}
+}
+
+func assertOpenSkillComparisonSourceCount(t *testing.T, env *authProfileServerEnv, sourceResultID uuid.UUID, want int) {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT count(*)
+FROM apollo.competition_rating_comparisons
+WHERE source_result_id = $1
+`, sourceResultID).Scan(&count); err != nil {
+		t.Fatalf("count OpenSkill comparison source error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("OpenSkill comparison source count = %d, want %d for source result %s", count, want, sourceResultID)
 	}
 }
 
