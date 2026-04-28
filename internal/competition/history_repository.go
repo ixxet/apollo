@@ -497,11 +497,15 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 	}
 
 	projection := rating.RebuildLegacy(matches)
+	comparison := rating.RebuildOpenSkillComparison(matches, projection)
 	if err := recordRatingPolicySelectedEventTx(ctx, queries, sportKey, projection.Watermark, updatedAt); err != nil {
 		return err
 	}
 
 	if _, err := queries.DeleteCompetitionMemberRatingsBySportKey(ctx, sportKey); err != nil {
+		return err
+	}
+	if _, err := queries.DeleteCompetitionRatingComparisonsBySportKey(ctx, sportKey); err != nil {
 		return err
 	}
 
@@ -516,6 +520,11 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 			userID:         event.UserID,
 			sourceResultID: event.SourceResultID,
 		}] = eventID
+	}
+	for _, fact := range comparison.Facts {
+		if err := recordOpenSkillComparisonTx(ctx, queries, sportKey, fact, updatedAt); err != nil {
+			return err
+		}
 	}
 
 	for _, state := range projection.States {
@@ -636,6 +645,87 @@ func recordLegacyRatingComputedEventTx(ctx context.Context, queries *store.Queri
 		return uuid.Nil, err
 	}
 	return row.ID, nil
+}
+
+func recordOpenSkillComparisonTx(ctx context.Context, queries *store.Queries, sportKey string, fact rating.ComparisonFact, updatedAt time.Time) error {
+	legacyMu, err := numericFromFloat64(fact.LegacyMu)
+	if err != nil {
+		return err
+	}
+	legacySigma, err := numericFromFloat64(fact.LegacySigma)
+	if err != nil {
+		return err
+	}
+	openSkillMu, err := numericFromFloat64(fact.OpenSkillMu)
+	if err != nil {
+		return err
+	}
+	openSkillSigma, err := numericFromFloat64(fact.OpenSkillSigma)
+	if err != nil {
+		return err
+	}
+	deltaFromLegacy, err := numericFromFloat64(fact.DeltaFromLegacy)
+	if err != nil {
+		return err
+	}
+	acceptedDeltaBudget, err := numericFromFloat64(fact.AcceptedDeltaBudget)
+	if err != nil {
+		return err
+	}
+
+	modeKey := fact.ModeKey
+	scenario := fact.ComparisonScenario
+	eventParams := store.UpsertCompetitionOpenSkillComputedEventParams{
+		RatingEngine:        rating.EngineOpenSkill,
+		EngineVersion:       rating.EngineVersionOpenSkill,
+		PolicyVersion:       rating.PolicyVersionOpenSkill,
+		SportKey:            sportKey,
+		ModeKey:             &modeKey,
+		UserID:              optionalUUID(&fact.UserID),
+		SourceResultID:      optionalUUID(&fact.SourceResultID),
+		LegacyMu:            legacyMu,
+		LegacySigma:         legacySigma,
+		OpenskillMu:         openSkillMu,
+		OpenskillSigma:      openSkillSigma,
+		DeltaFromLegacy:     deltaFromLegacy,
+		AcceptedDeltaBudget: acceptedDeltaBudget,
+		ComparisonScenario:  &scenario,
+		ProjectionWatermark: fact.Watermark,
+		OccurredAt:          timestamptz(fact.OccurredAt),
+	}
+	if _, err := queries.UpsertCompetitionOpenSkillComputedEvent(ctx, eventParams); err != nil {
+		return err
+	}
+	if fact.DeltaFlagged {
+		if _, err := queries.UpsertCompetitionRatingDeltaFlaggedEvent(ctx, store.UpsertCompetitionRatingDeltaFlaggedEventParams(eventParams)); err != nil {
+			return err
+		}
+	}
+
+	_, err = queries.UpsertCompetitionRatingComparison(ctx, store.UpsertCompetitionRatingComparisonParams{
+		SportKey:               sportKey,
+		ModeKey:                fact.ModeKey,
+		UserID:                 fact.UserID,
+		SourceResultID:         fact.SourceResultID,
+		LegacyRatingEngine:     rating.EngineLegacyEloLike,
+		LegacyEngineVersion:    rating.EngineVersionLegacy,
+		LegacyPolicyVersion:    rating.PolicyVersionLegacy,
+		OpenskillRatingEngine:  rating.EngineOpenSkill,
+		OpenskillEngineVersion: rating.EngineVersionOpenSkill,
+		OpenskillPolicyVersion: rating.PolicyVersionOpenSkill,
+		LegacyMu:               legacyMu,
+		LegacySigma:            legacySigma,
+		OpenskillMu:            openSkillMu,
+		OpenskillSigma:         openSkillSigma,
+		DeltaFromLegacy:        deltaFromLegacy,
+		AcceptedDeltaBudget:    acceptedDeltaBudget,
+		ComparisonScenario:     fact.ComparisonScenario,
+		DeltaFlagged:           fact.DeltaFlagged,
+		ProjectionWatermark:    fact.Watermark,
+		OccurredAt:             timestamptz(fact.OccurredAt),
+		UpdatedAt:              timestamptz(updatedAt),
+	})
+	return err
 }
 
 func projectionSourceResultID(matches []rating.Match) *uuid.UUID {

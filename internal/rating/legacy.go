@@ -14,6 +14,8 @@ const (
 	PolicyVersionLegacy = "apollo_legacy_rating_v1"
 
 	EventLegacyComputed    = "competition.rating.legacy_computed"
+	EventOpenSkillComputed = "competition.rating.openskill_computed"
+	EventDeltaFlagged      = "competition.rating.delta_flagged"
 	EventPolicySelected    = "competition.rating.policy_selected"
 	EventProjectionRebuilt = "competition.rating.projection_rebuilt"
 

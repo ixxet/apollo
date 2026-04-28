@@ -431,7 +431,26 @@ type CreateCompetitionRatingEventParams struct {
 	OccurredAt          pgtype.Timestamptz
 }
 
-func (q *Queries) CreateCompetitionRatingEvent(ctx context.Context, arg CreateCompetitionRatingEventParams) (ApolloCompetitionRatingEvent, error) {
+type CreateCompetitionRatingEventRow struct {
+	ID                  uuid.UUID
+	EventType           string
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SportKey            string
+	ModeKey             *string
+	UserID              pgtype.UUID
+	SourceResultID      pgtype.UUID
+	Mu                  pgtype.Numeric
+	Sigma               pgtype.Numeric
+	DeltaMu             pgtype.Numeric
+	DeltaSigma          pgtype.Numeric
+	ProjectionWatermark string
+	OccurredAt          pgtype.Timestamptz
+	CreatedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionRatingEvent(ctx context.Context, arg CreateCompetitionRatingEventParams) (CreateCompetitionRatingEventRow, error) {
 	row := q.db.QueryRow(ctx, createCompetitionRatingEvent,
 		arg.EventType,
 		arg.RatingEngine,
@@ -448,7 +467,7 @@ func (q *Queries) CreateCompetitionRatingEvent(ctx context.Context, arg CreateCo
 		arg.ProjectionWatermark,
 		arg.OccurredAt,
 	)
-	var i ApolloCompetitionRatingEvent
+	var i CreateCompetitionRatingEventRow
 	err := row.Scan(
 		&i.ID,
 		&i.EventType,
@@ -477,6 +496,19 @@ WHERE sport_key = $1
 
 func (q *Queries) DeleteCompetitionMemberRatingsBySportKey(ctx context.Context, sportKey string) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteCompetitionMemberRatingsBySportKey, sportKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteCompetitionRatingComparisonsBySportKey = `-- name: DeleteCompetitionRatingComparisonsBySportKey :execrows
+DELETE FROM apollo.competition_rating_comparisons
+WHERE sport_key = $1
+`
+
+func (q *Queries) DeleteCompetitionRatingComparisonsBySportKey(ctx context.Context, sportKey string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCompetitionRatingComparisonsBySportKey, sportKey)
 	if err != nil {
 		return 0, err
 	}
@@ -1083,7 +1115,26 @@ type UpsertCompetitionLegacyRatingEventParams struct {
 	OccurredAt          pgtype.Timestamptz
 }
 
-func (q *Queries) UpsertCompetitionLegacyRatingEvent(ctx context.Context, arg UpsertCompetitionLegacyRatingEventParams) (ApolloCompetitionRatingEvent, error) {
+type UpsertCompetitionLegacyRatingEventRow struct {
+	ID                  uuid.UUID
+	EventType           string
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SportKey            string
+	ModeKey             *string
+	UserID              pgtype.UUID
+	SourceResultID      pgtype.UUID
+	Mu                  pgtype.Numeric
+	Sigma               pgtype.Numeric
+	DeltaMu             pgtype.Numeric
+	DeltaSigma          pgtype.Numeric
+	ProjectionWatermark string
+	OccurredAt          pgtype.Timestamptz
+	CreatedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertCompetitionLegacyRatingEvent(ctx context.Context, arg UpsertCompetitionLegacyRatingEventParams) (UpsertCompetitionLegacyRatingEventRow, error) {
 	row := q.db.QueryRow(ctx, upsertCompetitionLegacyRatingEvent,
 		arg.RatingEngine,
 		arg.EngineVersion,
@@ -1099,7 +1150,7 @@ func (q *Queries) UpsertCompetitionLegacyRatingEvent(ctx context.Context, arg Up
 		arg.ProjectionWatermark,
 		arg.OccurredAt,
 	)
-	var i ApolloCompetitionRatingEvent
+	var i UpsertCompetitionLegacyRatingEventRow
 	err := row.Scan(
 		&i.ID,
 		&i.EventType,
@@ -1218,6 +1269,533 @@ func (q *Queries) UpsertCompetitionMemberRating(ctx context.Context, arg UpsertC
 		&i.SourceResultID,
 		&i.RatingEventID,
 		&i.ProjectionWatermark,
+	)
+	return i, err
+}
+
+const upsertCompetitionOpenSkillComputedEvent = `-- name: UpsertCompetitionOpenSkillComputedEvent :one
+INSERT INTO apollo.competition_rating_events (
+  event_type,
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  user_id,
+  source_result_id,
+  legacy_mu,
+  legacy_sigma,
+  openskill_mu,
+  openskill_sigma,
+  delta_from_legacy,
+  accepted_delta_budget,
+  comparison_scenario,
+  projection_watermark,
+  occurred_at
+)
+VALUES (
+  'competition.rating.openskill_computed',
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  $15,
+  $16
+)
+ON CONFLICT (
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  source_result_id,
+  user_id,
+  comparison_scenario
+)
+WHERE event_type = 'competition.rating.openskill_computed'
+DO UPDATE SET
+  legacy_mu = EXCLUDED.legacy_mu,
+  legacy_sigma = EXCLUDED.legacy_sigma,
+  openskill_mu = EXCLUDED.openskill_mu,
+  openskill_sigma = EXCLUDED.openskill_sigma,
+  delta_from_legacy = EXCLUDED.delta_from_legacy,
+  accepted_delta_budget = EXCLUDED.accepted_delta_budget,
+  projection_watermark = EXCLUDED.projection_watermark,
+  occurred_at = EXCLUDED.occurred_at
+RETURNING id,
+          event_type,
+          rating_engine,
+          engine_version,
+          policy_version,
+          sport_key,
+          mode_key,
+          user_id,
+          source_result_id,
+          mu,
+          sigma,
+          delta_mu,
+          delta_sigma,
+          legacy_mu,
+          legacy_sigma,
+          openskill_mu,
+          openskill_sigma,
+          delta_from_legacy,
+          accepted_delta_budget,
+          comparison_scenario,
+          projection_watermark,
+          occurred_at,
+          created_at
+`
+
+type UpsertCompetitionOpenSkillComputedEventParams struct {
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SportKey            string
+	ModeKey             *string
+	UserID              pgtype.UUID
+	SourceResultID      pgtype.UUID
+	LegacyMu            pgtype.Numeric
+	LegacySigma         pgtype.Numeric
+	OpenskillMu         pgtype.Numeric
+	OpenskillSigma      pgtype.Numeric
+	DeltaFromLegacy     pgtype.Numeric
+	AcceptedDeltaBudget pgtype.Numeric
+	ComparisonScenario  *string
+	ProjectionWatermark string
+	OccurredAt          pgtype.Timestamptz
+}
+
+type UpsertCompetitionOpenSkillComputedEventRow struct {
+	ID                  uuid.UUID
+	EventType           string
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SportKey            string
+	ModeKey             *string
+	UserID              pgtype.UUID
+	SourceResultID      pgtype.UUID
+	Mu                  pgtype.Numeric
+	Sigma               pgtype.Numeric
+	DeltaMu             pgtype.Numeric
+	DeltaSigma          pgtype.Numeric
+	LegacyMu            pgtype.Numeric
+	LegacySigma         pgtype.Numeric
+	OpenskillMu         pgtype.Numeric
+	OpenskillSigma      pgtype.Numeric
+	DeltaFromLegacy     pgtype.Numeric
+	AcceptedDeltaBudget pgtype.Numeric
+	ComparisonScenario  *string
+	ProjectionWatermark string
+	OccurredAt          pgtype.Timestamptz
+	CreatedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertCompetitionOpenSkillComputedEvent(ctx context.Context, arg UpsertCompetitionOpenSkillComputedEventParams) (UpsertCompetitionOpenSkillComputedEventRow, error) {
+	row := q.db.QueryRow(ctx, upsertCompetitionOpenSkillComputedEvent,
+		arg.RatingEngine,
+		arg.EngineVersion,
+		arg.PolicyVersion,
+		arg.SportKey,
+		arg.ModeKey,
+		arg.UserID,
+		arg.SourceResultID,
+		arg.LegacyMu,
+		arg.LegacySigma,
+		arg.OpenskillMu,
+		arg.OpenskillSigma,
+		arg.DeltaFromLegacy,
+		arg.AcceptedDeltaBudget,
+		arg.ComparisonScenario,
+		arg.ProjectionWatermark,
+		arg.OccurredAt,
+	)
+	var i UpsertCompetitionOpenSkillComputedEventRow
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.RatingEngine,
+		&i.EngineVersion,
+		&i.PolicyVersion,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.UserID,
+		&i.SourceResultID,
+		&i.Mu,
+		&i.Sigma,
+		&i.DeltaMu,
+		&i.DeltaSigma,
+		&i.LegacyMu,
+		&i.LegacySigma,
+		&i.OpenskillMu,
+		&i.OpenskillSigma,
+		&i.DeltaFromLegacy,
+		&i.AcceptedDeltaBudget,
+		&i.ComparisonScenario,
+		&i.ProjectionWatermark,
+		&i.OccurredAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const upsertCompetitionRatingComparison = `-- name: UpsertCompetitionRatingComparison :one
+INSERT INTO apollo.competition_rating_comparisons (
+  sport_key,
+  mode_key,
+  user_id,
+  source_result_id,
+  legacy_rating_engine,
+  legacy_engine_version,
+  legacy_policy_version,
+  openskill_rating_engine,
+  openskill_engine_version,
+  openskill_policy_version,
+  legacy_mu,
+  legacy_sigma,
+  openskill_mu,
+  openskill_sigma,
+  delta_from_legacy,
+  accepted_delta_budget,
+  comparison_scenario,
+  delta_flagged,
+  projection_watermark,
+  occurred_at,
+  updated_at
+)
+VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  $15,
+  $16,
+  $17,
+  $18,
+  $19,
+  $20,
+  $21
+)
+ON CONFLICT (
+  openskill_rating_engine,
+  openskill_engine_version,
+  openskill_policy_version,
+  sport_key,
+  mode_key,
+  source_result_id,
+  user_id,
+  comparison_scenario
+)
+DO UPDATE SET
+  legacy_rating_engine = EXCLUDED.legacy_rating_engine,
+  legacy_engine_version = EXCLUDED.legacy_engine_version,
+  legacy_policy_version = EXCLUDED.legacy_policy_version,
+  legacy_mu = EXCLUDED.legacy_mu,
+  legacy_sigma = EXCLUDED.legacy_sigma,
+  openskill_mu = EXCLUDED.openskill_mu,
+  openskill_sigma = EXCLUDED.openskill_sigma,
+  delta_from_legacy = EXCLUDED.delta_from_legacy,
+  accepted_delta_budget = EXCLUDED.accepted_delta_budget,
+  delta_flagged = EXCLUDED.delta_flagged,
+  projection_watermark = EXCLUDED.projection_watermark,
+  occurred_at = EXCLUDED.occurred_at,
+  updated_at = EXCLUDED.updated_at
+RETURNING id,
+          sport_key,
+          mode_key,
+          user_id,
+          source_result_id,
+          legacy_rating_engine,
+          legacy_engine_version,
+          legacy_policy_version,
+          openskill_rating_engine,
+          openskill_engine_version,
+          openskill_policy_version,
+          legacy_mu,
+          legacy_sigma,
+          openskill_mu,
+          openskill_sigma,
+          delta_from_legacy,
+          accepted_delta_budget,
+          comparison_scenario,
+          delta_flagged,
+          projection_watermark,
+          occurred_at,
+          created_at,
+          updated_at
+`
+
+type UpsertCompetitionRatingComparisonParams struct {
+	SportKey               string
+	ModeKey                string
+	UserID                 uuid.UUID
+	SourceResultID         uuid.UUID
+	LegacyRatingEngine     string
+	LegacyEngineVersion    string
+	LegacyPolicyVersion    string
+	OpenskillRatingEngine  string
+	OpenskillEngineVersion string
+	OpenskillPolicyVersion string
+	LegacyMu               pgtype.Numeric
+	LegacySigma            pgtype.Numeric
+	OpenskillMu            pgtype.Numeric
+	OpenskillSigma         pgtype.Numeric
+	DeltaFromLegacy        pgtype.Numeric
+	AcceptedDeltaBudget    pgtype.Numeric
+	ComparisonScenario     string
+	DeltaFlagged           bool
+	ProjectionWatermark    string
+	OccurredAt             pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertCompetitionRatingComparison(ctx context.Context, arg UpsertCompetitionRatingComparisonParams) (ApolloCompetitionRatingComparison, error) {
+	row := q.db.QueryRow(ctx, upsertCompetitionRatingComparison,
+		arg.SportKey,
+		arg.ModeKey,
+		arg.UserID,
+		arg.SourceResultID,
+		arg.LegacyRatingEngine,
+		arg.LegacyEngineVersion,
+		arg.LegacyPolicyVersion,
+		arg.OpenskillRatingEngine,
+		arg.OpenskillEngineVersion,
+		arg.OpenskillPolicyVersion,
+		arg.LegacyMu,
+		arg.LegacySigma,
+		arg.OpenskillMu,
+		arg.OpenskillSigma,
+		arg.DeltaFromLegacy,
+		arg.AcceptedDeltaBudget,
+		arg.ComparisonScenario,
+		arg.DeltaFlagged,
+		arg.ProjectionWatermark,
+		arg.OccurredAt,
+		arg.UpdatedAt,
+	)
+	var i ApolloCompetitionRatingComparison
+	err := row.Scan(
+		&i.ID,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.UserID,
+		&i.SourceResultID,
+		&i.LegacyRatingEngine,
+		&i.LegacyEngineVersion,
+		&i.LegacyPolicyVersion,
+		&i.OpenskillRatingEngine,
+		&i.OpenskillEngineVersion,
+		&i.OpenskillPolicyVersion,
+		&i.LegacyMu,
+		&i.LegacySigma,
+		&i.OpenskillMu,
+		&i.OpenskillSigma,
+		&i.DeltaFromLegacy,
+		&i.AcceptedDeltaBudget,
+		&i.ComparisonScenario,
+		&i.DeltaFlagged,
+		&i.ProjectionWatermark,
+		&i.OccurredAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertCompetitionRatingDeltaFlaggedEvent = `-- name: UpsertCompetitionRatingDeltaFlaggedEvent :one
+INSERT INTO apollo.competition_rating_events (
+  event_type,
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  user_id,
+  source_result_id,
+  legacy_mu,
+  legacy_sigma,
+  openskill_mu,
+  openskill_sigma,
+  delta_from_legacy,
+  accepted_delta_budget,
+  comparison_scenario,
+  projection_watermark,
+  occurred_at
+)
+VALUES (
+  'competition.rating.delta_flagged',
+  $1,
+  $2,
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  $15,
+  $16
+)
+ON CONFLICT (
+  rating_engine,
+  engine_version,
+  policy_version,
+  sport_key,
+  mode_key,
+  source_result_id,
+  user_id,
+  comparison_scenario
+)
+WHERE event_type = 'competition.rating.delta_flagged'
+DO UPDATE SET
+  legacy_mu = EXCLUDED.legacy_mu,
+  legacy_sigma = EXCLUDED.legacy_sigma,
+  openskill_mu = EXCLUDED.openskill_mu,
+  openskill_sigma = EXCLUDED.openskill_sigma,
+  delta_from_legacy = EXCLUDED.delta_from_legacy,
+  accepted_delta_budget = EXCLUDED.accepted_delta_budget,
+  projection_watermark = EXCLUDED.projection_watermark,
+  occurred_at = EXCLUDED.occurred_at
+RETURNING id,
+          event_type,
+          rating_engine,
+          engine_version,
+          policy_version,
+          sport_key,
+          mode_key,
+          user_id,
+          source_result_id,
+          mu,
+          sigma,
+          delta_mu,
+          delta_sigma,
+          legacy_mu,
+          legacy_sigma,
+          openskill_mu,
+          openskill_sigma,
+          delta_from_legacy,
+          accepted_delta_budget,
+          comparison_scenario,
+          projection_watermark,
+          occurred_at,
+          created_at
+`
+
+type UpsertCompetitionRatingDeltaFlaggedEventParams struct {
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SportKey            string
+	ModeKey             *string
+	UserID              pgtype.UUID
+	SourceResultID      pgtype.UUID
+	LegacyMu            pgtype.Numeric
+	LegacySigma         pgtype.Numeric
+	OpenskillMu         pgtype.Numeric
+	OpenskillSigma      pgtype.Numeric
+	DeltaFromLegacy     pgtype.Numeric
+	AcceptedDeltaBudget pgtype.Numeric
+	ComparisonScenario  *string
+	ProjectionWatermark string
+	OccurredAt          pgtype.Timestamptz
+}
+
+type UpsertCompetitionRatingDeltaFlaggedEventRow struct {
+	ID                  uuid.UUID
+	EventType           string
+	RatingEngine        string
+	EngineVersion       string
+	PolicyVersion       string
+	SportKey            string
+	ModeKey             *string
+	UserID              pgtype.UUID
+	SourceResultID      pgtype.UUID
+	Mu                  pgtype.Numeric
+	Sigma               pgtype.Numeric
+	DeltaMu             pgtype.Numeric
+	DeltaSigma          pgtype.Numeric
+	LegacyMu            pgtype.Numeric
+	LegacySigma         pgtype.Numeric
+	OpenskillMu         pgtype.Numeric
+	OpenskillSigma      pgtype.Numeric
+	DeltaFromLegacy     pgtype.Numeric
+	AcceptedDeltaBudget pgtype.Numeric
+	ComparisonScenario  *string
+	ProjectionWatermark string
+	OccurredAt          pgtype.Timestamptz
+	CreatedAt           pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertCompetitionRatingDeltaFlaggedEvent(ctx context.Context, arg UpsertCompetitionRatingDeltaFlaggedEventParams) (UpsertCompetitionRatingDeltaFlaggedEventRow, error) {
+	row := q.db.QueryRow(ctx, upsertCompetitionRatingDeltaFlaggedEvent,
+		arg.RatingEngine,
+		arg.EngineVersion,
+		arg.PolicyVersion,
+		arg.SportKey,
+		arg.ModeKey,
+		arg.UserID,
+		arg.SourceResultID,
+		arg.LegacyMu,
+		arg.LegacySigma,
+		arg.OpenskillMu,
+		arg.OpenskillSigma,
+		arg.DeltaFromLegacy,
+		arg.AcceptedDeltaBudget,
+		arg.ComparisonScenario,
+		arg.ProjectionWatermark,
+		arg.OccurredAt,
+	)
+	var i UpsertCompetitionRatingDeltaFlaggedEventRow
+	err := row.Scan(
+		&i.ID,
+		&i.EventType,
+		&i.RatingEngine,
+		&i.EngineVersion,
+		&i.PolicyVersion,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.UserID,
+		&i.SourceResultID,
+		&i.Mu,
+		&i.Sigma,
+		&i.DeltaMu,
+		&i.DeltaSigma,
+		&i.LegacyMu,
+		&i.LegacySigma,
+		&i.OpenskillMu,
+		&i.OpenskillSigma,
+		&i.DeltaFromLegacy,
+		&i.AcceptedDeltaBudget,
+		&i.ComparisonScenario,
+		&i.ProjectionWatermark,
+		&i.OccurredAt,
+		&i.CreatedAt,
 	)
 	return i, err
 }

@@ -168,6 +168,32 @@ type ApolloCompetitionMemberRating struct {
 	ProjectionWatermark string
 }
 
+type ApolloCompetitionRatingComparison struct {
+	ID                     uuid.UUID
+	SportKey               string
+	ModeKey                string
+	UserID                 uuid.UUID
+	SourceResultID         uuid.UUID
+	LegacyRatingEngine     string
+	LegacyEngineVersion    string
+	LegacyPolicyVersion    string
+	OpenskillRatingEngine  string
+	OpenskillEngineVersion string
+	OpenskillPolicyVersion string
+	LegacyMu               pgtype.Numeric
+	LegacySigma            pgtype.Numeric
+	OpenskillMu            pgtype.Numeric
+	OpenskillSigma         pgtype.Numeric
+	DeltaFromLegacy        pgtype.Numeric
+	AcceptedDeltaBudget    pgtype.Numeric
+	ComparisonScenario     string
+	DeltaFlagged           bool
+	ProjectionWatermark    string
+	OccurredAt             pgtype.Timestamptz
+	CreatedAt              pgtype.Timestamptz
+	UpdatedAt              pgtype.Timestamptz
+}
+
 type ApolloCompetitionRatingEvent struct {
 	ID                  uuid.UUID
 	EventType           string
@@ -185,6 +211,13 @@ type ApolloCompetitionRatingEvent struct {
 	ProjectionWatermark string
 	OccurredAt          pgtype.Timestamptz
 	CreatedAt           pgtype.Timestamptz
+	LegacyMu            pgtype.Numeric
+	LegacySigma         pgtype.Numeric
+	OpenskillMu         pgtype.Numeric
+	OpenskillSigma      pgtype.Numeric
+	DeltaFromLegacy     pgtype.Numeric
+	AcceptedDeltaBudget pgtype.Numeric
+	ComparisonScenario  *string
 }
 
 type ApolloCompetitionSession struct {
