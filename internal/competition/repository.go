@@ -482,7 +482,7 @@ func (r *Repository) RecordMatchPreview(ctx context.Context, actor StaffActor, s
 			MatchQuality:            matchQuality,
 			PredictedWinProbability: winProbability,
 			ExplanationCode:         preview.ExplanationCode,
-			GeneratedAt:             timestamptz(preview.GeneratedAt),
+			InputWatermark:          timestamptz(preview.InputWatermark),
 			UpdatedAt:               timestamptz(occurredAt),
 		})
 		if err != nil {

@@ -139,7 +139,7 @@ type ApolloCompetitionMatchPreview struct {
 	MatchQuality            pgtype.Numeric
 	PredictedWinProbability pgtype.Numeric
 	ExplanationCode         string
-	GeneratedAt             pgtype.Timestamptz
+	InputWatermark          pgtype.Timestamptz
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
 }

@@ -29,6 +29,7 @@ sql:
       - "migrations/024_competition_rating_foundation.up.sql"
       - "migrations/025_competition_openskill_dual_run.up.sql"
       - "migrations/026_competition_ares_v2_preview.up.sql"
+      - "migrations/027_competition_ares_input_watermark.up.sql"
     queries: "queries"
     gen:
       go:

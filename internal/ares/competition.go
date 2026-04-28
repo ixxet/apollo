@@ -49,7 +49,7 @@ type CompetitionPreviewCandidate struct {
 }
 
 type CompetitionMatchPreview struct {
-	GeneratedAt               time.Time                `json:"generated_at"`
+	InputWatermark            time.Time                `json:"input_watermark"`
 	CompetitionSessionID      uuid.UUID                `json:"competition_session_id"`
 	QueueVersion              int                      `json:"queue_version"`
 	ProposalIndex             int                      `json:"proposal_index"`
@@ -145,7 +145,7 @@ func BuildCompetitionMatchPreview(input CompetitionPreviewInput) CompetitionMatc
 	explanationCodes := explanationCodes(delta, missingRatingCount, tier)
 
 	return CompetitionMatchPreview{
-		GeneratedAt:               latestInputWatermark(candidates),
+		InputWatermark:            latestInputWatermark(candidates),
 		CompetitionSessionID:      input.SessionID,
 		QueueVersion:              input.QueueVersion,
 		ProposalIndex:             1,

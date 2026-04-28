@@ -388,7 +388,7 @@ INSERT INTO apollo.competition_match_previews (
   match_quality,
   predicted_win_probability,
   explanation_code,
-  generated_at,
+  input_watermark,
   updated_at
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -409,7 +409,7 @@ DO UPDATE SET
   match_quality = EXCLUDED.match_quality,
   predicted_win_probability = EXCLUDED.predicted_win_probability,
   explanation_code = EXCLUDED.explanation_code,
-  generated_at = EXCLUDED.generated_at,
+  input_watermark = EXCLUDED.input_watermark,
   updated_at = EXCLUDED.updated_at
 RETURNING id,
           competition_session_id,
@@ -426,7 +426,7 @@ RETURNING id,
           match_quality,
           predicted_win_probability,
           explanation_code,
-          generated_at,
+          input_watermark,
           created_at,
           updated_at;
 
