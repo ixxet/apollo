@@ -620,14 +620,16 @@ exercise, recommendations, or matchmaking.
 | `Phase 3B.11` | - | Runtime-local on `main` | Competition command/readiness foundation: shared APOLLO command/outcome DTOs, dry-run plan shape, readiness/capability checks, and service-backed CLI parity over existing competition behavior | result trust closed separately in 3B.12; OpenSkill, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, booking/commercial work, and deploy claims remain deferred |
 | `Phase 3B.12` | - | Runtime-local on `main` | Competition lifecycle/result trust: canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, direct and command-backed result transitions, and rating consumption limited to finalized/corrected canonical results | rating engine extraction, OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, browser trusted-surface tokens, booking/commercial work, and deploy claims |
 | `Phase 3B.13` | - | Runtime-local on `main` | Legacy rating foundation: current rating math behind explicit engine/policy versions, golden cases, rating events, source result IDs, rating event IDs, and deterministic projection watermarks | OpenSkill, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, booking/commercial work, and deploy claims |
+| `Phase 3B.14` | - | Runtime-local on `main` | OpenSkill dual-run comparison: internal comparison rows/events beside legacy outputs, accepted delta budgets, delta flags, and deterministic rebuilds over finalized/corrected canonical result truth | OpenSkill read-path switch, ARES v2, analytics, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, booking/commercial work, and deploy claims |
 
 ## Release Lines
 
 Tracer 24 remains the tagged coaching line on `v0.15.0`, and `v0.15.1`
 remains the narrow hardening patch on that same line. The current
-repo/runtime closeout truth on `main` is Tracer 28 authz/staff-boundary truth
-plus the Milestone 2.0 hardening follow-up closed on `v0.19.1`. Later planned
-lines begin below.
+repo/runtime closeout truth on `main` includes Phase 3B.14 OpenSkill dual-run
+comparison over the Phase 3B.13 legacy rating foundation, Tracer 28
+authz/staff-boundary truth, and the Milestone 2.0 hardening follow-up closed
+on `v0.19.1`. Later planned lines begin below.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -647,7 +649,8 @@ lines begin below.
 
 ## Versioning Discipline
 
-APOLLO now follows formal pre-`1.0.0` semantic versioning.
+APOLLO now follows bounded pre-`1.0.0` tag discipline for repo-local release
+lines. Project-wide SemVer governance remains deferred.
 
 - `PATCH` releases cover hardening, docs sync, deployment closeout,
   observability, and bounded non-widening fixes

@@ -69,7 +69,9 @@ Use these labels consistently when extending this document:
 | Not planned yet | Mentioned idea with no committed implementation sequence. |
 | Kill unless gated | Valid idea only if named gates pass first. |
 
-Versioning reference: ASHTON uses formal pre-`1.0.0` semantic versioning now. `semver-lite` is historical shorthand only. See [ashton-platform Versioning Policy](../../ashton-platform/README.md#versioning-policy).
+Versioning reference: ASHTON uses bounded pre-`1.0.0` tag discipline now.
+`semver-lite` is historical shorthand only. Project-wide SemVer governance
+remains deferred.
 
 ## Agent Onboarding
 
@@ -318,11 +320,12 @@ No tracer should ship without passing the gates relevant to it.
 
 Use OpenSkill underneath with custom APOLLO policy wrapped on top. Keep the current Elo-like behavior only as a legacy baseline and migration fallback.
 
-OpenSkill is not implemented today. Since Phase 3B.13, current APOLLO rating
-behavior is a versioned legacy APOLLO projection: custom logistic expectation,
-fixed K factor, synthetic sigma shrink, synchronous full-sport recompute after
-finalized/corrected canonical result changes, golden characterization tests,
-and auditable legacy compute/policy/rebuild events.
+Phase 3B.14 now implements OpenSkill as an internal dual-run comparison layer.
+The active APOLLO rating behavior remains a versioned legacy APOLLO projection:
+custom logistic expectation, fixed K factor, synthetic sigma shrink,
+synchronous full-sport recompute after finalized/corrected canonical result
+changes, golden characterization tests, and auditable legacy
+compute/policy/rebuild events.
 
 This should not become "average Elo and OpenSkill forever." The durable hybrid is:
 
@@ -1227,8 +1230,10 @@ Kill or defer a tracer if any of these are true:
 2. Closed by 3B.13: APOLLO legacy rating extraction, policy/audit metadata,
    golden cases, rating events, source result binding, and deterministic
    projection watermarks.
-3. Next: OpenSkill dual-run/cutover only after baseline comparison.
-4. Later: analytics, tournament runtime, public competition surfaces, and game
+3. Closed by 3B.14: OpenSkill dual-run comparison beside the legacy baseline,
+   with read-path cutover still deferred until comparison evidence is accepted.
+4. Next: ARES v2 only after trusted rating evidence remains coherent.
+5. Later: analytics, tournament runtime, public competition surfaces, and game
    identity only after their gates are met.
 
 ## Proof Commands

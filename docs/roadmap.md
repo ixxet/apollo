@@ -197,11 +197,11 @@ They should not be used as permission to skip the launch-expansion gates.
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime working line on
-`main` is Phase 3B.13 rating foundation over the closed
-Tracer 28 authz/staff-boundary truth, Milestone 2.0 hardening follow-up,
-scheduling substrate, member-safe calendar, ops-read, approved booking
-lifecycle, public request/status/availability lines, and staff-side
-edit/replacement plus bounded staff schedule-control lines.
+`main` is Phase 3B.14 OpenSkill dual-run comparison over the Phase 3B.13
+rating foundation and the closed Tracer 28 authz/staff-boundary truth,
+Milestone 2.0 hardening follow-up, scheduling substrate, member-safe calendar,
+ops-read, approved booking lifecycle, public request/status/availability lines,
+and staff-side edit/replacement plus bounded staff schedule-control lines.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -258,7 +258,8 @@ narrowing the remaining APOLLO follow-up work.
 
 ## Versioning Discipline
 
-APOLLO now follows formal pre-`1.0.0` semantic versioning.
+APOLLO now follows bounded pre-`1.0.0` tag discipline for repo-local release
+lines. Project-wide SemVer governance remains deferred.
 
 - `PATCH` releases cover hardening, docs sync, deployment closeout,
   observability, and bounded non-widening fixes
