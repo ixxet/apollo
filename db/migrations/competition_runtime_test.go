@@ -180,6 +180,7 @@ func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 	if err := testutil.ApplySQLFiles(
 		ctx,
 		postgresEnv.DB,
+		testutil.RepoFilePath("db", "migrations", "028_competition_analytics_foundation.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "027_competition_ares_input_watermark.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "026_competition_ares_v2_preview.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "025_competition_openskill_dual_run.down.sql"),
@@ -207,7 +208,9 @@ WHERE table_schema = 'apollo'
 	    'competition_match_side_slots',
 	    'competition_match_previews',
 	    'competition_match_preview_members',
-	    'competition_match_preview_events'
+	    'competition_match_preview_events',
+	    'competition_analytics_events',
+	    'competition_analytics_projections'
 	  )
 `).Scan(&remainingCompetitionTables); err != nil {
 		t.Fatalf("count competition tables after down migration error = %v", err)
@@ -215,6 +218,156 @@ WHERE table_schema = 'apollo'
 
 	if remainingCompetitionTables != 0 {
 		t.Fatalf("remaining competition table count = %d, want 0", remainingCompetitionTables)
+	}
+}
+
+func TestCompetitionAnalyticsSchemaEnforcesDerivedFactMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	postgresEnv, err := testutil.StartPostgres(ctx)
+	if err != nil {
+		t.Fatalf("StartPostgres() error = %v", err)
+	}
+	defer func() {
+		if closeErr := postgresEnv.Close(); closeErr != nil {
+			t.Fatalf("Close() error = %v", closeErr)
+		}
+	}()
+
+	if err := testutil.ApplyApolloSchema(ctx, postgresEnv.DB); err != nil {
+		t.Fatalf("ApplyApolloSchema() error = %v", err)
+	}
+
+	ownerUserID := insertCompetitionUser(t, ctx, postgresEnv, "competition-owner-028", "Competition Owner", "competition-owner-028@example.com")
+	sessionID := insertCompetitionSession(t, ctx, postgresEnv, ownerUserID, "Tracer 28 Analytics")
+	matchID := insertCompetitionMatch(t, ctx, postgresEnv, sessionID, 1)
+	resultID := insertCompetitionResult(t, ctx, postgresEnv, matchID, ownerUserID)
+
+	if _, err := postgresEnv.DB.Exec(ctx, `
+INSERT INTO apollo.competition_analytics_events (
+    event_type,
+    projection_version,
+    projection_watermark,
+    user_id,
+    sport_key,
+    facility_key,
+    mode_key,
+    team_scope,
+    stat_type,
+    stat_value,
+    source_match_id,
+    source_result_id,
+    sample_size,
+    confidence,
+    computed_at
+)
+VALUES (
+    'competition.analytics.stat_computed',
+    'competition_analytics_v1',
+    '2026-04-28T10:00:00Z#match#result',
+    $1,
+    'badminton',
+    'ashtonbee',
+    'head_to_head:s2-p1',
+    'solo',
+    'matches_played',
+    1.0000,
+    $2,
+    $3,
+    1,
+    0.1000,
+    NOW()
+)
+`, ownerUserID, matchID, resultID); err != nil {
+		t.Fatalf("insert analytics stat event error = %v", err)
+	}
+
+	if _, err := postgresEnv.DB.Exec(ctx, `
+INSERT INTO apollo.competition_analytics_projections (
+    user_id,
+    sport_key,
+    facility_key,
+    mode_key,
+    team_scope,
+    stat_type,
+    stat_value,
+    source_match_id,
+    source_result_id,
+    sample_size,
+    confidence,
+    computed_at,
+    projection_version,
+    projection_watermark
+)
+VALUES (
+    $1,
+    'badminton',
+    'all',
+    'all',
+    'all',
+    'matches_played',
+    1.0000,
+    $2,
+    $3,
+    1,
+    0.1000,
+    NOW(),
+    'competition_analytics_v1',
+    '2026-04-28T10:00:00Z#match#result'
+)
+`, ownerUserID, matchID, resultID); err != nil {
+		t.Fatalf("insert analytics projection error = %v", err)
+	}
+
+	_, err = postgresEnv.DB.Exec(ctx, `
+INSERT INTO apollo.competition_analytics_events (
+    event_type,
+    projection_version,
+    projection_watermark,
+    sport_key,
+    stat_type,
+    stat_value,
+    sample_size,
+    confidence,
+    computed_at
+)
+VALUES (
+    'competition.analytics.stat_computed',
+    'competition_analytics_v1',
+    '2026-04-28T10:00:00Z#match#result',
+    'badminton',
+    'matches_played',
+    1.0000,
+    1,
+    0.1000,
+    NOW()
+)
+`)
+	if err == nil {
+		t.Fatal("insert analytics stat without source error = nil, want check violation")
+	}
+	var statPgErr *pgconn.PgError
+	if !errors.As(err, &statPgErr) {
+		t.Fatalf("analytics stat without source error = %v, want pg error", err)
+	}
+	if statPgErr.ConstraintName != "competition_analytics_events_stat_payload_required" {
+		t.Fatalf("analytics stat constraint = %q, want competition_analytics_events_stat_payload_required", statPgErr.ConstraintName)
+	}
+
+	_, err = postgresEnv.DB.Exec(ctx, `
+UPDATE apollo.competition_analytics_projections
+SET confidence = 1.1000
+WHERE user_id = $1
+`, ownerUserID)
+	if err == nil {
+		t.Fatal("update analytics confidence out of range error = nil, want check violation")
+	}
+	var projectionPgErr *pgconn.PgError
+	if !errors.As(err, &projectionPgErr) {
+		t.Fatalf("analytics confidence error = %v, want pg error", err)
+	}
+	if projectionPgErr.ConstraintName != "competition_analytics_projections_confidence_range" {
+		t.Fatalf("analytics confidence constraint = %q, want competition_analytics_projections_confidence_range", projectionPgErr.ConstraintName)
 	}
 }
 

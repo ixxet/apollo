@@ -311,6 +311,105 @@ WHERE user_id = $1
 	}
 }
 
+func TestCompetitionAnalyticsFoundationProjectsTrustedStats(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-analytics-001", "analytics-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
+	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-analytics-002", "analytics-002@example.com")
+	memberThreeCookie, memberThree := createVerifiedSessionViaHTTP(t, env, "student-analytics-003", "analytics-003@example.com")
+	memberFourCookie, memberFour := createVerifiedSessionViaHTTP(t, env, "student-analytics-004", "analytics-004@example.com")
+
+	for _, cookie := range []*http.Cookie{ownerCookie, memberTwoCookie, memberThreeCookie, memberFourCookie} {
+		makeEligibleForLobby(t, env, cookie)
+		joinLobbyMembership(t, env, cookie)
+	}
+
+	singlesWin := createStartedCompetitionSession(t, env, ownerCookie, "3B.16 Singles Win", "badminton", "gym-floor", 1, []uuid.UUID{owner.ID, memberTwo.ID})
+	singlesLoss := createStartedCompetitionSession(t, env, ownerCookie, "3B.16 Singles Loss", "badminton", "gym-floor", 1, []uuid.UUID{owner.ID, memberTwo.ID})
+	doublesWin := createStartedCompetitionSession(t, env, ownerCookie, "3B.16 Doubles Win", "badminton", "gym-floor", 2, []uuid.UUID{owner.ID, memberTwo.ID, memberThree.ID, memberFour.ID})
+
+	beforeQueueIntents := countTableRows(t, env, "apollo.competition_queue_intents")
+	beforeAresMatches := countTableRows(t, env, "apollo.ares_matches")
+	beforeAresPlayers := countTableRows(t, env, "apollo.ares_match_players")
+	beforePreviews := countTableRows(t, env, "apollo.competition_match_previews")
+	beforePreviewMembers := countTableRows(t, env, "apollo.competition_match_preview_members")
+	beforePreviewEvents := countTableRows(t, env, "apollo.competition_match_preview_events")
+
+	singlesWin = recordCompetitionResult(t, env, ownerCookie, singlesWin.ID.String(), singlesWin.Matches[0].ID.String(), singlesWin.Matches[0].SideSlots, competitionOutcomesForUser(t, singlesWin, owner.ID, "win"))
+	singlesLoss = recordCompetitionResult(t, env, ownerCookie, singlesLoss.ID.String(), singlesLoss.Matches[0].ID.String(), singlesLoss.Matches[0].SideSlots, competitionOutcomesForUser(t, singlesLoss, owner.ID, "loss"))
+	doublesWin = recordCompetitionResult(t, env, ownerCookie, doublesWin.ID.String(), doublesWin.Matches[0].ID.String(), doublesWin.Matches[0].SideSlots, competitionOutcomesForUser(t, doublesWin, owner.ID, "win"))
+
+	if afterQueueIntents := countTableRows(t, env, "apollo.competition_queue_intents"); afterQueueIntents != beforeQueueIntents {
+		t.Fatalf("queue intent rows changed from %d to %d during analytics rebuild", beforeQueueIntents, afterQueueIntents)
+	}
+	if afterAresMatches := countTableRows(t, env, "apollo.ares_matches"); afterAresMatches != beforeAresMatches {
+		t.Fatalf("ares_matches changed from %d to %d during analytics rebuild", beforeAresMatches, afterAresMatches)
+	}
+	if afterAresPlayers := countTableRows(t, env, "apollo.ares_match_players"); afterAresPlayers != beforeAresPlayers {
+		t.Fatalf("ares_match_players changed from %d to %d during analytics rebuild", beforeAresPlayers, afterAresPlayers)
+	}
+	if afterPreviews := countTableRows(t, env, "apollo.competition_match_previews"); afterPreviews != beforePreviews {
+		t.Fatalf("competition_match_previews changed from %d to %d during analytics rebuild", beforePreviews, afterPreviews)
+	}
+	if afterPreviewMembers := countTableRows(t, env, "apollo.competition_match_preview_members"); afterPreviewMembers != beforePreviewMembers {
+		t.Fatalf("competition_match_preview_members changed from %d to %d during analytics rebuild", beforePreviewMembers, afterPreviewMembers)
+	}
+	if afterPreviewEvents := countTableRows(t, env, "apollo.competition_match_preview_events"); afterPreviewEvents != beforePreviewEvents {
+		t.Fatalf("competition_match_preview_events changed from %d to %d during analytics rebuild", beforePreviewEvents, afterPreviewEvents)
+	}
+
+	matchesPlayed := readAnalyticsProjection(t, env, owner.ID, "badminton", "ashtonbee", "head_to_head:s2-p1", "all", "matches_played")
+	if matchesPlayed.value != 2 || matchesPlayed.sampleSize != 2 {
+		t.Fatalf("singles matches projection = %+v, want value/sample 2", matchesPlayed)
+	}
+	if matchesPlayed.projectionVersion != "competition_analytics_v1" || matchesPlayed.confidence != 0.2 {
+		t.Fatalf("singles matches metadata = %+v, want explicit v1 confidence 0.2", matchesPlayed)
+	}
+	if matchesPlayed.sourceResultID != singlesLoss.Matches[0].Result.ID {
+		t.Fatalf("singles matches source_result_id = %s, want latest singles result %s", matchesPlayed.sourceResultID, singlesLoss.Matches[0].Result.ID)
+	}
+	if !strings.Contains(matchesPlayed.projectionWatermark, singlesLoss.Matches[0].Result.ID.String()) && !strings.Contains(matchesPlayed.projectionWatermark, doublesWin.Matches[0].Result.ID.String()) {
+		t.Fatalf("projection_watermark = %q, want canonical source result id", matchesPlayed.projectionWatermark)
+	}
+
+	currentStreak := readAnalyticsProjection(t, env, owner.ID, "badminton", "ashtonbee", "head_to_head:s2-p1", "all", "current_streak")
+	if currentStreak.value != -1 || currentStreak.sampleSize != 2 {
+		t.Fatalf("current streak projection = %+v, want one-match loss streak over singles sample", currentStreak)
+	}
+
+	ratingMovement := readAnalyticsProjection(t, env, owner.ID, "badminton", "ashtonbee", "head_to_head:s2-p1", "all", "rating_movement")
+	if ratingMovement.sampleSize != 2 || ratingMovement.value == 0 {
+		t.Fatalf("rating movement projection = %+v, want two legacy rating movement samples", ratingMovement)
+	}
+
+	opponentStrength := readAnalyticsProjection(t, env, owner.ID, "badminton", "ashtonbee", "head_to_head:s2-p1", "all", "opponent_strength")
+	if opponentStrength.sampleSize != 2 || opponentStrength.value <= 0 {
+		t.Fatalf("opponent strength projection = %+v, want positive legacy rating-derived opponent strength", opponentStrength)
+	}
+
+	teamVsSolo := readAnalyticsProjection(t, env, owner.ID, "badminton", "all", "all", "all", "team_vs_solo_delta")
+	if teamVsSolo.value != 0.5 || teamVsSolo.sampleSize != 3 || teamVsSolo.confidence != 0.3 {
+		t.Fatalf("team vs solo projection = %+v, want team win-rate delta 0.5 over three trusted results", teamVsSolo)
+	}
+
+	sportSplit := readAnalyticsProjection(t, env, owner.ID, "badminton", "all", "all", "all", "matches_played")
+	if sportSplit.value != 3 || sportSplit.sampleSize != 3 {
+		t.Fatalf("sport split projection = %+v, want all badminton matches", sportSplit)
+	}
+	modeSplit := readAnalyticsProjection(t, env, owner.ID, "badminton", "all", "head_to_head:s2-p2", "team", "wins")
+	if modeSplit.value != 1 || modeSplit.sampleSize != 1 {
+		t.Fatalf("team mode split projection = %+v, want one doubles win", modeSplit)
+	}
+
+	assertAnalyticsStatEventSourceCount(t, env, owner.ID, singlesLoss.Matches[0].Result.ID, "rating_movement", 1)
+	assertAnalyticsStatEventSourceCount(t, env, owner.ID, doublesWin.Matches[0].Result.ID, "opponent_strength", 1)
+	assertAnalyticsProjectionRebuiltEvent(t, env, "badminton", doublesWin.Matches[0].Result.ID, 3)
+
+	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p2", doublesWin.Matches[0].Result.ID)
+}
+
 func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
@@ -337,6 +436,8 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("recorded result = %#v, want recorded status", recordedMatch.Result)
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 0)
+	assertAnalyticsProjectionCount(t, env, owner.ID, 0)
+	assertAnalyticsStatEventSourceCount(t, env, owner.ID, recordedMatch.Result.ID, "matches_played", 0)
 	assertRatingProjectionCount(t, env, owner.ID, 0)
 	assertOpenSkillComparisonSourceCount(t, env, recordedMatch.Result.ID, 0)
 	assertRatingEventCount(t, env, rating.EventLegacyComputed, recordedMatch.Result.ID, 0)
@@ -352,6 +453,8 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("finalized result = %#v, want finalized status and timestamp", finalizedMatch.Result)
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 1)
+	assertAnalyticsProjectionMinCount(t, env, owner.ID, 1)
+	assertAnalyticsStatEventSourceCount(t, env, owner.ID, finalizedMatch.Result.ID, "matches_played", 1)
 	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p1", finalizedMatch.Result.ID)
 	assertOpenSkillComparison(t, env, owner.ID, "badminton", "head_to_head:s2-p1", finalizedMatch.Result.ID, false)
 
@@ -365,6 +468,8 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("disputed result = %#v, want disputed status", disputedMatch.Result)
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 0)
+	assertAnalyticsProjectionCount(t, env, owner.ID, 0)
+	assertAnalyticsStatEventSourceCount(t, env, owner.ID, finalizedMatch.Result.ID, "matches_played", 0)
 	assertRatingProjectionCount(t, env, owner.ID, 0)
 	assertOpenSkillComparisonSourceCount(t, env, finalizedMatch.Result.ID, 0)
 
@@ -385,6 +490,9 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("corrected stats = %+v, want corrected loss only", stats)
 	}
 	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p1", correctedMatch.Result.ID)
+	assertAnalyticsProjectionMinCount(t, env, owner.ID, 1)
+	assertAnalyticsStatEventSourceCount(t, env, owner.ID, finalizedMatch.Result.ID, "matches_played", 0)
+	assertAnalyticsStatEventSourceCount(t, env, owner.ID, correctedMatch.Result.ID, "matches_played", 1)
 	assertOpenSkillComparison(t, env, owner.ID, "badminton", "head_to_head:s2-p1", correctedMatch.Result.ID, false)
 	assertRatingProjectionSourceCount(t, env, finalizedMatch.Result.ID, 0)
 	assertOpenSkillComparisonSourceCount(t, env, finalizedMatch.Result.ID, 0)
@@ -403,6 +511,8 @@ func TestCompetitionResultTrustLifecycleGuardsRatingConsumption(t *testing.T) {
 		t.Fatalf("voided result = %#v, want voided status", voidedMatch.Result)
 	}
 	assertCompetitionStatsCount(t, env, ownerCookie, 0)
+	assertAnalyticsProjectionCount(t, env, owner.ID, 0)
+	assertAnalyticsStatEventSourceCount(t, env, owner.ID, correctedMatch.Result.ID, "matches_played", 0)
 	assertRatingProjectionCount(t, env, owner.ID, 0)
 	assertRatingProjectionSourceCount(t, env, correctedMatch.Result.ID, 0)
 	assertOpenSkillComparisonSourceCount(t, env, correctedMatch.Result.ID, 0)
@@ -747,6 +857,157 @@ WHERE source_result_id = $1
 	if count != want {
 		t.Fatalf("rating projection source count = %d, want %d for source result %s", count, want, sourceResultID)
 	}
+}
+
+type analyticsProjectionRead struct {
+	value               float64
+	sampleSize          int
+	confidence          float64
+	projectionVersion   string
+	projectionWatermark string
+	sourceResultID      uuid.UUID
+}
+
+func readAnalyticsProjection(t *testing.T, env *authProfileServerEnv, userID uuid.UUID, sportKey string, facilityKey string, modeKey string, teamScope string, statType string) analyticsProjectionRead {
+	t.Helper()
+
+	var projection analyticsProjectionRead
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT stat_value::double precision,
+       sample_size,
+       confidence::double precision,
+       projection_version,
+       projection_watermark,
+       source_result_id
+FROM apollo.competition_analytics_projections
+WHERE user_id = $1
+  AND sport_key = $2
+  AND facility_key = $3
+  AND mode_key = $4
+  AND team_scope = $5
+  AND stat_type = $6
+`, userID, sportKey, facilityKey, modeKey, teamScope, statType).Scan(&projection.value, &projection.sampleSize, &projection.confidence, &projection.projectionVersion, &projection.projectionWatermark, &projection.sourceResultID); err != nil {
+		t.Fatalf("read analytics projection %s/%s/%s/%s/%s error = %v", sportKey, facilityKey, modeKey, teamScope, statType, err)
+	}
+
+	return projection
+}
+
+func assertAnalyticsProjectionCount(t *testing.T, env *authProfileServerEnv, userID uuid.UUID, want int) {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT count(*)
+FROM apollo.competition_analytics_projections
+WHERE user_id = $1
+`, userID).Scan(&count); err != nil {
+		t.Fatalf("count analytics projections error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("analytics projection count = %d, want %d", count, want)
+	}
+}
+
+func assertAnalyticsProjectionMinCount(t *testing.T, env *authProfileServerEnv, userID uuid.UUID, minCount int) {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT count(*)
+FROM apollo.competition_analytics_projections
+WHERE user_id = $1
+`, userID).Scan(&count); err != nil {
+		t.Fatalf("count analytics projections error = %v", err)
+	}
+	if count < minCount {
+		t.Fatalf("analytics projection count = %d, want at least %d", count, minCount)
+	}
+}
+
+func assertAnalyticsStatEventSourceCount(t *testing.T, env *authProfileServerEnv, userID uuid.UUID, sourceResultID uuid.UUID, statType string, want int) {
+	t.Helper()
+
+	var count int
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT count(*)
+FROM apollo.competition_analytics_events
+WHERE event_type = 'competition.analytics.stat_computed'
+  AND user_id = $1
+  AND source_result_id = $2
+  AND stat_type = $3
+`, userID, sourceResultID, statType).Scan(&count); err != nil {
+		t.Fatalf("count analytics stat events error = %v", err)
+	}
+	if count != want {
+		t.Fatalf("analytics stat event count for %s/%s = %d, want %d", sourceResultID, statType, count, want)
+	}
+}
+
+func assertAnalyticsProjectionRebuiltEvent(t *testing.T, env *authProfileServerEnv, sportKey string, sourceResultID uuid.UUID, sampleSize int) {
+	t.Helper()
+
+	var projectionVersion string
+	var projectionWatermark string
+	var confidence float64
+	if err := env.db.DB.QueryRow(context.Background(), `
+SELECT projection_version,
+       projection_watermark,
+       confidence::double precision
+FROM apollo.competition_analytics_events
+WHERE event_type = 'competition.analytics.projection_rebuilt'
+  AND sport_key = $1
+  AND source_result_id = $2
+  AND sample_size = $3
+ORDER BY computed_at DESC, id DESC
+LIMIT 1
+`, sportKey, sourceResultID, sampleSize).Scan(&projectionVersion, &projectionWatermark, &confidence); err != nil {
+		t.Fatalf("read analytics projection rebuilt event error = %v", err)
+	}
+	if projectionVersion != "competition_analytics_v1" {
+		t.Fatalf("projection rebuilt version = %q, want competition_analytics_v1", projectionVersion)
+	}
+	if !strings.Contains(projectionWatermark, sourceResultID.String()) {
+		t.Fatalf("projection rebuilt watermark = %q, want source result %s", projectionWatermark, sourceResultID)
+	}
+	if confidence != 0.3 {
+		t.Fatalf("projection rebuilt confidence = %.4f, want 0.3", confidence)
+	}
+}
+
+func competitionOutcomesForUser(t *testing.T, session competition.Session, userID uuid.UUID, outcome string) []string {
+	t.Helper()
+
+	var teamID uuid.UUID
+	for _, team := range session.Teams {
+		for _, member := range team.Roster {
+			if member.UserID == userID {
+				teamID = team.ID
+				break
+			}
+		}
+	}
+	if teamID == uuid.Nil {
+		t.Fatalf("user %s has no team in session %s", userID, session.ID)
+	}
+
+	opposite := "loss"
+	if outcome == "loss" {
+		opposite = "win"
+	}
+	if outcome == "draw" {
+		opposite = "draw"
+	}
+
+	outcomes := make([]string, len(session.Matches[0].SideSlots))
+	for index, sideSlot := range session.Matches[0].SideSlots {
+		if sideSlot.TeamID == teamID {
+			outcomes[index] = outcome
+		} else {
+			outcomes[index] = opposite
+		}
+	}
+	return outcomes
 }
 
 func readCompetitionStats(t *testing.T, env *authProfileServerEnv, cookie *http.Cookie) []competition.MemberStat {
