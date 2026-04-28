@@ -12,9 +12,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/eligibility"
 	"github.com/ixxet/apollo/internal/membership"
 	"github.com/ixxet/apollo/internal/profile"
+	"github.com/ixxet/apollo/internal/rating"
 	"github.com/ixxet/apollo/internal/store"
 )
 
@@ -78,6 +80,8 @@ var (
 	ErrQueueMemberNotJoined     = errors.New("competition queue member is not joined in lobby")
 	ErrQueueMemberIneligible    = errors.New("competition queue member is not eligible")
 	ErrQueueCapacityReached     = errors.New("competition session queue is full")
+	ErrQueueIntentTier          = errors.New("competition queue intent tier is invalid")
+	ErrQueueIntentNotFound      = errors.New("competition queue intent not found")
 	ErrQueueVersionRequired     = errors.New("expected_queue_version must be positive")
 	ErrQueueStateStale          = errors.New("competition session queue state is stale")
 	ErrQueueNotReady            = errors.New("competition session queue is not ready for assignment")
@@ -113,8 +117,11 @@ type Store interface {
 	GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*sessionRecord, error)
 	CreateSession(ctx context.Context, actor StaffActor, input CreateSessionInput, createdAt time.Time) (sessionRecord, error)
 	OpenQueue(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error)
-	AddQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, joinedAt time.Time) error
+	AddQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, input QueueMemberInput, joinedAt time.Time) error
 	RemoveQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, updatedAt time.Time) error
+	UpdateQueueIntent(ctx context.Context, actor StaffActor, session sessionRecord, input UpdateQueueIntentInput, updatedAt time.Time) (sessionRecord, queueIntentRecord, error)
+	ListMatchPreviewCandidatesBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchPreviewCandidateRecord, error)
+	RecordMatchPreview(ctx context.Context, actor StaffActor, session sessionRecord, preview ares.CompetitionMatchPreview, occurredAt time.Time) error
 	AssignQueue(ctx context.Context, actor StaffActor, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error)
 	StartSession(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error)
 	ArchiveSession(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error)
@@ -316,6 +323,17 @@ type MatchSideInput struct {
 
 type QueueMemberInput struct {
 	UserID uuid.UUID `json:"user_id"`
+	Tier   string    `json:"tier,omitempty"`
+}
+
+type UpdateQueueIntentInput struct {
+	UserID               uuid.UUID `json:"user_id"`
+	Tier                 string    `json:"tier"`
+	ExpectedQueueVersion int       `json:"expected_queue_version"`
+}
+
+type MatchPreviewInput struct {
+	ExpectedQueueVersion int `json:"expected_queue_version"`
 }
 
 type AssignSessionInput struct {
@@ -353,6 +371,38 @@ type queueRecord struct {
 	Preferences           []byte
 	LobbyMembershipStatus string
 	JoinedAt              time.Time
+}
+
+type queueIntentRecord struct {
+	ID          uuid.UUID
+	SessionID   uuid.UUID
+	UserID      uuid.UUID
+	FacilityKey string
+	SportKey    string
+	ModeKey     string
+	Tier        string
+	Status      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type matchPreviewCandidateRecord struct {
+	QueueIntentID        uuid.UUID
+	SessionID            uuid.UUID
+	UserID               uuid.UUID
+	DisplayName          string
+	Preferences          []byte
+	JoinedAt             time.Time
+	FacilityKey          string
+	SportKey             string
+	ModeKey              string
+	Tier                 string
+	QueueIntentUpdatedAt time.Time
+	RatingMu             float64
+	RatingSigma          float64
+	RatingMatchesPlayed  int
+	RatingUpdatedAt      *time.Time
+	RatingFound          bool
 }
 
 type teamRecord struct {
@@ -601,7 +651,13 @@ func (s *Service) AddQueueMember(ctx context.Context, actor StaffActor, sessionI
 		return Session{}, err
 	}
 
-	if err := s.repository.AddQueueMember(ctx, actor, *session, input.UserID, s.now().UTC()); err != nil {
+	tier, err := normalizeQueueTier(input.Tier)
+	if err != nil {
+		return Session{}, err
+	}
+	input.Tier = tier
+
+	if err := s.repository.AddQueueMember(ctx, actor, *session, *sport, input, s.now().UTC()); err != nil {
 		switch {
 		case isUniqueConstraint(err, competitionSessionQueueMembersPrimaryKey), isUniqueViolation(err):
 			return Session{}, ErrQueueMemberAlreadyJoined
@@ -656,6 +712,127 @@ func (s *Service) RemoveQueueMember(ctx context.Context, actor StaffActor, sessi
 	}
 
 	return s.loadSessionDetail(ctx, *refreshed)
+}
+
+func (s *Service) UpdateQueueIntent(ctx context.Context, actor StaffActor, sessionID uuid.UUID, input UpdateQueueIntentInput) (Session, error) {
+	if input.ExpectedQueueVersion <= 0 {
+		return Session{}, ErrQueueVersionRequired
+	}
+	if input.UserID == uuid.Nil {
+		return Session{}, ErrUserNotFound
+	}
+	tier, err := normalizeQueueTier(input.Tier)
+	if err != nil {
+		return Session{}, err
+	}
+	input.Tier = tier
+
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if session == nil {
+		return Session{}, ErrSessionNotFound
+	}
+	if session.Status == SessionStatusArchived {
+		return Session{}, ErrSessionArchived
+	}
+	if session.Status != SessionStatusQueueOpen {
+		return Session{}, ErrQueueClosed
+	}
+	if session.QueueVersion != input.ExpectedQueueVersion {
+		return Session{}, ErrQueueStateStale
+	}
+
+	queueMembers, err := s.repository.ListQueueMembersBySessionID(ctx, session.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	found := false
+	for _, member := range queueMembers {
+		if member.UserID == input.UserID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return Session{}, ErrQueueMemberNotFound
+	}
+
+	updated, _, err := s.repository.UpdateQueueIntent(ctx, actor, *session, input, s.now().UTC())
+	if err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return Session{}, ErrQueueIntentNotFound
+		default:
+			return Session{}, err
+		}
+	}
+	return s.loadSessionDetail(ctx, updated)
+}
+
+func (s *Service) GenerateMatchPreview(ctx context.Context, actor StaffActor, sessionID uuid.UUID, input MatchPreviewInput) (ares.CompetitionMatchPreview, error) {
+	if input.ExpectedQueueVersion <= 0 {
+		return ares.CompetitionMatchPreview{}, ErrQueueVersionRequired
+	}
+
+	session, err := s.repository.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return ares.CompetitionMatchPreview{}, err
+	}
+	if session == nil {
+		return ares.CompetitionMatchPreview{}, ErrSessionNotFound
+	}
+	if session.Status == SessionStatusArchived {
+		return ares.CompetitionMatchPreview{}, ErrSessionArchived
+	}
+	if session.Status != SessionStatusQueueOpen {
+		return ares.CompetitionMatchPreview{}, ErrInvalidSessionTransition
+	}
+	if session.QueueVersion != input.ExpectedQueueVersion {
+		return ares.CompetitionMatchPreview{}, ErrQueueStateStale
+	}
+
+	sport, err := s.repository.GetSportConfig(ctx, session.SportKey)
+	if err != nil {
+		return ares.CompetitionMatchPreview{}, err
+	}
+	if sport == nil {
+		return ares.CompetitionMatchPreview{}, ErrSportNotFound
+	}
+
+	candidates, err := s.repository.ListMatchPreviewCandidatesBySessionID(ctx, session.ID)
+	if err != nil {
+		return ares.CompetitionMatchPreview{}, err
+	}
+	if len(candidates) != requiredQueueCapacity(*sport, *session) {
+		return ares.CompetitionMatchPreview{}, ErrQueueNotReady
+	}
+
+	modeKey := buildModeKey(sport.CompetitionMode, sport.SidesPerMatch, session.ParticipantsPerSide)
+	previewCandidates := make([]ares.CompetitionPreviewCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if err := validateMatchPreviewCandidate(candidate, *session, modeKey); err != nil {
+			return ares.CompetitionMatchPreview{}, err
+		}
+		previewCandidates = append(previewCandidates, buildAresPreviewCandidate(candidate))
+	}
+
+	preview := ares.BuildCompetitionMatchPreview(ares.CompetitionPreviewInput{
+		SessionID:           session.ID,
+		QueueVersion:        session.QueueVersion,
+		FacilityKey:         session.FacilityKey,
+		SportKey:            session.SportKey,
+		ModeKey:             modeKey,
+		SidesPerMatch:       sport.SidesPerMatch,
+		ParticipantsPerSide: session.ParticipantsPerSide,
+		Candidates:          previewCandidates,
+	})
+
+	if err := s.repository.RecordMatchPreview(ctx, actor, *session, preview, s.now().UTC()); err != nil {
+		return ares.CompetitionMatchPreview{}, err
+	}
+	return preview, nil
 }
 
 func (s *Service) AssignQueue(ctx context.Context, actor StaffActor, sessionID uuid.UUID, input AssignSessionInput) (Session, error) {
@@ -1229,6 +1406,81 @@ func validateQueueRecord(queueMember queueRecord) error {
 	}
 
 	return nil
+}
+
+func validateMatchPreviewCandidate(candidate matchPreviewCandidateRecord, session sessionRecord, modeKey string) error {
+	if candidate.FacilityKey != session.FacilityKey || candidate.SportKey != session.SportKey || candidate.ModeKey != modeKey {
+		return ErrQueueIntentNotFound
+	}
+
+	lobbyEligibility := eligibility.FromPreferenceModes(profile.ReadPreferenceModes(candidate.Preferences))
+	if !lobbyEligibility.Eligible {
+		return ErrQueueMemberIneligible
+	}
+
+	if _, err := normalizeQueueTier(candidate.Tier); err != nil {
+		return err
+	}
+	return nil
+}
+
+func buildAresPreviewCandidate(candidate matchPreviewCandidateRecord) ares.CompetitionPreviewCandidate {
+	ratingMu := candidate.RatingMu
+	ratingSigma := candidate.RatingSigma
+	ratingMatchesPlayed := candidate.RatingMatchesPlayed
+	ratingSource := ares.RatingSourceLegacyProjection
+	watermark := candidate.QueueIntentUpdatedAt
+	if candidate.RatingUpdatedAt != nil && candidate.RatingUpdatedAt.After(watermark) {
+		watermark = *candidate.RatingUpdatedAt
+	}
+	if !candidate.RatingFound {
+		ratingMu = rating.InitialMu
+		ratingSigma = rating.InitialSigma
+		ratingMatchesPlayed = 0
+		ratingSource = ares.RatingSourceInitialRating
+	}
+	if candidate.JoinedAt.After(watermark) {
+		watermark = candidate.JoinedAt
+	}
+
+	return ares.CompetitionPreviewCandidate{
+		QueueIntentID:       candidate.QueueIntentID,
+		UserID:              candidate.UserID,
+		DisplayName:         candidate.DisplayName,
+		Tier:                candidate.Tier,
+		RatingMu:            ratingMu,
+		RatingSigma:         ratingSigma,
+		RatingMatchesPlayed: ratingMatchesPlayed,
+		RatingSource:        ratingSource,
+		JoinedAt:            candidate.JoinedAt,
+		InputWatermark:      watermark.UTC(),
+	}
+}
+
+func normalizeQueueTier(value string) (string, error) {
+	tier := strings.TrimSpace(value)
+	if tier == "" {
+		return "open", nil
+	}
+	if len(tier) > 64 {
+		return "", ErrQueueIntentTier
+	}
+	for _, char := range tier {
+		if char >= 'a' && char <= 'z' {
+			continue
+		}
+		if char >= 'A' && char <= 'Z' {
+			continue
+		}
+		if char >= '0' && char <= '9' {
+			continue
+		}
+		if char == '_' || char == '-' || char == ':' || char == '.' {
+			continue
+		}
+		return "", ErrQueueIntentTier
+	}
+	return strings.ToLower(tier), nil
 }
 
 func requiredQueueCapacity(sport SportConfig, session sessionRecord) int {

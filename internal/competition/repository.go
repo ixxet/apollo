@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/store"
 )
 
@@ -247,13 +248,30 @@ func (r *Repository) UpdateSessionStatus(ctx context.Context, sessionID uuid.UUI
 	), nil
 }
 
-func (r *Repository) AddQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, joinedAt time.Time) error {
+func (r *Repository) AddQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, input QueueMemberInput, joinedAt time.Time) error {
 	_, err := withQueriesTx(ctx, r.db, func(queries *store.Queries) (struct{}, error) {
 		if _, err := queries.CreateCompetitionSessionQueueMember(ctx, store.CreateCompetitionSessionQueueMemberParams{
 			CompetitionSessionID: session.ID,
-			UserID:               userID,
+			UserID:               input.UserID,
 			JoinedAt:             timestamptz(joinedAt),
 		}); err != nil {
+			return struct{}{}, err
+		}
+
+		intent, err := queries.UpsertCompetitionQueueIntent(ctx, store.UpsertCompetitionQueueIntentParams{
+			CompetitionSessionID: session.ID,
+			UserID:               input.UserID,
+			FacilityKey:          session.FacilityKey,
+			SportKey:             session.SportKey,
+			ModeKey:              buildModeKey(sport.CompetitionMode, sport.SidesPerMatch, session.ParticipantsPerSide),
+			Tier:                 input.Tier,
+			Status:               "active",
+			UpdatedAt:            timestamptz(joinedAt),
+		})
+		if err != nil {
+			return struct{}{}, err
+		}
+		if err := recordQueueIntentEventTx(ctx, queries, actor, buildQueueIntentRecord(intent), joinedAt); err != nil {
 			return struct{}{}, err
 		}
 
@@ -267,7 +285,7 @@ func (r *Repository) AddQueueMember(ctx context.Context, actor StaffActor, sessi
 
 		attribution := newStaffActionAttribution(actor, "competition_session.queue_member_add", joinedAt)
 		attribution.CompetitionSessionID = uuidPtr(session.ID)
-		attribution.SubjectUserID = uuidPtr(userID)
+		attribution.SubjectUserID = uuidPtr(input.UserID)
 		return struct{}{}, recordStaffActionAttributionTx(ctx, queries, attribution)
 	})
 	return err
@@ -286,6 +304,21 @@ func (r *Repository) RemoveQueueMember(ctx context.Context, actor StaffActor, se
 			return struct{}{}, pgx.ErrNoRows
 		}
 
+		intent, err := queries.UpdateCompetitionQueueIntentStatus(ctx, store.UpdateCompetitionQueueIntentStatusParams{
+			CompetitionSessionID: session.ID,
+			UserID:               userID,
+			Status:               "withdrawn",
+			UpdatedAt:            timestamptz(updatedAt),
+		})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return struct{}{}, err
+		}
+		if err == nil {
+			if err := recordQueueIntentEventTx(ctx, queries, actor, buildQueueIntentRecord(intent), updatedAt); err != nil {
+				return struct{}{}, err
+			}
+		}
+
 		if _, err := queries.BumpCompetitionSessionQueueVersion(ctx, store.BumpCompetitionSessionQueueVersionParams{
 			ID:          session.ID,
 			OwnerUserID: session.OwnerUserID,
@@ -298,6 +331,223 @@ func (r *Repository) RemoveQueueMember(ctx context.Context, actor StaffActor, se
 		attribution.CompetitionSessionID = uuidPtr(session.ID)
 		attribution.SubjectUserID = uuidPtr(userID)
 		return struct{}{}, recordStaffActionAttributionTx(ctx, queries, attribution)
+	})
+	return err
+}
+
+func (r *Repository) UpdateQueueIntent(ctx context.Context, actor StaffActor, session sessionRecord, input UpdateQueueIntentInput, updatedAt time.Time) (sessionRecord, queueIntentRecord, error) {
+	value, err := withQueriesTx(ctx, r.db, func(queries *store.Queries) (struct {
+		session sessionRecord
+		intent  queueIntentRecord
+	}, error) {
+		intentRow, err := queries.UpdateCompetitionQueueIntentTier(ctx, store.UpdateCompetitionQueueIntentTierParams{
+			CompetitionSessionID: session.ID,
+			UserID:               input.UserID,
+			Tier:                 input.Tier,
+			UpdatedAt:            timestamptz(updatedAt),
+		})
+		if err != nil {
+			return struct {
+				session sessionRecord
+				intent  queueIntentRecord
+			}{}, err
+		}
+		intent := buildQueueIntentRecord(intentRow)
+		if err := recordQueueIntentEventTx(ctx, queries, actor, intent, updatedAt); err != nil {
+			return struct {
+				session sessionRecord
+				intent  queueIntentRecord
+			}{}, err
+		}
+
+		row, err := queries.BumpCompetitionSessionQueueVersion(ctx, store.BumpCompetitionSessionQueueVersionParams{
+			ID:          session.ID,
+			OwnerUserID: session.OwnerUserID,
+			UpdatedAt:   timestamptz(updatedAt),
+		})
+		if err != nil {
+			return struct {
+				session sessionRecord
+				intent  queueIntentRecord
+			}{}, err
+		}
+		updated := buildSessionRecordValues(
+			row.ID,
+			row.OwnerUserID,
+			row.DisplayName,
+			row.SportKey,
+			row.FacilityKey,
+			row.ZoneKey,
+			row.ParticipantsPerSide,
+			row.QueueVersion,
+			row.Status,
+			row.CreatedAt,
+			row.UpdatedAt,
+			row.ArchivedAt,
+		)
+
+		attribution := newStaffActionAttribution(actor, "competition_queue_intent.update", updatedAt)
+		attribution.CompetitionSessionID = uuidPtr(session.ID)
+		attribution.SubjectUserID = uuidPtr(input.UserID)
+		if err := recordStaffActionAttributionTx(ctx, queries, attribution); err != nil {
+			return struct {
+				session sessionRecord
+				intent  queueIntentRecord
+			}{}, err
+		}
+
+		return struct {
+			session sessionRecord
+			intent  queueIntentRecord
+		}{session: updated, intent: intent}, nil
+	})
+	if err != nil {
+		return sessionRecord{}, queueIntentRecord{}, err
+	}
+	return value.session, value.intent, nil
+}
+
+func (r *Repository) ListMatchPreviewCandidatesBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchPreviewCandidateRecord, error) {
+	rows, err := store.New(r.db).ListCompetitionMatchPreviewCandidatesBySessionID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]matchPreviewCandidateRecord, 0, len(rows))
+	for _, row := range rows {
+		ratingMu, ratingMuErr := float64FromNumeric(row.Mu)
+		if ratingMuErr != nil {
+			return nil, ratingMuErr
+		}
+		ratingSigma, ratingSigmaErr := float64FromNumeric(row.Sigma)
+		if ratingSigmaErr != nil {
+			return nil, ratingSigmaErr
+		}
+		var ratingUpdatedAt *time.Time
+		if row.RatingUpdatedAt.Valid {
+			updatedAt := row.RatingUpdatedAt.Time.UTC()
+			ratingUpdatedAt = &updatedAt
+		}
+		ratingFound := row.Mu.Valid && row.Sigma.Valid
+		matchesPlayed := 0
+		if row.MatchesPlayed != nil {
+			matchesPlayed = int(*row.MatchesPlayed)
+		}
+
+		candidates = append(candidates, matchPreviewCandidateRecord{
+			QueueIntentID:        row.CompetitionQueueIntentID,
+			SessionID:            row.CompetitionSessionID,
+			UserID:               row.UserID,
+			DisplayName:          row.DisplayName,
+			Preferences:          row.Preferences,
+			JoinedAt:             row.JoinedAt.Time.UTC(),
+			FacilityKey:          row.FacilityKey,
+			SportKey:             row.SportKey,
+			ModeKey:              row.ModeKey,
+			Tier:                 row.Tier,
+			QueueIntentUpdatedAt: row.QueueIntentUpdatedAt.Time.UTC(),
+			RatingMu:             ratingMu,
+			RatingSigma:          ratingSigma,
+			RatingMatchesPlayed:  matchesPlayed,
+			RatingUpdatedAt:      ratingUpdatedAt,
+			RatingFound:          ratingFound,
+		})
+	}
+
+	return candidates, nil
+}
+
+func (r *Repository) RecordMatchPreview(ctx context.Context, actor StaffActor, session sessionRecord, preview ares.CompetitionMatchPreview, occurredAt time.Time) error {
+	_, err := withQueriesTx(ctx, r.db, func(queries *store.Queries) (struct{}, error) {
+		matchQuality, err := numericFromFloat64(preview.MatchQuality)
+		if err != nil {
+			return struct{}{}, err
+		}
+		winProbability, err := numericFromFloat64(preview.PredictedWinProbability)
+		if err != nil {
+			return struct{}{}, err
+		}
+		row, err := queries.UpsertCompetitionMatchPreview(ctx, store.UpsertCompetitionMatchPreviewParams{
+			CompetitionSessionID:    session.ID,
+			QueueVersion:            int32(preview.QueueVersion),
+			ProposalIndex:           int32(preview.ProposalIndex),
+			PreviewVersion:          preview.PreviewVersion,
+			PolicyVersion:           preview.PolicyVersion,
+			RatingEngine:            preview.RatingEngine,
+			RatingPolicyVersion:     preview.RatingPolicyVersion,
+			FacilityKey:             preview.FacilityKey,
+			SportKey:                preview.SportKey,
+			ModeKey:                 preview.ModeKey,
+			Tier:                    preview.Tier,
+			MatchQuality:            matchQuality,
+			PredictedWinProbability: winProbability,
+			ExplanationCode:         preview.ExplanationCode,
+			GeneratedAt:             timestamptz(preview.GeneratedAt),
+			UpdatedAt:               timestamptz(occurredAt),
+		})
+		if err != nil {
+			return struct{}{}, err
+		}
+		if _, err := queries.DeleteCompetitionMatchPreviewMembersByPreviewID(ctx, row.ID); err != nil {
+			return struct{}{}, err
+		}
+		for _, side := range preview.Sides {
+			for slotIndex, member := range side.Members {
+				ratingMu, err := numericFromFloat64(member.RatingMu)
+				if err != nil {
+					return struct{}{}, err
+				}
+				ratingSigma, err := numericFromFloat64(member.RatingSigma)
+				if err != nil {
+					return struct{}{}, err
+				}
+				if _, err := queries.CreateCompetitionMatchPreviewMember(ctx, store.CreateCompetitionMatchPreviewMemberParams{
+					CompetitionMatchPreviewID: row.ID,
+					SideIndex:                 int32(side.SideIndex),
+					SlotIndex:                 int32(slotIndex + 1),
+					CompetitionQueueIntentID:  member.QueueIntentID,
+					UserID:                    member.UserID,
+					RatingMu:                  ratingMu,
+					RatingSigma:               ratingSigma,
+					RatingMatchesPlayed:       int32(member.RatingMatchesPlayed),
+					RatingSource:              member.RatingSource,
+					Tier:                      member.Tier,
+				}); err != nil {
+					return struct{}{}, err
+				}
+			}
+		}
+
+		actorRole := string(actor.Role)
+		capability := string(actor.Capability)
+		_, err = queries.UpsertCompetitionMatchPreviewGeneratedEvent(ctx, store.UpsertCompetitionMatchPreviewGeneratedEventParams{
+			CompetitionMatchPreviewID: row.ID,
+			CompetitionSessionID:      session.ID,
+			QueueVersion:              int32(preview.QueueVersion),
+			PreviewVersion:            preview.PreviewVersion,
+			PolicyVersion:             preview.PolicyVersion,
+			RatingEngine:              preview.RatingEngine,
+			RatingPolicyVersion:       preview.RatingPolicyVersion,
+			FacilityKey:               preview.FacilityKey,
+			SportKey:                  preview.SportKey,
+			ModeKey:                   preview.ModeKey,
+			Tier:                      preview.Tier,
+			MatchQuality:              matchQuality,
+			PredictedWinProbability:   winProbability,
+			ExplanationCode:           preview.ExplanationCode,
+			ActorUserID:               optionalUUID(&actor.UserID),
+			ActorRole:                 optionalText(actorRole),
+			ActorSessionID:            optionalUUID(&actor.SessionID),
+			Capability:                optionalText(capability),
+			TrustedSurfaceKey:         optionalText(actor.TrustedSurfaceKey),
+			TrustedSurfaceLabel:       optionalText(actor.TrustedSurfaceLabel),
+			OccurredAt:                timestamptz(occurredAt),
+		})
+		if err != nil {
+			return struct{}{}, err
+		}
+
+		return struct{}{}, nil
 	})
 	return err
 }
@@ -868,6 +1118,21 @@ func buildSessionRecordValues(id uuid.UUID, ownerUserID uuid.UUID, displayName s
 	}
 }
 
+func buildQueueIntentRecord(row store.ApolloCompetitionQueueIntent) queueIntentRecord {
+	return queueIntentRecord{
+		ID:          row.ID,
+		SessionID:   row.CompetitionSessionID,
+		UserID:      row.UserID,
+		FacilityKey: row.FacilityKey,
+		SportKey:    row.SportKey,
+		ModeKey:     row.ModeKey,
+		Tier:        row.Tier,
+		Status:      row.Status,
+		CreatedAt:   row.CreatedAt.Time.UTC(),
+		UpdatedAt:   row.UpdatedAt.Time.UTC(),
+	}
+}
+
 func buildTeamRecord(row store.ApolloCompetitionSessionTeam) teamRecord {
 	return teamRecord{
 		ID:        row.ID,
@@ -875,6 +1140,29 @@ func buildTeamRecord(row store.ApolloCompetitionSessionTeam) teamRecord {
 		SideIndex: int(row.SideIndex),
 		CreatedAt: row.CreatedAt.Time.UTC(),
 	}
+}
+
+func recordQueueIntentEventTx(ctx context.Context, queries *store.Queries, actor StaffActor, intent queueIntentRecord, occurredAt time.Time) error {
+	actorRole := string(actor.Role)
+	capability := string(actor.Capability)
+	_, err := queries.CreateCompetitionQueueIntentEvent(ctx, store.CreateCompetitionQueueIntentEventParams{
+		CompetitionQueueIntentID: intent.ID,
+		CompetitionSessionID:     intent.SessionID,
+		UserID:                   intent.UserID,
+		FacilityKey:              intent.FacilityKey,
+		SportKey:                 intent.SportKey,
+		ModeKey:                  intent.ModeKey,
+		Tier:                     intent.Tier,
+		Status:                   intent.Status,
+		ActorUserID:              optionalUUID(&actor.UserID),
+		ActorRole:                optionalText(actorRole),
+		ActorSessionID:           optionalUUID(&actor.SessionID),
+		Capability:               optionalText(capability),
+		TrustedSurfaceKey:        optionalText(actor.TrustedSurfaceKey),
+		TrustedSurfaceLabel:      optionalText(actor.TrustedSurfaceLabel),
+		OccurredAt:               timestamptz(occurredAt),
+	})
+	return err
 }
 
 func buildMatchRecordValues(id uuid.UUID, sessionID uuid.UUID, matchIndex int32, status string, resultVersion int32, canonicalResultID pgtype.UUID, createdAt pgtype.Timestamptz, updatedAt pgtype.Timestamptz, archivedAt pgtype.Timestamptz) matchRecord {

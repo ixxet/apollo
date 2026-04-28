@@ -210,6 +210,129 @@ RETURNING competition_session_id,
           user_id,
           joined_at;
 
+-- name: UpsertCompetitionQueueIntent :one
+INSERT INTO apollo.competition_queue_intents (
+  competition_session_id,
+  user_id,
+  facility_key,
+  sport_key,
+  mode_key,
+  tier,
+  status,
+  updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (competition_session_id, user_id)
+DO UPDATE SET
+  facility_key = EXCLUDED.facility_key,
+  sport_key = EXCLUDED.sport_key,
+  mode_key = EXCLUDED.mode_key,
+  tier = EXCLUDED.tier,
+  status = EXCLUDED.status,
+  updated_at = EXCLUDED.updated_at
+RETURNING id,
+          competition_session_id,
+          user_id,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          status,
+          created_at,
+          updated_at;
+
+-- name: UpdateCompetitionQueueIntentTier :one
+UPDATE apollo.competition_queue_intents
+SET tier = $3,
+    status = 'active',
+    updated_at = $4
+WHERE competition_session_id = $1
+  AND user_id = $2
+  AND status = 'active'
+RETURNING id,
+          competition_session_id,
+          user_id,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          status,
+          created_at,
+          updated_at;
+
+-- name: UpdateCompetitionQueueIntentStatus :one
+UPDATE apollo.competition_queue_intents
+SET status = $3,
+    updated_at = $4
+WHERE competition_session_id = $1
+  AND user_id = $2
+RETURNING id,
+          competition_session_id,
+          user_id,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          status,
+          created_at,
+          updated_at;
+
+-- name: CreateCompetitionQueueIntentEvent :one
+INSERT INTO apollo.competition_queue_intent_events (
+  competition_queue_intent_id,
+  competition_session_id,
+  user_id,
+  event_type,
+  facility_key,
+  sport_key,
+  mode_key,
+  tier,
+  status,
+  actor_user_id,
+  actor_role,
+  actor_session_id,
+  capability,
+  trusted_surface_key,
+  trusted_surface_label,
+  occurred_at
+)
+VALUES (
+  $1,
+  $2,
+  $3,
+  'competition.queue_intent.updated',
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  $15
+)
+RETURNING id,
+          competition_queue_intent_id,
+          competition_session_id,
+          user_id,
+          event_type,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          status,
+          actor_user_id,
+          actor_role,
+          actor_session_id,
+          capability,
+          trusted_surface_key,
+          trusted_surface_label,
+          occurred_at,
+          created_at;
+
 -- name: DeleteCompetitionSessionQueueMember :execrows
 DELETE FROM apollo.competition_session_queue_members
 WHERE competition_session_id = $1
@@ -218,6 +341,218 @@ WHERE competition_session_id = $1
 -- name: DeleteCompetitionSessionQueueMembersBySessionID :execrows
 DELETE FROM apollo.competition_session_queue_members
 WHERE competition_session_id = $1;
+
+-- name: ListCompetitionMatchPreviewCandidatesBySessionID :many
+SELECT qi.id AS competition_queue_intent_id,
+       q.competition_session_id,
+       q.user_id,
+       u.display_name,
+       u.preferences,
+       q.joined_at,
+       qi.facility_key,
+       qi.sport_key,
+       qi.mode_key,
+       qi.tier,
+       qi.updated_at AS queue_intent_updated_at,
+       r.mu,
+       r.sigma,
+       r.matches_played,
+       r.updated_at AS rating_updated_at
+FROM apollo.competition_session_queue_members AS q
+INNER JOIN apollo.users AS u
+  ON u.id = q.user_id
+INNER JOIN apollo.competition_queue_intents AS qi
+  ON qi.competition_session_id = q.competition_session_id
+ AND qi.user_id = q.user_id
+ AND qi.status = 'active'
+LEFT JOIN apollo.competition_member_ratings AS r
+  ON r.user_id = q.user_id
+ AND r.sport_key = qi.sport_key
+ AND r.mode_key = qi.mode_key
+WHERE q.competition_session_id = $1
+ORDER BY q.joined_at ASC, q.user_id ASC;
+
+-- name: UpsertCompetitionMatchPreview :one
+INSERT INTO apollo.competition_match_previews (
+  competition_session_id,
+  queue_version,
+  proposal_index,
+  preview_version,
+  policy_version,
+  rating_engine,
+  rating_policy_version,
+  facility_key,
+  sport_key,
+  mode_key,
+  tier,
+  match_quality,
+  predicted_win_probability,
+  explanation_code,
+  generated_at,
+  updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+ON CONFLICT (
+  competition_session_id,
+  queue_version,
+  proposal_index,
+  preview_version,
+  policy_version
+)
+DO UPDATE SET
+  rating_engine = EXCLUDED.rating_engine,
+  rating_policy_version = EXCLUDED.rating_policy_version,
+  facility_key = EXCLUDED.facility_key,
+  sport_key = EXCLUDED.sport_key,
+  mode_key = EXCLUDED.mode_key,
+  tier = EXCLUDED.tier,
+  match_quality = EXCLUDED.match_quality,
+  predicted_win_probability = EXCLUDED.predicted_win_probability,
+  explanation_code = EXCLUDED.explanation_code,
+  generated_at = EXCLUDED.generated_at,
+  updated_at = EXCLUDED.updated_at
+RETURNING id,
+          competition_session_id,
+          queue_version,
+          proposal_index,
+          preview_version,
+          policy_version,
+          rating_engine,
+          rating_policy_version,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          match_quality,
+          predicted_win_probability,
+          explanation_code,
+          generated_at,
+          created_at,
+          updated_at;
+
+-- name: DeleteCompetitionMatchPreviewMembersByPreviewID :execrows
+DELETE FROM apollo.competition_match_preview_members
+WHERE competition_match_preview_id = $1;
+
+-- name: CreateCompetitionMatchPreviewMember :one
+INSERT INTO apollo.competition_match_preview_members (
+  competition_match_preview_id,
+  side_index,
+  slot_index,
+  competition_queue_intent_id,
+  user_id,
+  rating_mu,
+  rating_sigma,
+  rating_matches_played,
+  rating_source,
+  tier
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING competition_match_preview_id,
+          side_index,
+          slot_index,
+          competition_queue_intent_id,
+          user_id,
+          rating_mu,
+          rating_sigma,
+          rating_matches_played,
+          rating_source,
+          tier;
+
+-- name: UpsertCompetitionMatchPreviewGeneratedEvent :one
+INSERT INTO apollo.competition_match_preview_events (
+  competition_match_preview_id,
+  competition_session_id,
+  event_type,
+  queue_version,
+  preview_version,
+  policy_version,
+  rating_engine,
+  rating_policy_version,
+  facility_key,
+  sport_key,
+  mode_key,
+  tier,
+  match_quality,
+  predicted_win_probability,
+  explanation_code,
+  actor_user_id,
+  actor_role,
+  actor_session_id,
+  capability,
+  trusted_surface_key,
+  trusted_surface_label,
+  occurred_at
+)
+VALUES (
+  $1,
+  $2,
+  'competition.match_preview.generated',
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  $15,
+  $16,
+  $17,
+  $18,
+  $19,
+  $20,
+  $21
+)
+ON CONFLICT (competition_match_preview_id, event_type)
+DO UPDATE SET
+  queue_version = EXCLUDED.queue_version,
+  preview_version = EXCLUDED.preview_version,
+  policy_version = EXCLUDED.policy_version,
+  rating_engine = EXCLUDED.rating_engine,
+  rating_policy_version = EXCLUDED.rating_policy_version,
+  facility_key = EXCLUDED.facility_key,
+  sport_key = EXCLUDED.sport_key,
+  mode_key = EXCLUDED.mode_key,
+  tier = EXCLUDED.tier,
+  match_quality = EXCLUDED.match_quality,
+  predicted_win_probability = EXCLUDED.predicted_win_probability,
+  explanation_code = EXCLUDED.explanation_code,
+  actor_user_id = EXCLUDED.actor_user_id,
+  actor_role = EXCLUDED.actor_role,
+  actor_session_id = EXCLUDED.actor_session_id,
+  capability = EXCLUDED.capability,
+  trusted_surface_key = EXCLUDED.trusted_surface_key,
+  trusted_surface_label = EXCLUDED.trusted_surface_label,
+  occurred_at = EXCLUDED.occurred_at
+RETURNING id,
+          competition_match_preview_id,
+          competition_session_id,
+          event_type,
+          queue_version,
+          preview_version,
+          policy_version,
+          rating_engine,
+          rating_policy_version,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          match_quality,
+          predicted_win_probability,
+          explanation_code,
+          actor_user_id,
+          actor_role,
+          actor_session_id,
+          capability,
+          trusted_surface_key,
+          trusted_surface_label,
+          occurred_at,
+          created_at;
 
 -- name: ListCompetitionSessionTeamsBySessionID :many
 SELECT id,

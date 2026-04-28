@@ -211,6 +211,10 @@ func logisticExpectation(leftMu float64, rightMu float64) float64 {
 	return 1.0 / (1.0 + math.Exp((rightMu-leftMu)/scale))
 }
 
+func LegacyExpectedWinProbability(leftMu float64, rightMu float64) float64 {
+	return logisticExpectation(leftMu, rightMu)
+}
+
 func compareUUID(left uuid.UUID, right uuid.UUID) int {
 	return slices.Compare(left[:], right[:])
 }

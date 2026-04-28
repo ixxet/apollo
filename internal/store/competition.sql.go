@@ -326,6 +326,74 @@ func (q *Queries) CreateCompetitionMatch(ctx context.Context, arg CreateCompetit
 	return i, err
 }
 
+const createCompetitionMatchPreviewMember = `-- name: CreateCompetitionMatchPreviewMember :one
+INSERT INTO apollo.competition_match_preview_members (
+  competition_match_preview_id,
+  side_index,
+  slot_index,
+  competition_queue_intent_id,
+  user_id,
+  rating_mu,
+  rating_sigma,
+  rating_matches_played,
+  rating_source,
+  tier
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING competition_match_preview_id,
+          side_index,
+          slot_index,
+          competition_queue_intent_id,
+          user_id,
+          rating_mu,
+          rating_sigma,
+          rating_matches_played,
+          rating_source,
+          tier
+`
+
+type CreateCompetitionMatchPreviewMemberParams struct {
+	CompetitionMatchPreviewID uuid.UUID
+	SideIndex                 int32
+	SlotIndex                 int32
+	CompetitionQueueIntentID  uuid.UUID
+	UserID                    uuid.UUID
+	RatingMu                  pgtype.Numeric
+	RatingSigma               pgtype.Numeric
+	RatingMatchesPlayed       int32
+	RatingSource              string
+	Tier                      string
+}
+
+func (q *Queries) CreateCompetitionMatchPreviewMember(ctx context.Context, arg CreateCompetitionMatchPreviewMemberParams) (ApolloCompetitionMatchPreviewMember, error) {
+	row := q.db.QueryRow(ctx, createCompetitionMatchPreviewMember,
+		arg.CompetitionMatchPreviewID,
+		arg.SideIndex,
+		arg.SlotIndex,
+		arg.CompetitionQueueIntentID,
+		arg.UserID,
+		arg.RatingMu,
+		arg.RatingSigma,
+		arg.RatingMatchesPlayed,
+		arg.RatingSource,
+		arg.Tier,
+	)
+	var i ApolloCompetitionMatchPreviewMember
+	err := row.Scan(
+		&i.CompetitionMatchPreviewID,
+		&i.SideIndex,
+		&i.SlotIndex,
+		&i.CompetitionQueueIntentID,
+		&i.UserID,
+		&i.RatingMu,
+		&i.RatingSigma,
+		&i.RatingMatchesPlayed,
+		&i.RatingSource,
+		&i.Tier,
+	)
+	return i, err
+}
+
 const createCompetitionMatchSideSlot = `-- name: CreateCompetitionMatchSideSlot :one
 INSERT INTO apollo.competition_match_side_slots (
   competition_match_id,
@@ -352,6 +420,123 @@ func (q *Queries) CreateCompetitionMatchSideSlot(ctx context.Context, arg Create
 		&i.CompetitionMatchID,
 		&i.CompetitionSessionTeamID,
 		&i.SideIndex,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createCompetitionQueueIntentEvent = `-- name: CreateCompetitionQueueIntentEvent :one
+INSERT INTO apollo.competition_queue_intent_events (
+  competition_queue_intent_id,
+  competition_session_id,
+  user_id,
+  event_type,
+  facility_key,
+  sport_key,
+  mode_key,
+  tier,
+  status,
+  actor_user_id,
+  actor_role,
+  actor_session_id,
+  capability,
+  trusted_surface_key,
+  trusted_surface_label,
+  occurred_at
+)
+VALUES (
+  $1,
+  $2,
+  $3,
+  'competition.queue_intent.updated',
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  $15
+)
+RETURNING id,
+          competition_queue_intent_id,
+          competition_session_id,
+          user_id,
+          event_type,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          status,
+          actor_user_id,
+          actor_role,
+          actor_session_id,
+          capability,
+          trusted_surface_key,
+          trusted_surface_label,
+          occurred_at,
+          created_at
+`
+
+type CreateCompetitionQueueIntentEventParams struct {
+	CompetitionQueueIntentID uuid.UUID
+	CompetitionSessionID     uuid.UUID
+	UserID                   uuid.UUID
+	FacilityKey              string
+	SportKey                 string
+	ModeKey                  string
+	Tier                     string
+	Status                   string
+	ActorUserID              pgtype.UUID
+	ActorRole                *string
+	ActorSessionID           pgtype.UUID
+	Capability               *string
+	TrustedSurfaceKey        *string
+	TrustedSurfaceLabel      *string
+	OccurredAt               pgtype.Timestamptz
+}
+
+func (q *Queries) CreateCompetitionQueueIntentEvent(ctx context.Context, arg CreateCompetitionQueueIntentEventParams) (ApolloCompetitionQueueIntentEvent, error) {
+	row := q.db.QueryRow(ctx, createCompetitionQueueIntentEvent,
+		arg.CompetitionQueueIntentID,
+		arg.CompetitionSessionID,
+		arg.UserID,
+		arg.FacilityKey,
+		arg.SportKey,
+		arg.ModeKey,
+		arg.Tier,
+		arg.Status,
+		arg.ActorUserID,
+		arg.ActorRole,
+		arg.ActorSessionID,
+		arg.Capability,
+		arg.TrustedSurfaceKey,
+		arg.TrustedSurfaceLabel,
+		arg.OccurredAt,
+	)
+	var i ApolloCompetitionQueueIntentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionQueueIntentID,
+		&i.CompetitionSessionID,
+		&i.UserID,
+		&i.EventType,
+		&i.FacilityKey,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.Tier,
+		&i.Status,
+		&i.ActorUserID,
+		&i.ActorRole,
+		&i.ActorSessionID,
+		&i.Capability,
+		&i.TrustedSurfaceKey,
+		&i.TrustedSurfaceLabel,
+		&i.OccurredAt,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -608,6 +793,19 @@ func (q *Queries) CreateCompetitionTeamRosterMember(ctx context.Context, arg Cre
 	return i, err
 }
 
+const deleteCompetitionMatchPreviewMembersByPreviewID = `-- name: DeleteCompetitionMatchPreviewMembersByPreviewID :execrows
+DELETE FROM apollo.competition_match_preview_members
+WHERE competition_match_preview_id = $1
+`
+
+func (q *Queries) DeleteCompetitionMatchPreviewMembersByPreviewID(ctx context.Context, competitionMatchPreviewID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCompetitionMatchPreviewMembersByPreviewID, competitionMatchPreviewID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteCompetitionSessionQueueMember = `-- name: DeleteCompetitionSessionQueueMember :execrows
 DELETE FROM apollo.competition_session_queue_members
 WHERE competition_session_id = $1
@@ -789,6 +987,91 @@ func (q *Queries) GetCompetitionSessionTeamByID(ctx context.Context, id uuid.UUI
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const listCompetitionMatchPreviewCandidatesBySessionID = `-- name: ListCompetitionMatchPreviewCandidatesBySessionID :many
+SELECT qi.id AS competition_queue_intent_id,
+       q.competition_session_id,
+       q.user_id,
+       u.display_name,
+       u.preferences,
+       q.joined_at,
+       qi.facility_key,
+       qi.sport_key,
+       qi.mode_key,
+       qi.tier,
+       qi.updated_at AS queue_intent_updated_at,
+       r.mu,
+       r.sigma,
+       r.matches_played,
+       r.updated_at AS rating_updated_at
+FROM apollo.competition_session_queue_members AS q
+INNER JOIN apollo.users AS u
+  ON u.id = q.user_id
+INNER JOIN apollo.competition_queue_intents AS qi
+  ON qi.competition_session_id = q.competition_session_id
+ AND qi.user_id = q.user_id
+ AND qi.status = 'active'
+LEFT JOIN apollo.competition_member_ratings AS r
+  ON r.user_id = q.user_id
+ AND r.sport_key = qi.sport_key
+ AND r.mode_key = qi.mode_key
+WHERE q.competition_session_id = $1
+ORDER BY q.joined_at ASC, q.user_id ASC
+`
+
+type ListCompetitionMatchPreviewCandidatesBySessionIDRow struct {
+	CompetitionQueueIntentID uuid.UUID
+	CompetitionSessionID     uuid.UUID
+	UserID                   uuid.UUID
+	DisplayName              string
+	Preferences              []byte
+	JoinedAt                 pgtype.Timestamptz
+	FacilityKey              string
+	SportKey                 string
+	ModeKey                  string
+	Tier                     string
+	QueueIntentUpdatedAt     pgtype.Timestamptz
+	Mu                       pgtype.Numeric
+	Sigma                    pgtype.Numeric
+	MatchesPlayed            *int32
+	RatingUpdatedAt          pgtype.Timestamptz
+}
+
+func (q *Queries) ListCompetitionMatchPreviewCandidatesBySessionID(ctx context.Context, competitionSessionID uuid.UUID) ([]ListCompetitionMatchPreviewCandidatesBySessionIDRow, error) {
+	rows, err := q.db.Query(ctx, listCompetitionMatchPreviewCandidatesBySessionID, competitionSessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCompetitionMatchPreviewCandidatesBySessionIDRow
+	for rows.Next() {
+		var i ListCompetitionMatchPreviewCandidatesBySessionIDRow
+		if err := rows.Scan(
+			&i.CompetitionQueueIntentID,
+			&i.CompetitionSessionID,
+			&i.UserID,
+			&i.DisplayName,
+			&i.Preferences,
+			&i.JoinedAt,
+			&i.FacilityKey,
+			&i.SportKey,
+			&i.ModeKey,
+			&i.Tier,
+			&i.QueueIntentUpdatedAt,
+			&i.Mu,
+			&i.Sigma,
+			&i.MatchesPlayed,
+			&i.RatingUpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCompetitionMatchSideSlotsBySessionID = `-- name: ListCompetitionMatchSideSlotsBySessionID :many
@@ -1181,6 +1464,104 @@ func (q *Queries) UpdateCompetitionMatchStatusBySessionID(ctx context.Context, a
 	return result.RowsAffected(), nil
 }
 
+const updateCompetitionQueueIntentStatus = `-- name: UpdateCompetitionQueueIntentStatus :one
+UPDATE apollo.competition_queue_intents
+SET status = $3,
+    updated_at = $4
+WHERE competition_session_id = $1
+  AND user_id = $2
+RETURNING id,
+          competition_session_id,
+          user_id,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          status,
+          created_at,
+          updated_at
+`
+
+type UpdateCompetitionQueueIntentStatusParams struct {
+	CompetitionSessionID uuid.UUID
+	UserID               uuid.UUID
+	Status               string
+	UpdatedAt            pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateCompetitionQueueIntentStatus(ctx context.Context, arg UpdateCompetitionQueueIntentStatusParams) (ApolloCompetitionQueueIntent, error) {
+	row := q.db.QueryRow(ctx, updateCompetitionQueueIntentStatus,
+		arg.CompetitionSessionID,
+		arg.UserID,
+		arg.Status,
+		arg.UpdatedAt,
+	)
+	var i ApolloCompetitionQueueIntent
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionSessionID,
+		&i.UserID,
+		&i.FacilityKey,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.Tier,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateCompetitionQueueIntentTier = `-- name: UpdateCompetitionQueueIntentTier :one
+UPDATE apollo.competition_queue_intents
+SET tier = $3,
+    status = 'active',
+    updated_at = $4
+WHERE competition_session_id = $1
+  AND user_id = $2
+  AND status = 'active'
+RETURNING id,
+          competition_session_id,
+          user_id,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          status,
+          created_at,
+          updated_at
+`
+
+type UpdateCompetitionQueueIntentTierParams struct {
+	CompetitionSessionID uuid.UUID
+	UserID               uuid.UUID
+	Tier                 string
+	UpdatedAt            pgtype.Timestamptz
+}
+
+func (q *Queries) UpdateCompetitionQueueIntentTier(ctx context.Context, arg UpdateCompetitionQueueIntentTierParams) (ApolloCompetitionQueueIntent, error) {
+	row := q.db.QueryRow(ctx, updateCompetitionQueueIntentTier,
+		arg.CompetitionSessionID,
+		arg.UserID,
+		arg.Tier,
+		arg.UpdatedAt,
+	)
+	var i ApolloCompetitionQueueIntent
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionSessionID,
+		&i.UserID,
+		&i.FacilityKey,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.Tier,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateCompetitionSessionStatus = `-- name: UpdateCompetitionSessionStatus :one
 UPDATE apollo.competition_sessions
 SET status = $3,
@@ -1251,6 +1632,371 @@ func (q *Queries) UpdateCompetitionSessionStatus(ctx context.Context, arg Update
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+	)
+	return i, err
+}
+
+const upsertCompetitionMatchPreview = `-- name: UpsertCompetitionMatchPreview :one
+INSERT INTO apollo.competition_match_previews (
+  competition_session_id,
+  queue_version,
+  proposal_index,
+  preview_version,
+  policy_version,
+  rating_engine,
+  rating_policy_version,
+  facility_key,
+  sport_key,
+  mode_key,
+  tier,
+  match_quality,
+  predicted_win_probability,
+  explanation_code,
+  generated_at,
+  updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+ON CONFLICT (
+  competition_session_id,
+  queue_version,
+  proposal_index,
+  preview_version,
+  policy_version
+)
+DO UPDATE SET
+  rating_engine = EXCLUDED.rating_engine,
+  rating_policy_version = EXCLUDED.rating_policy_version,
+  facility_key = EXCLUDED.facility_key,
+  sport_key = EXCLUDED.sport_key,
+  mode_key = EXCLUDED.mode_key,
+  tier = EXCLUDED.tier,
+  match_quality = EXCLUDED.match_quality,
+  predicted_win_probability = EXCLUDED.predicted_win_probability,
+  explanation_code = EXCLUDED.explanation_code,
+  generated_at = EXCLUDED.generated_at,
+  updated_at = EXCLUDED.updated_at
+RETURNING id,
+          competition_session_id,
+          queue_version,
+          proposal_index,
+          preview_version,
+          policy_version,
+          rating_engine,
+          rating_policy_version,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          match_quality,
+          predicted_win_probability,
+          explanation_code,
+          generated_at,
+          created_at,
+          updated_at
+`
+
+type UpsertCompetitionMatchPreviewParams struct {
+	CompetitionSessionID    uuid.UUID
+	QueueVersion            int32
+	ProposalIndex           int32
+	PreviewVersion          string
+	PolicyVersion           string
+	RatingEngine            string
+	RatingPolicyVersion     string
+	FacilityKey             string
+	SportKey                string
+	ModeKey                 string
+	Tier                    string
+	MatchQuality            pgtype.Numeric
+	PredictedWinProbability pgtype.Numeric
+	ExplanationCode         string
+	GeneratedAt             pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertCompetitionMatchPreview(ctx context.Context, arg UpsertCompetitionMatchPreviewParams) (ApolloCompetitionMatchPreview, error) {
+	row := q.db.QueryRow(ctx, upsertCompetitionMatchPreview,
+		arg.CompetitionSessionID,
+		arg.QueueVersion,
+		arg.ProposalIndex,
+		arg.PreviewVersion,
+		arg.PolicyVersion,
+		arg.RatingEngine,
+		arg.RatingPolicyVersion,
+		arg.FacilityKey,
+		arg.SportKey,
+		arg.ModeKey,
+		arg.Tier,
+		arg.MatchQuality,
+		arg.PredictedWinProbability,
+		arg.ExplanationCode,
+		arg.GeneratedAt,
+		arg.UpdatedAt,
+	)
+	var i ApolloCompetitionMatchPreview
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionSessionID,
+		&i.QueueVersion,
+		&i.ProposalIndex,
+		&i.PreviewVersion,
+		&i.PolicyVersion,
+		&i.RatingEngine,
+		&i.RatingPolicyVersion,
+		&i.FacilityKey,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.Tier,
+		&i.MatchQuality,
+		&i.PredictedWinProbability,
+		&i.ExplanationCode,
+		&i.GeneratedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertCompetitionMatchPreviewGeneratedEvent = `-- name: UpsertCompetitionMatchPreviewGeneratedEvent :one
+INSERT INTO apollo.competition_match_preview_events (
+  competition_match_preview_id,
+  competition_session_id,
+  event_type,
+  queue_version,
+  preview_version,
+  policy_version,
+  rating_engine,
+  rating_policy_version,
+  facility_key,
+  sport_key,
+  mode_key,
+  tier,
+  match_quality,
+  predicted_win_probability,
+  explanation_code,
+  actor_user_id,
+  actor_role,
+  actor_session_id,
+  capability,
+  trusted_surface_key,
+  trusted_surface_label,
+  occurred_at
+)
+VALUES (
+  $1,
+  $2,
+  'competition.match_preview.generated',
+  $3,
+  $4,
+  $5,
+  $6,
+  $7,
+  $8,
+  $9,
+  $10,
+  $11,
+  $12,
+  $13,
+  $14,
+  $15,
+  $16,
+  $17,
+  $18,
+  $19,
+  $20,
+  $21
+)
+ON CONFLICT (competition_match_preview_id, event_type)
+DO UPDATE SET
+  queue_version = EXCLUDED.queue_version,
+  preview_version = EXCLUDED.preview_version,
+  policy_version = EXCLUDED.policy_version,
+  rating_engine = EXCLUDED.rating_engine,
+  rating_policy_version = EXCLUDED.rating_policy_version,
+  facility_key = EXCLUDED.facility_key,
+  sport_key = EXCLUDED.sport_key,
+  mode_key = EXCLUDED.mode_key,
+  tier = EXCLUDED.tier,
+  match_quality = EXCLUDED.match_quality,
+  predicted_win_probability = EXCLUDED.predicted_win_probability,
+  explanation_code = EXCLUDED.explanation_code,
+  actor_user_id = EXCLUDED.actor_user_id,
+  actor_role = EXCLUDED.actor_role,
+  actor_session_id = EXCLUDED.actor_session_id,
+  capability = EXCLUDED.capability,
+  trusted_surface_key = EXCLUDED.trusted_surface_key,
+  trusted_surface_label = EXCLUDED.trusted_surface_label,
+  occurred_at = EXCLUDED.occurred_at
+RETURNING id,
+          competition_match_preview_id,
+          competition_session_id,
+          event_type,
+          queue_version,
+          preview_version,
+          policy_version,
+          rating_engine,
+          rating_policy_version,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          match_quality,
+          predicted_win_probability,
+          explanation_code,
+          actor_user_id,
+          actor_role,
+          actor_session_id,
+          capability,
+          trusted_surface_key,
+          trusted_surface_label,
+          occurred_at,
+          created_at
+`
+
+type UpsertCompetitionMatchPreviewGeneratedEventParams struct {
+	CompetitionMatchPreviewID uuid.UUID
+	CompetitionSessionID      uuid.UUID
+	QueueVersion              int32
+	PreviewVersion            string
+	PolicyVersion             string
+	RatingEngine              string
+	RatingPolicyVersion       string
+	FacilityKey               string
+	SportKey                  string
+	ModeKey                   string
+	Tier                      string
+	MatchQuality              pgtype.Numeric
+	PredictedWinProbability   pgtype.Numeric
+	ExplanationCode           string
+	ActorUserID               pgtype.UUID
+	ActorRole                 *string
+	ActorSessionID            pgtype.UUID
+	Capability                *string
+	TrustedSurfaceKey         *string
+	TrustedSurfaceLabel       *string
+	OccurredAt                pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertCompetitionMatchPreviewGeneratedEvent(ctx context.Context, arg UpsertCompetitionMatchPreviewGeneratedEventParams) (ApolloCompetitionMatchPreviewEvent, error) {
+	row := q.db.QueryRow(ctx, upsertCompetitionMatchPreviewGeneratedEvent,
+		arg.CompetitionMatchPreviewID,
+		arg.CompetitionSessionID,
+		arg.QueueVersion,
+		arg.PreviewVersion,
+		arg.PolicyVersion,
+		arg.RatingEngine,
+		arg.RatingPolicyVersion,
+		arg.FacilityKey,
+		arg.SportKey,
+		arg.ModeKey,
+		arg.Tier,
+		arg.MatchQuality,
+		arg.PredictedWinProbability,
+		arg.ExplanationCode,
+		arg.ActorUserID,
+		arg.ActorRole,
+		arg.ActorSessionID,
+		arg.Capability,
+		arg.TrustedSurfaceKey,
+		arg.TrustedSurfaceLabel,
+		arg.OccurredAt,
+	)
+	var i ApolloCompetitionMatchPreviewEvent
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionMatchPreviewID,
+		&i.CompetitionSessionID,
+		&i.EventType,
+		&i.QueueVersion,
+		&i.PreviewVersion,
+		&i.PolicyVersion,
+		&i.RatingEngine,
+		&i.RatingPolicyVersion,
+		&i.FacilityKey,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.Tier,
+		&i.MatchQuality,
+		&i.PredictedWinProbability,
+		&i.ExplanationCode,
+		&i.ActorUserID,
+		&i.ActorRole,
+		&i.ActorSessionID,
+		&i.Capability,
+		&i.TrustedSurfaceKey,
+		&i.TrustedSurfaceLabel,
+		&i.OccurredAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const upsertCompetitionQueueIntent = `-- name: UpsertCompetitionQueueIntent :one
+INSERT INTO apollo.competition_queue_intents (
+  competition_session_id,
+  user_id,
+  facility_key,
+  sport_key,
+  mode_key,
+  tier,
+  status,
+  updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (competition_session_id, user_id)
+DO UPDATE SET
+  facility_key = EXCLUDED.facility_key,
+  sport_key = EXCLUDED.sport_key,
+  mode_key = EXCLUDED.mode_key,
+  tier = EXCLUDED.tier,
+  status = EXCLUDED.status,
+  updated_at = EXCLUDED.updated_at
+RETURNING id,
+          competition_session_id,
+          user_id,
+          facility_key,
+          sport_key,
+          mode_key,
+          tier,
+          status,
+          created_at,
+          updated_at
+`
+
+type UpsertCompetitionQueueIntentParams struct {
+	CompetitionSessionID uuid.UUID
+	UserID               uuid.UUID
+	FacilityKey          string
+	SportKey             string
+	ModeKey              string
+	Tier                 string
+	Status               string
+	UpdatedAt            pgtype.Timestamptz
+}
+
+func (q *Queries) UpsertCompetitionQueueIntent(ctx context.Context, arg UpsertCompetitionQueueIntentParams) (ApolloCompetitionQueueIntent, error) {
+	row := q.db.QueryRow(ctx, upsertCompetitionQueueIntent,
+		arg.CompetitionSessionID,
+		arg.UserID,
+		arg.FacilityKey,
+		arg.SportKey,
+		arg.ModeKey,
+		arg.Tier,
+		arg.Status,
+		arg.UpdatedAt,
+	)
+	var i ApolloCompetitionQueueIntent
+	err := row.Scan(
+		&i.ID,
+		&i.CompetitionSessionID,
+		&i.UserID,
+		&i.FacilityKey,
+		&i.SportKey,
+		&i.ModeKey,
+		&i.Tier,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

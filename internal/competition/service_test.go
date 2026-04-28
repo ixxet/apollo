@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/store"
 )
@@ -22,8 +23,11 @@ type stubStore struct {
 	getSessionByID           func(ctx context.Context, sessionID uuid.UUID) (*sessionRecord, error)
 	createSession            func(ctx context.Context, actor StaffActor, input CreateSessionInput, createdAt time.Time) (sessionRecord, error)
 	openQueue                func(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error)
-	addQueueMember           func(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, joinedAt time.Time) error
+	addQueueMember           func(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, input QueueMemberInput, joinedAt time.Time) error
 	removeQueueMember        func(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, updatedAt time.Time) error
+	updateQueueIntent        func(ctx context.Context, actor StaffActor, session sessionRecord, input UpdateQueueIntentInput, updatedAt time.Time) (sessionRecord, queueIntentRecord, error)
+	listPreviewCandidates    func(ctx context.Context, sessionID uuid.UUID) ([]matchPreviewCandidateRecord, error)
+	recordMatchPreview       func(ctx context.Context, actor StaffActor, session sessionRecord, preview ares.CompetitionMatchPreview, occurredAt time.Time) error
 	assignQueue              func(ctx context.Context, actor StaffActor, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error)
 	startSession             func(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error)
 	archiveSession           func(ctx context.Context, actor StaffActor, session sessionRecord, updatedAt time.Time) (sessionRecord, error)
@@ -89,12 +93,33 @@ func (s stubStore) OpenQueue(ctx context.Context, actor StaffActor, session sess
 	return s.openQueue(ctx, actor, session, updatedAt)
 }
 
-func (s stubStore) AddQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, joinedAt time.Time) error {
-	return s.addQueueMember(ctx, actor, session, userID, joinedAt)
+func (s stubStore) AddQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, sport SportConfig, input QueueMemberInput, joinedAt time.Time) error {
+	return s.addQueueMember(ctx, actor, session, sport, input, joinedAt)
 }
 
 func (s stubStore) RemoveQueueMember(ctx context.Context, actor StaffActor, session sessionRecord, userID uuid.UUID, updatedAt time.Time) error {
 	return s.removeQueueMember(ctx, actor, session, userID, updatedAt)
+}
+
+func (s stubStore) UpdateQueueIntent(ctx context.Context, actor StaffActor, session sessionRecord, input UpdateQueueIntentInput, updatedAt time.Time) (sessionRecord, queueIntentRecord, error) {
+	if s.updateQueueIntent == nil {
+		return sessionRecord{}, queueIntentRecord{}, errors.New("unexpected UpdateQueueIntent call")
+	}
+	return s.updateQueueIntent(ctx, actor, session, input, updatedAt)
+}
+
+func (s stubStore) ListMatchPreviewCandidatesBySessionID(ctx context.Context, sessionID uuid.UUID) ([]matchPreviewCandidateRecord, error) {
+	if s.listPreviewCandidates == nil {
+		return nil, errors.New("unexpected ListMatchPreviewCandidatesBySessionID call")
+	}
+	return s.listPreviewCandidates(ctx, sessionID)
+}
+
+func (s stubStore) RecordMatchPreview(ctx context.Context, actor StaffActor, session sessionRecord, preview ares.CompetitionMatchPreview, occurredAt time.Time) error {
+	if s.recordMatchPreview == nil {
+		return errors.New("unexpected RecordMatchPreview call")
+	}
+	return s.recordMatchPreview(ctx, actor, session, preview, occurredAt)
 }
 
 func (s stubStore) AssignQueue(ctx context.Context, actor StaffActor, session sessionRecord, input AssignSessionInput, sport SportConfig, queueMembers []queueRecord, assignedAt time.Time) (sessionRecord, error) {
@@ -295,7 +320,7 @@ func TestAddRosterMemberMapsSchemaUniqueConflictToErrRosterConflict(t *testing.T
 		openQueue: func(context.Context, StaffActor, sessionRecord, time.Time) (sessionRecord, error) {
 			return sessionRecord{}, errors.New("unexpected OpenQueue call")
 		},
-		addQueueMember: func(context.Context, StaffActor, sessionRecord, uuid.UUID, time.Time) error {
+		addQueueMember: func(context.Context, StaffActor, sessionRecord, SportConfig, QueueMemberInput, time.Time) error {
 			return errors.New("unexpected AddQueueMember call")
 		},
 		removeQueueMember: func(context.Context, StaffActor, sessionRecord, uuid.UUID, time.Time) error {

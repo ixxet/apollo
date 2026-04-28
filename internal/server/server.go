@@ -251,6 +251,7 @@ type createCompetitionTeamRequest struct {
 
 type addCompetitionQueueMemberRequest struct {
 	UserID uuid.UUID `json:"user_id"`
+	Tier   string    `json:"tier,omitempty"`
 }
 
 type addCompetitionRosterMemberRequest struct {
@@ -890,6 +891,7 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			session, err := deps.Competition.AddQueueMember(r.Context(), actor, sessionID, competition.QueueMemberInput{
 				UserID: request.UserID,
+				Tier:   request.Tier,
 			})
 			if err != nil {
 				writeCompetitionError(w, err)
@@ -2489,6 +2491,7 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 	case errors.Is(err, competition.ErrSessionNotFound),
 		errors.Is(err, competition.ErrTeamNotFound),
 		errors.Is(err, competition.ErrMatchNotFound),
+		errors.Is(err, competition.ErrQueueIntentNotFound),
 		errors.Is(err, competition.ErrUserNotFound),
 		errors.Is(err, competition.ErrSportNotFound):
 		return http.StatusNotFound
@@ -2512,6 +2515,7 @@ func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome,
 		errors.Is(err, competition.ErrTeamSideIndexInvalid),
 		errors.Is(err, competition.ErrRosterSlotIndexInvalid),
 		errors.Is(err, competition.ErrRosterSlotOutOfRange),
+		errors.Is(err, competition.ErrQueueIntentTier),
 		errors.Is(err, competition.ErrQueueVersionRequired),
 		errors.Is(err, competition.ErrMatchIndexInvalid),
 		errors.Is(err, competition.ErrMatchSideCountMismatch),
@@ -2570,6 +2574,7 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrTeamNotFound),
 		errors.Is(err, competition.ErrMatchNotFound),
 		errors.Is(err, competition.ErrMatchResultNotFound),
+		errors.Is(err, competition.ErrQueueIntentNotFound),
 		errors.Is(err, competition.ErrRosterMemberNotFound),
 		errors.Is(err, competition.ErrUserNotFound),
 		errors.Is(err, competition.ErrSportNotFound):
@@ -2586,6 +2591,7 @@ func writeCompetitionError(w http.ResponseWriter, err error) {
 		errors.Is(err, competition.ErrTeamSideIndexInvalid),
 		errors.Is(err, competition.ErrRosterSlotIndexInvalid),
 		errors.Is(err, competition.ErrRosterSlotOutOfRange),
+		errors.Is(err, competition.ErrQueueIntentTier),
 		errors.Is(err, competition.ErrQueueVersionRequired),
 		errors.Is(err, competition.ErrMatchIndexInvalid),
 		errors.Is(err, competition.ErrMatchSideCountMismatch),

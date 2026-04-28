@@ -8,30 +8,33 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/ixxet/apollo/internal/ares"
 	"github.com/ixxet/apollo/internal/authz"
 )
 
 type CommandName string
 
 const (
-	CommandCreateSession       CommandName = "create_session"
-	CommandOpenQueue           CommandName = "open_queue"
-	CommandAddQueueMember      CommandName = "add_queue_member"
-	CommandRemoveQueueMember   CommandName = "remove_queue_member"
-	CommandAssignQueue         CommandName = "assign_queue"
-	CommandStartSession        CommandName = "start_session"
-	CommandArchiveSession      CommandName = "archive_session"
-	CommandCreateTeam          CommandName = "create_team"
-	CommandRemoveTeam          CommandName = "remove_team"
-	CommandAddRosterMember     CommandName = "add_roster_member"
-	CommandRemoveRosterMember  CommandName = "remove_roster_member"
-	CommandCreateMatch         CommandName = "create_match"
-	CommandArchiveMatch        CommandName = "archive_match"
-	CommandRecordMatchResult   CommandName = "record_match_result"
-	CommandFinalizeMatchResult CommandName = "finalize_match_result"
-	CommandDisputeMatchResult  CommandName = "dispute_match_result"
-	CommandCorrectMatchResult  CommandName = "correct_match_result"
-	CommandVoidMatchResult     CommandName = "void_match_result"
+	CommandCreateSession        CommandName = "create_session"
+	CommandOpenQueue            CommandName = "open_queue"
+	CommandAddQueueMember       CommandName = "add_queue_member"
+	CommandRemoveQueueMember    CommandName = "remove_queue_member"
+	CommandUpdateQueueIntent    CommandName = "update_queue_intent"
+	CommandGenerateMatchPreview CommandName = "generate_match_preview"
+	CommandAssignQueue          CommandName = "assign_queue"
+	CommandStartSession         CommandName = "start_session"
+	CommandArchiveSession       CommandName = "archive_session"
+	CommandCreateTeam           CommandName = "create_team"
+	CommandRemoveTeam           CommandName = "remove_team"
+	CommandAddRosterMember      CommandName = "add_roster_member"
+	CommandRemoveRosterMember   CommandName = "remove_roster_member"
+	CommandCreateMatch          CommandName = "create_match"
+	CommandArchiveMatch         CommandName = "archive_match"
+	CommandRecordMatchResult    CommandName = "record_match_result"
+	CommandFinalizeMatchResult  CommandName = "finalize_match_result"
+	CommandDisputeMatchResult   CommandName = "dispute_match_result"
+	CommandCorrectMatchResult   CommandName = "correct_match_result"
+	CommandVoidMatchResult      CommandName = "void_match_result"
 )
 
 const (
@@ -150,6 +153,8 @@ var commandDefinitions = []CompetitionCommandDefinition{
 	{Name: CommandOpenQueue, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Open a draft session queue."},
 	{Name: CommandAddQueueMember, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "queue_version", Description: "Add an eligible member to an open queue."},
 	{Name: CommandRemoveQueueMember, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "queue_version", Description: "Remove a member from an open queue."},
+	{Name: CommandUpdateQueueIntent, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "queue_version", Description: "Update explicit sport, facility, mode, and tier queue intent facts for a queued member."},
+	{Name: CommandGenerateMatchPreview, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "queue_version", Description: "Generate an internal ARES v2 match preview proposal from trusted queue and rating facts."},
 	{Name: CommandAssignQueue, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, VersionField: "queue_version", Description: "Assign a ready queue into teams and matches."},
 	{Name: CommandStartSession, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Start an assigned competition session."},
 	{Name: CommandArchiveSession, RequiredCapability: authz.CapabilityCompetitionLiveManage, TrustedSurfaceRequired: true, Mutating: true, DryRunSupported: true, ApplySupported: true, Description: "Archive an eligible competition session."},
@@ -304,14 +309,16 @@ func (s *Service) ExecuteCommand(ctx context.Context, command CompetitionCommand
 				if match.ID == command.MatchID {
 					version := match.ResultVersion
 					outcome.ActualVersion = &version
-					break
+					return outcome, nil
 				}
 			}
 		}
-		if outcome.ActualVersion == nil {
-			version := session.QueueVersion
-			outcome.ActualVersion = &version
-		}
+		version := session.QueueVersion
+		outcome.ActualVersion = &version
+	}
+	if preview, ok := result.(ares.CompetitionMatchPreview); ok {
+		version := preview.QueueVersion
+		outcome.ActualVersion = &version
 	}
 	return outcome, nil
 }
@@ -363,6 +370,26 @@ func validateCompetitionCommand(command CompetitionCommand, definition Competiti
 		}
 		if command.UserID == uuid.Nil {
 			return ErrCommandUserIDRequired
+		}
+	case CommandUpdateQueueIntent:
+		if err := requireSessionID(command); err != nil {
+			return err
+		}
+		if command.QueueMember == nil {
+			return ErrCommandQueueMemberInput
+		}
+		if command.QueueMember.UserID == uuid.Nil {
+			return ErrCommandUserIDRequired
+		}
+		if command.ExpectedVersion == nil || *command.ExpectedVersion <= 0 {
+			return ErrCommandExpectedVersion
+		}
+	case CommandGenerateMatchPreview:
+		if err := requireSessionID(command); err != nil {
+			return err
+		}
+		if command.ExpectedVersion == nil || *command.ExpectedVersion <= 0 {
+			return ErrCommandExpectedVersion
 		}
 	case CommandAssignQueue:
 		if err := requireSessionID(command); err != nil {
@@ -525,6 +552,14 @@ func (s *Service) applyCompetitionCommand(ctx context.Context, command Competiti
 		return s.AddQueueMember(ctx, actor, command.SessionID, *command.QueueMember)
 	case CommandRemoveQueueMember:
 		return s.RemoveQueueMember(ctx, actor, command.SessionID, command.UserID)
+	case CommandUpdateQueueIntent:
+		return s.UpdateQueueIntent(ctx, actor, command.SessionID, UpdateQueueIntentInput{
+			UserID:               command.QueueMember.UserID,
+			Tier:                 command.QueueMember.Tier,
+			ExpectedQueueVersion: *command.ExpectedVersion,
+		})
+	case CommandGenerateMatchPreview:
+		return s.GenerateMatchPreview(ctx, actor, command.SessionID, MatchPreviewInput{ExpectedQueueVersion: *command.ExpectedVersion})
 	case CommandAssignQueue:
 		return s.AssignQueue(ctx, actor, command.SessionID, AssignSessionInput{ExpectedQueueVersion: *command.ExpectedVersion})
 	case CommandStartSession:

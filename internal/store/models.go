@@ -123,6 +123,67 @@ type ApolloCompetitionMatch struct {
 	CanonicalResultID    pgtype.UUID
 }
 
+type ApolloCompetitionMatchPreview struct {
+	ID                      uuid.UUID
+	CompetitionSessionID    uuid.UUID
+	QueueVersion            int32
+	ProposalIndex           int32
+	PreviewVersion          string
+	PolicyVersion           string
+	RatingEngine            string
+	RatingPolicyVersion     string
+	FacilityKey             string
+	SportKey                string
+	ModeKey                 string
+	Tier                    string
+	MatchQuality            pgtype.Numeric
+	PredictedWinProbability pgtype.Numeric
+	ExplanationCode         string
+	GeneratedAt             pgtype.Timestamptz
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+}
+
+type ApolloCompetitionMatchPreviewEvent struct {
+	ID                        uuid.UUID
+	CompetitionMatchPreviewID uuid.UUID
+	CompetitionSessionID      uuid.UUID
+	EventType                 string
+	QueueVersion              int32
+	PreviewVersion            string
+	PolicyVersion             string
+	RatingEngine              string
+	RatingPolicyVersion       string
+	FacilityKey               string
+	SportKey                  string
+	ModeKey                   string
+	Tier                      string
+	MatchQuality              pgtype.Numeric
+	PredictedWinProbability   pgtype.Numeric
+	ExplanationCode           string
+	ActorUserID               pgtype.UUID
+	ActorRole                 *string
+	ActorSessionID            pgtype.UUID
+	Capability                *string
+	TrustedSurfaceKey         *string
+	TrustedSurfaceLabel       *string
+	OccurredAt                pgtype.Timestamptz
+	CreatedAt                 pgtype.Timestamptz
+}
+
+type ApolloCompetitionMatchPreviewMember struct {
+	CompetitionMatchPreviewID uuid.UUID
+	SideIndex                 int32
+	SlotIndex                 int32
+	CompetitionQueueIntentID  uuid.UUID
+	UserID                    uuid.UUID
+	RatingMu                  pgtype.Numeric
+	RatingSigma               pgtype.Numeric
+	RatingMatchesPlayed       int32
+	RatingSource              string
+	Tier                      string
+}
+
 type ApolloCompetitionMatchResult struct {
 	CompetitionMatchID uuid.UUID
 	RecordedByUserID   uuid.UUID
@@ -166,6 +227,40 @@ type ApolloCompetitionMemberRating struct {
 	SourceResultID      pgtype.UUID
 	RatingEventID       pgtype.UUID
 	ProjectionWatermark string
+}
+
+type ApolloCompetitionQueueIntent struct {
+	ID                   uuid.UUID
+	CompetitionSessionID uuid.UUID
+	UserID               uuid.UUID
+	FacilityKey          string
+	SportKey             string
+	ModeKey              string
+	Tier                 string
+	Status               string
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type ApolloCompetitionQueueIntentEvent struct {
+	ID                       uuid.UUID
+	CompetitionQueueIntentID uuid.UUID
+	CompetitionSessionID     uuid.UUID
+	UserID                   uuid.UUID
+	EventType                string
+	FacilityKey              string
+	SportKey                 string
+	ModeKey                  string
+	Tier                     string
+	Status                   string
+	ActorUserID              pgtype.UUID
+	ActorRole                *string
+	ActorSessionID           pgtype.UUID
+	Capability               *string
+	TrustedSurfaceKey        *string
+	TrustedSurfaceLabel      *string
+	OccurredAt               pgtype.Timestamptz
+	CreatedAt                pgtype.Timestamptz
 }
 
 type ApolloCompetitionRatingComparison struct {
