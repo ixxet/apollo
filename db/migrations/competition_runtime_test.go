@@ -180,6 +180,7 @@ func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 	if err := testutil.ApplySQLFiles(
 		ctx,
 		postgresEnv.DB,
+		testutil.RepoFilePath("db", "migrations", "027_competition_ares_input_watermark.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "026_competition_ares_v2_preview.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "025_competition_openskill_dual_run.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "024_competition_rating_foundation.down.sql"),

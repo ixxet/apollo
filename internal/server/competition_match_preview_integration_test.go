@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -276,6 +277,12 @@ func assertARESPreviewResult(t *testing.T, preview map[string]any, sessionID uui
 	if got := stringField(t, preview, "preview_version"); got != ares.CompetitionPreviewVersion {
 		t.Fatalf("preview_version = %q, want %q", got, ares.CompetitionPreviewVersion)
 	}
+	if got := stringField(t, preview, "input_watermark"); got == "" {
+		t.Fatal("input_watermark is empty, want deterministic input watermark")
+	}
+	if _, exists := preview["generated_at"]; exists {
+		t.Fatal("generated_at exists on ARES v2 preview, want input_watermark plus event occurred_at")
+	}
 	if got := stringField(t, preview, "policy_version"); got != ares.CompetitionPreviewPolicy {
 		t.Fatalf("policy_version = %q, want %q", got, ares.CompetitionPreviewPolicy)
 	}
@@ -379,6 +386,7 @@ func assertStoredARESPreview(t *testing.T, env *authProfileServerEnv, sessionID 
 	var eventType string
 	var matchQuality float64
 	var winProbability float64
+	var inputWatermark time.Time
 	if err := env.db.DB.QueryRow(context.Background(), `
 SELECT p.id,
        p.preview_version,
@@ -388,13 +396,14 @@ SELECT p.id,
        p.explanation_code,
        p.match_quality::double precision,
        p.predicted_win_probability::double precision,
+       p.input_watermark,
        e.event_type
 FROM apollo.competition_match_previews AS p
 INNER JOIN apollo.competition_match_preview_events AS e
   ON e.competition_match_preview_id = p.id
 WHERE p.competition_session_id = $1
   AND p.queue_version = $2
-`, sessionID, queueVersion).Scan(&previewID, &previewVersion, &policyVersion, &ratingEngine, &ratingPolicyVersion, &explanationCode, &matchQuality, &winProbability, &eventType); err != nil {
+`, sessionID, queueVersion).Scan(&previewID, &previewVersion, &policyVersion, &ratingEngine, &ratingPolicyVersion, &explanationCode, &matchQuality, &winProbability, &inputWatermark, &eventType); err != nil {
 		t.Fatalf("read stored ARES preview error = %v", err)
 	}
 	if previewID == uuid.Nil {
@@ -411,6 +420,9 @@ WHERE p.competition_session_id = $1
 	}
 	if matchQuality <= 0 || matchQuality > 1 || winProbability <= 0 || winProbability > 1 {
 		t.Fatalf("stored quality/probability = %.4f/%.4f, want bounded values", matchQuality, winProbability)
+	}
+	if inputWatermark.IsZero() {
+		t.Fatal("stored input_watermark is zero")
 	}
 	if eventType != "competition.match_preview.generated" {
 		t.Fatalf("event_type = %q, want competition.match_preview.generated", eventType)
