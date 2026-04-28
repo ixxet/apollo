@@ -3,6 +3,7 @@ package competition
 import (
 	"context"
 	"errors"
+	"math"
 	"strconv"
 	"time"
 
@@ -672,6 +673,10 @@ func recordOpenSkillComparisonTx(ctx context.Context, queries *store.Queries, sp
 	if err != nil {
 		return err
 	}
+	deltaFlagged, err := storedDeltaFlagged(fact.DeltaFromLegacy, fact.AcceptedDeltaBudget)
+	if err != nil {
+		return err
+	}
 
 	modeKey := fact.ModeKey
 	scenario := fact.ComparisonScenario
@@ -696,7 +701,7 @@ func recordOpenSkillComparisonTx(ctx context.Context, queries *store.Queries, sp
 	if _, err := queries.UpsertCompetitionOpenSkillComputedEvent(ctx, eventParams); err != nil {
 		return err
 	}
-	if fact.DeltaFlagged {
+	if deltaFlagged {
 		if _, err := queries.UpsertCompetitionRatingDeltaFlaggedEvent(ctx, store.UpsertCompetitionRatingDeltaFlaggedEventParams(eventParams)); err != nil {
 			return err
 		}
@@ -720,7 +725,7 @@ func recordOpenSkillComparisonTx(ctx context.Context, queries *store.Queries, sp
 		DeltaFromLegacy:        deltaFromLegacy,
 		AcceptedDeltaBudget:    acceptedDeltaBudget,
 		ComparisonScenario:     fact.ComparisonScenario,
-		DeltaFlagged:           fact.DeltaFlagged,
+		DeltaFlagged:           deltaFlagged,
 		ProjectionWatermark:    fact.Watermark,
 		OccurredAt:             timestamptz(fact.OccurredAt),
 		UpdatedAt:              timestamptz(updatedAt),
@@ -748,8 +753,28 @@ func float64FromNumeric(value pgtype.Numeric) (float64, error) {
 
 func numericFromFloat64(value float64) (pgtype.Numeric, error) {
 	var numeric pgtype.Numeric
-	if err := numeric.Scan(strconv.FormatFloat(value, 'f', 4, 64)); err != nil {
+	if err := numeric.Scan(storedNumericText(value)); err != nil {
 		return pgtype.Numeric{}, err
 	}
 	return numeric, nil
+}
+
+func storedDeltaFlagged(deltaFromLegacy float64, acceptedDeltaBudget float64) (bool, error) {
+	delta, err := storedFloat64(deltaFromLegacy)
+	if err != nil {
+		return false, err
+	}
+	budget, err := storedFloat64(acceptedDeltaBudget)
+	if err != nil {
+		return false, err
+	}
+	return math.Abs(delta) > budget, nil
+}
+
+func storedFloat64(value float64) (float64, error) {
+	return strconv.ParseFloat(storedNumericText(value), 64)
+}
+
+func storedNumericText(value float64) string {
+	return strconv.FormatFloat(value, 'f', 4, 64)
 }
