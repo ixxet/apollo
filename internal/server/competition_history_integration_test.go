@@ -234,6 +234,46 @@ func TestCompetitionHistoryRuntimeRejectsInvalidResultWrites(t *testing.T) {
 	}
 }
 
+func TestPublicCompetitionReadinessExcludesRecordedOnlyResults(t *testing.T) {
+	env := newAuthProfileServerEnv(t)
+	defer closeServerEnv(t, env)
+
+	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-public-readiness-recorded-001", "public-readiness-recorded-001@example.com")
+	setUserRole(t, env, owner.ID, authz.RoleOwner)
+	memberTwoCookie, memberTwo := createVerifiedSessionViaHTTP(t, env, "student-public-readiness-recorded-002", "public-readiness-recorded-002@example.com")
+
+	for _, cookie := range []*http.Cookie{ownerCookie, memberTwoCookie} {
+		makeEligibleForLobby(t, env, cookie)
+		joinLobbyMembership(t, env, cookie)
+	}
+
+	session := createStartedCompetitionSession(t, env, ownerCookie, "Recorded Only Public Guard", "badminton", "gym-floor", 1, []uuid.UUID{owner.ID, memberTwo.ID})
+	recordedResponse := env.doJSONRequest(t, http.MethodPost, fmt.Sprintf("/api/v1/competition/sessions/%s/matches/%s/result", session.ID, session.Matches[0].ID), buildResultRequestBody(session.Matches[0].SideSlots, []string{"win", "loss"}), ownerCookie)
+	if recordedResponse.Code != http.StatusOK {
+		t.Fatalf("recordedResponse.Code = %d, want %d body=%s", recordedResponse.Code, http.StatusOK, recordedResponse.Body.String())
+	}
+
+	publicReadinessResponse := env.doRequest(t, http.MethodGet, "/api/v1/public/competition/readiness", nil)
+	if publicReadinessResponse.Code != http.StatusOK {
+		t.Fatalf("publicReadinessResponse.Code = %d, want %d body=%s", publicReadinessResponse.Code, http.StatusOK, publicReadinessResponse.Body.String())
+	}
+	publicReadinessBody := publicReadinessResponse.Body.String()
+	assertPublicCompetitionBodySafe(t, publicReadinessBody, owner.ID, memberTwo.ID)
+	if !strings.Contains(publicReadinessBody, `"status":"unavailable"`) || !strings.Contains(publicReadinessBody, `"available_canonical_results":0`) {
+		t.Fatalf("public readiness included non-final result truth: %s", publicReadinessBody)
+	}
+
+	publicLeaderboardResponse := env.doRequest(t, http.MethodGet, "/api/v1/public/competition/leaderboards?sport_key=badminton&mode_key=head_to_head:s2-p1&stat_type=wins", nil)
+	if publicLeaderboardResponse.Code != http.StatusOK {
+		t.Fatalf("publicLeaderboardResponse.Code = %d, want %d body=%s", publicLeaderboardResponse.Code, http.StatusOK, publicLeaderboardResponse.Body.String())
+	}
+	publicLeaderboardBody := publicLeaderboardResponse.Body.String()
+	assertPublicCompetitionBodySafe(t, publicLeaderboardBody, owner.ID, memberTwo.ID)
+	if !strings.Contains(publicLeaderboardBody, `"leaderboard":[]`) {
+		t.Fatalf("public leaderboard included non-final result truth: %s", publicLeaderboardBody)
+	}
+}
+
 func TestCompetitionHistoryRuntimeSeparatesRatingsBySportAndMode(t *testing.T) {
 	env := newAuthProfileServerEnv(t)
 	defer closeServerEnv(t, env)
@@ -1130,6 +1170,14 @@ func assertPublicCompetitionBodySafe(t *testing.T, body string, userIDs ...uuid.
 		"match_quality",
 		"predicted_win_probability",
 		"projection_watermark",
+		"sample_size",
+		"confidence",
+		"rating_engine",
+		"engine_version",
+		"policy_version",
+		"rating_mu",
+		"rating_sigma",
+		"current_rating",
 	} {
 		if strings.Contains(strings.ToLower(body), forbidden) {
 			t.Fatalf("public competition body leaked %q: %s", forbidden, body)
