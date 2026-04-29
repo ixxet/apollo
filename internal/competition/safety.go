@@ -57,6 +57,7 @@ var (
 	ErrSafetyReasonCode          = errors.New("competition safety reason_code is invalid")
 	ErrSafetyReporterRequired    = errors.New("competition safety reporter_user_id is required")
 	ErrSafetySubjectRequired     = errors.New("competition safety subject_user_id is required")
+	ErrSafetyUserOutOfScope      = errors.New("competition safety user is outside competition scope")
 	ErrSafetyBlockPairInvalid    = errors.New("competition safety block pair is invalid")
 	ErrSafetyBlockAlreadyExists  = errors.New("competition safety block already exists")
 	ErrReliabilityType           = errors.New("competition reliability_type is invalid")
@@ -509,6 +510,7 @@ func (s *Service) normalizeSafetyReportInput(ctx context.Context, input RecordSa
 	matchID := uuidPtr(input.CompetitionMatchID)
 	teamID := uuidPtr(input.CompetitionSessionTeamID)
 	tournamentID := uuidPtr(input.CompetitionTournamentID)
+	var tournament *tournamentRecord
 
 	switch targetType {
 	case SafetyTargetCompetitionSession:
@@ -566,9 +568,11 @@ func (s *Service) normalizeSafetyReportInput(ctx context.Context, input RecordSa
 		if targetID == uuid.Nil {
 			return normalizedSafetyReportInput{}, ErrSafetyTargetRequired
 		}
-		if _, err := s.loadTournament(ctx, targetID); err != nil {
+		loadedTournament, err := s.loadTournament(ctx, targetID)
+		if err != nil {
 			return normalizedSafetyReportInput{}, err
 		}
+		tournament = &loadedTournament
 		sessionID = nil
 		matchID = nil
 		teamID = nil
@@ -591,6 +595,26 @@ func (s *Service) normalizeSafetyReportInput(ctx context.Context, input RecordSa
 		tournamentID = nil
 	default:
 		return normalizedSafetyReportInput{}, ErrSafetyTargetType
+	}
+
+	if tournament != nil {
+		if err := s.requireSafetyUserInTournament(ctx, *tournament, input.ReporterUserID); err != nil {
+			return normalizedSafetyReportInput{}, err
+		}
+		if subjectUserID != nil {
+			if err := s.requireSafetyUserInTournament(ctx, *tournament, *subjectUserID); err != nil {
+				return normalizedSafetyReportInput{}, err
+			}
+		}
+	} else {
+		if err := s.requireSafetyUserInScope(ctx, sessionID, matchID, input.ReporterUserID); err != nil {
+			return normalizedSafetyReportInput{}, err
+		}
+		if subjectUserID != nil {
+			if err := s.requireSafetyUserInScope(ctx, sessionID, matchID, *subjectUserID); err != nil {
+				return normalizedSafetyReportInput{}, err
+			}
+		}
 	}
 
 	return normalizedSafetyReportInput{
@@ -637,6 +661,12 @@ func (s *Service) normalizeSafetyBlockInput(ctx context.Context, input RecordSaf
 			return normalizedSafetyBlockInput{}, ErrSafetyTargetRequired
 		}
 	}
+	if err := s.requireSafetyUserInScope(ctx, &input.CompetitionSessionID, matchID, input.BlockerUserID); err != nil {
+		return normalizedSafetyBlockInput{}, err
+	}
+	if err := s.requireSafetyUserInScope(ctx, &input.CompetitionSessionID, matchID, input.BlockedUserID); err != nil {
+		return normalizedSafetyBlockInput{}, err
+	}
 	return normalizedSafetyBlockInput{
 		CompetitionSessionID: input.CompetitionSessionID,
 		CompetitionMatchID:   matchID,
@@ -674,6 +704,9 @@ func (s *Service) normalizeReliabilityEventInput(ctx context.Context, input Reco
 	subjectUserID := uuidPtr(input.SubjectUserID)
 	if subjectUserID != nil {
 		if err := s.requireUser(ctx, *subjectUserID); err != nil {
+			return normalizedReliabilityEventInput{}, err
+		}
+		if err := s.requireSafetyUserInScope(ctx, &input.CompetitionSessionID, matchID, *subjectUserID); err != nil {
 			return normalizedReliabilityEventInput{}, err
 		}
 	}
@@ -729,6 +762,109 @@ func (s *Service) requireTeam(ctx context.Context, teamID uuid.UUID) (teamRecord
 		return teamRecord{}, ErrTeamNotFound
 	}
 	return *team, nil
+}
+
+func (s *Service) requireSafetyUserInScope(ctx context.Context, sessionID *uuid.UUID, matchID *uuid.UUID, userID uuid.UUID) error {
+	if matchID != nil {
+		if sessionID == nil {
+			return ErrSafetyTargetRequired
+		}
+		return s.requireSafetyUserInMatch(ctx, *sessionID, *matchID, userID)
+	}
+	if sessionID == nil {
+		return ErrSafetyTargetRequired
+	}
+	return s.requireSafetyUserInSession(ctx, *sessionID, userID)
+}
+
+func (s *Service) requireSafetyUserInSession(ctx context.Context, sessionID uuid.UUID, userID uuid.UUID) error {
+	ok, err := s.repository.SessionHasRosterMemberUser(ctx, sessionID, userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrSafetyUserOutOfScope
+	}
+	return nil
+}
+
+func (s *Service) requireSafetyUserInMatch(ctx context.Context, sessionID uuid.UUID, matchID uuid.UUID, userID uuid.UUID) error {
+	sideSlots, err := s.repository.ListMatchSideSlotsBySessionID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	matchTeams := make(map[uuid.UUID]struct{})
+	for _, slot := range sideSlots {
+		if slot.MatchID == matchID {
+			matchTeams[slot.TeamID] = struct{}{}
+		}
+	}
+	if len(matchTeams) == 0 {
+		return ErrSafetyUserOutOfScope
+	}
+
+	roster, err := s.repository.ListRosterMembersBySessionID(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	for _, member := range roster {
+		if member.UserID != userID {
+			continue
+		}
+		if _, ok := matchTeams[member.TeamID]; ok {
+			return nil
+		}
+	}
+	return ErrSafetyUserOutOfScope
+}
+
+func (s *Service) requireSafetyUserInTournament(ctx context.Context, tournament tournamentRecord, userID uuid.UUID) error {
+	if tournament.OwnerUserID == userID {
+		return nil
+	}
+	store, err := s.tournamentStore()
+	if err != nil {
+		return err
+	}
+	brackets, err := store.ListTournamentBracketsByTournamentID(ctx, tournament.ID)
+	if err != nil {
+		return err
+	}
+	for _, bracket := range brackets {
+		members, err := store.ListTournamentTeamSnapshotMembersByBracketID(ctx, bracket.ID)
+		if err != nil {
+			return err
+		}
+		for _, member := range members {
+			if member.UserID == userID {
+				return nil
+			}
+		}
+
+		seeds, err := store.ListTournamentSeedsByBracketID(ctx, bracket.ID)
+		if err != nil {
+			return err
+		}
+		for _, seed := range seeds {
+			team, err := s.repository.GetTeamByID(ctx, seed.CompetitionSessionTeamID)
+			if err != nil {
+				return err
+			}
+			if team == nil {
+				continue
+			}
+			roster, err := s.repository.ListRosterMembersBySessionID(ctx, team.SessionID)
+			if err != nil {
+				return err
+			}
+			for _, member := range roster {
+				if member.TeamID == team.ID && member.UserID == userID {
+					return nil
+				}
+			}
+		}
+	}
+	return ErrSafetyUserOutOfScope
 }
 
 func (s *Service) safetyStore() (safetyStore, error) {

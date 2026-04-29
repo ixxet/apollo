@@ -236,6 +236,9 @@ func (s *Service) CompetitionReadiness(actor StaffActor) CompetitionCommandReadi
 
 	commands := make([]CompetitionCommandCapability, 0, len(commandDefinitions))
 	for _, definition := range commandDefinitions {
+		if !shouldExposeCommandDefinition(definition, capabilities) {
+			continue
+		}
 		available := authz.HasCapability(capabilities, definition.RequiredCapability)
 		reason := ""
 		if !available {
@@ -255,6 +258,13 @@ func (s *Service) CompetitionReadiness(actor StaffActor) CompetitionCommandReadi
 		Capabilities: capabilities,
 		Commands:     commands,
 	}
+}
+
+func shouldExposeCommandDefinition(definition CompetitionCommandDefinition, capabilities []authz.Capability) bool {
+	if definition.RequiredCapability == authz.CapabilityCompetitionSafetyReview {
+		return authz.HasCapability(capabilities, authz.CapabilityCompetitionSafetyReview)
+	}
+	return true
 }
 
 func (s *Service) ExecuteCommand(ctx context.Context, command CompetitionCommand) (CompetitionCommandOutcome, error) {
