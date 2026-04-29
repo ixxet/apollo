@@ -59,6 +59,8 @@ type stubStore struct {
 	listMemberRatingsByUser  func(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error)
 	listMemberStatRowsByUser func(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error)
 	listMemberHistoryByUser  func(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error)
+	publicReadiness          func(ctx context.Context) (publicCompetitionReadinessRecord, error)
+	publicLeaderboard        func(ctx context.Context, input PublicCompetitionLeaderboardInput) ([]publicCompetitionLeaderboardRowRecord, error)
 }
 
 func (s stubStore) GetUserByID(ctx context.Context, userID uuid.UUID) (*store.ApolloUser, error) {
@@ -274,6 +276,20 @@ func (s stubStore) ListMemberHistoryByUserID(ctx context.Context, userID uuid.UU
 		return nil, nil
 	}
 	return s.listMemberHistoryByUser(ctx, userID)
+}
+
+func (s stubStore) GetPublicCompetitionReadiness(ctx context.Context) (publicCompetitionReadinessRecord, error) {
+	if s.publicReadiness == nil {
+		return publicCompetitionReadinessRecord{}, nil
+	}
+	return s.publicReadiness(ctx)
+}
+
+func (s stubStore) ListPublicCompetitionLeaderboard(ctx context.Context, input PublicCompetitionLeaderboardInput) ([]publicCompetitionLeaderboardRowRecord, error) {
+	if s.publicLeaderboard == nil {
+		return nil, nil
+	}
+	return s.publicLeaderboard(ctx, input)
 }
 
 func TestAddRosterMemberMapsSchemaUniqueConflictToErrRosterConflict(t *testing.T) {

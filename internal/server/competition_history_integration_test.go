@@ -137,6 +137,31 @@ func TestCompetitionHistoryRuntimeRecordsResultsCompletesSessionsAndExposesDeriv
 	if memberTwoHistory[0].Outcome != "loss" {
 		t.Fatalf("memberTwoHistory[0].Outcome = %q, want loss", memberTwoHistory[0].Outcome)
 	}
+
+	publicReadinessResponse := env.doRequest(t, http.MethodGet, "/api/v1/public/competition/readiness", nil)
+	if publicReadinessResponse.Code != http.StatusOK {
+		t.Fatalf("publicReadinessResponse.Code = %d, want %d body=%s", publicReadinessResponse.Code, http.StatusOK, publicReadinessResponse.Body.String())
+	}
+	assertPublicCompetitionBodySafe(t, publicReadinessResponse.Body.String(), owner.ID, memberTwo.ID)
+	if !strings.Contains(publicReadinessResponse.Body.String(), `"result_source":"finalized_or_corrected_canonical_results"`) {
+		t.Fatalf("public readiness missing canonical result source: %s", publicReadinessResponse.Body.String())
+	}
+	if !strings.Contains(publicReadinessResponse.Body.String(), `"rating_source":"legacy_elo_like_active_projection"`) {
+		t.Fatalf("public readiness missing legacy rating source: %s", publicReadinessResponse.Body.String())
+	}
+
+	publicLeaderboardResponse := env.doRequest(t, http.MethodGet, "/api/v1/public/competition/leaderboards?sport_key=badminton&mode_key=head_to_head:s2-p1&stat_type=wins", nil)
+	if publicLeaderboardResponse.Code != http.StatusOK {
+		t.Fatalf("publicLeaderboardResponse.Code = %d, want %d body=%s", publicLeaderboardResponse.Code, http.StatusOK, publicLeaderboardResponse.Body.String())
+	}
+	publicLeaderboardBody := publicLeaderboardResponse.Body.String()
+	assertPublicCompetitionBodySafe(t, publicLeaderboardBody, owner.ID, memberTwo.ID)
+	if !strings.Contains(publicLeaderboardBody, `"participant":"participant_1"`) {
+		t.Fatalf("public leaderboard missing redacted participant label: %s", publicLeaderboardBody)
+	}
+	if strings.Contains(publicLeaderboardBody, "source_result_id") || strings.Contains(publicLeaderboardBody, "canonical_result_id") || strings.Contains(publicLeaderboardBody, "competition_match_id") {
+		t.Fatalf("public leaderboard leaked internal result identity: %s", publicLeaderboardBody)
+	}
 }
 
 func TestCompetitionHistoryRuntimeRejectsInvalidResultWrites(t *testing.T) {
@@ -1079,4 +1104,35 @@ func decodeCompetitionMemberHistory(t *testing.T, response *httptest.ResponseRec
 	}
 
 	return payload
+}
+
+func assertPublicCompetitionBodySafe(t *testing.T, body string, userIDs ...uuid.UUID) {
+	t.Helper()
+
+	for _, userID := range userIDs {
+		if strings.Contains(body, userID.String()) {
+			t.Fatalf("public competition body leaked user id %s: %s", userID, body)
+		}
+	}
+	for _, forbidden := range []string{
+		"openskill",
+		"accepted_delta_budget",
+		"safety",
+		"reliability",
+		"reporter_user_id",
+		"subject_user_id",
+		"blocked_user_id",
+		"private_notes",
+		"trusted_surface",
+		"actor_user_id",
+		"command",
+		"readiness_message",
+		"match_quality",
+		"predicted_win_probability",
+		"projection_watermark",
+	} {
+		if strings.Contains(strings.ToLower(body), forbidden) {
+			t.Fatalf("public competition body leaked %q: %s", forbidden, body)
+		}
+	}
 }
