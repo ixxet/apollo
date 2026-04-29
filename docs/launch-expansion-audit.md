@@ -1813,5 +1813,85 @@ Still deferred:
   public/Hestia competition expansion remain out of scope until separately
   reopened.
 
+3B.18.1 Cohesion Hardening followed this packet to verify and patch
+safety/reliability cohesion before 3B.19 public competition readiness.
+
+## 3B.18.1 Cohesion Hardening Addendum
+
+Date: 2026-04-29
+
+Phase 3B.18.1 `Cohesion Hardening` is closed in APOLLO repo/runtime truth,
+with APOLLO, Themis, and Hestia cohesion fixes pushed and with Prometheus,
+platform docs, and deployed truth unchanged. It patched only real 3B.18
+safety/reliability boundary bugs:
+
+- APOLLO filters safety/reliability command metadata out of the general
+  competition readiness contract unless the actor has
+  `competition_safety_review`.
+- APOLLO validates competition-scoped safety/reliability actors before
+  recording report, block, or reliability facts.
+- APOLLO rejects out-of-scope reporter, subject, blocker, blocked, and
+  reliability subject users without persisting private safety facts.
+- APOLLO safety/reliability storage now prevents deletion as well as mutation
+  of recorded report, block, reliability, and audit facts.
+- Themis preserves APOLLO safety/reliability denial reasons in manager-only
+  ops states instead of replacing them with generic competition-copy failures.
+- Themis renders unavailable or denied safety/reliability fallback states
+  without fake pending report, block, or reliability facts.
+- Hestia's same-origin APOLLO proxy now allowlists member-safe routes and
+  blocks private competition safety/reliability and session routes.
+- Hestia strips trusted-surface headers before forwarding same-origin APOLLO
+  proxy requests.
+
+Confirmed boundaries:
+
+- Reports and blocks remain private safety facts, not public truth.
+- Reliability events remain internal operational facts.
+- Safety/reliability audit facts remain immutable and auditable.
+- Manager-only access remains gated by APOLLO capability and trusted-surface
+  checks.
+- Private report, block, reliability, actor, reporter, and subject details do
+  not leak to public or member-safe projections.
+- Safety/reliability facts do not mutate canonical result, lifecycle, rating,
+  analytics, ARES, tournament, booking, public, member, UI, or game identity
+  truth.
+- Themis consumes APOLLO safety/reliability contracts only and does not infer
+  hidden safety policy client-side.
+- Hestia exposes no public/member safety, report, block, social, public
+  profile, leaderboard, tournament, CP, badge, squad, rivalry, messaging, or
+  chat surface from this hardening pass.
+- Prometheus/GitOps and live deployment state were inspected but not changed.
+
+Verification completed:
+
+- APOLLO passed `git diff --check`, `sqlc generate -f db/sqlc.yaml`, focused
+  safety/reliability, command readiness, audit, migration, authz/privacy, and
+  non-mutation tests, `go test -count=1 ./internal/competition
+  ./internal/server ./db/migrations ./cmd/apollo`, `go vet ./...`,
+  `go build ./cmd/apollo`, and `go test -count=1 ./...`.
+- Themis passed `git diff --check`, `npm run check`, `npm test`,
+  `npm run build`, and focused desktop/mobile Playwright safety/reliability
+  denial and review tests.
+- Hestia passed `git diff --check`, `npm run check`, `npm test`,
+  `npm run build`, and focused desktop/mobile Playwright proxy-boundary tests.
+- Platform docs were checked for 3B.18 shipped truth and 3B.19/3B.20 deferred
+  truth; no platform docs patch was required.
+- Prometheus/GitOps status was clean and no deployment commit was made.
+
+Still deferred:
+
+- Public competition readiness remains deferred to Phase 3B.19.
+- Public tournaments remain deferred to Phase 3B.19.
+- Public/social/member safety surfaces, messaging/chat, public profiles,
+  scouting, and leaderboards remain deferred.
+- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- OpenSkill read-path switch remains deferred.
+- ARES behavior changes remain deferred.
+- Dashboard-first analytics and carry coefficient remain deferred.
+- Project-wide SemVer governance, proposal workflow, recurring schedule, court
+  splitting, booking/commercial work, browser trusted-surface token, and
+  public/Hestia competition expansion remain out of scope until separately
+  reopened.
+
 Current next packet if launch expansion continues: 3B.19 Public Competition
-Readiness, unless a 3B.18.1 safety/reliability hardening pass is needed.
+Readiness.
