@@ -190,6 +190,141 @@ func TestPublicGameIdentityProjectionIsDeterministicAndPolicyVersioned(t *testin
 	}
 }
 
+func TestPublicGameIdentityRivalryStatesStayWithinProjectionContext(t *testing.T) {
+	firstUserID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	secondUserID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	thirdUserID := uuid.MustParse("00000000-0000-0000-0000-000000000003")
+	computedAt := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	svc := NewService(stubStore{
+		gameIdentityRows: func(_ context.Context, _ GameIdentityProjectionInput) ([]gameIdentityProjectionRowRecord, error) {
+			return []gameIdentityProjectionRowRecord{
+				{
+					UserID:        firstUserID,
+					SportKey:      "badminton",
+					ModeKey:       "head_to_head:s2-p1",
+					FacilityKey:   "gym-floor",
+					TeamScope:     analyticsDimensionAll,
+					MatchesPlayed: 6,
+					Wins:          5,
+					ComputedAt:    computedAt,
+				},
+				{
+					UserID:        secondUserID,
+					SportKey:      "basketball",
+					ModeKey:       "three_on_three",
+					FacilityKey:   "court-a",
+					TeamScope:     analyticsDimensionAll,
+					MatchesPlayed: 5,
+					Wins:          4,
+					ComputedAt:    computedAt.Add(time.Minute),
+				},
+				{
+					UserID:        thirdUserID,
+					SportKey:      "badminton",
+					ModeKey:       "head_to_head:s2-p1",
+					FacilityKey:   "gym-floor",
+					TeamScope:     analyticsDimensionAll,
+					MatchesPlayed: 3,
+					Wins:          2,
+					ComputedAt:    computedAt.Add(2 * time.Minute),
+				},
+			}, nil
+		},
+	})
+
+	projection, err := svc.PublicGameIdentity(context.Background(), PublicGameIdentityInput{})
+	if err != nil {
+		t.Fatalf("PublicGameIdentity() error = %v", err)
+	}
+	if got, want := len(projection.RivalryStates), 1; got != want {
+		t.Fatalf("len(RivalryStates) = %d, want %d: %+v", got, want, projection.RivalryStates)
+	}
+	rivalry := projection.RivalryStates[0]
+	if rivalry.SportKey != "badminton" || rivalry.ModeKey != "head_to_head:s2-p1" || rivalry.FacilityKey != "gym-floor" {
+		t.Fatalf("rivalry context = %s/%s/%s, want badminton head_to_head:s2-p1 gym-floor", rivalry.SportKey, rivalry.ModeKey, rivalry.FacilityKey)
+	}
+	if got, want := rivalry.Participants, []string{"participant_1", "participant_3"}; !slices.Equal(got, want) {
+		t.Fatalf("rivalry participants = %v, want %v", got, want)
+	}
+	if strings.Contains(strings.Join(rivalry.Participants, ","), "participant_2") {
+		t.Fatalf("rivalry crossed projection context: %+v", rivalry)
+	}
+}
+
+func TestPublicGameIdentityLabelsStayScopedToProjectionRow(t *testing.T) {
+	firstUserID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	secondUserID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	computedAt := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	svc := NewService(stubStore{
+		gameIdentityRows: func(_ context.Context, _ GameIdentityProjectionInput) ([]gameIdentityProjectionRowRecord, error) {
+			return []gameIdentityProjectionRowRecord{
+				{
+					UserID:        firstUserID,
+					SportKey:      "badminton",
+					ModeKey:       "head_to_head:s2-p1",
+					FacilityKey:   "gym-floor",
+					TeamScope:     analyticsDimensionAll,
+					MatchesPlayed: 6,
+					Wins:          5,
+					ComputedAt:    computedAt,
+				},
+				{
+					UserID:        secondUserID,
+					SportKey:      "badminton",
+					ModeKey:       "head_to_head:s2-p1",
+					FacilityKey:   "gym-floor",
+					TeamScope:     analyticsDimensionAll,
+					MatchesPlayed: 3,
+					Wins:          2,
+					ComputedAt:    computedAt.Add(time.Minute),
+				},
+				{
+					UserID:        firstUserID,
+					SportKey:      "basketball",
+					ModeKey:       "three_on_three",
+					FacilityKey:   "court-a",
+					TeamScope:     analyticsDimensionAll,
+					MatchesPlayed: 4,
+					Wins:          4,
+					ComputedAt:    computedAt.Add(2 * time.Minute),
+				},
+			}, nil
+		},
+	})
+
+	projection, err := svc.PublicGameIdentity(context.Background(), PublicGameIdentityInput{})
+	if err != nil {
+		t.Fatalf("PublicGameIdentity() error = %v", err)
+	}
+	if got, want := []string{projection.CP[0].Participant, projection.CP[1].Participant, projection.CP[2].Participant}, []string{"participant_1", "participant_2", "participant_3"}; !slices.Equal(got, want) {
+		t.Fatalf("CP participants = %v, want %v", got, want)
+	}
+	assertBadgeParticipant := func(sportKey string, want string) {
+		t.Helper()
+		for _, award := range projection.BadgeAwards {
+			if award.SportKey == sportKey && award.BadgeKey == "first_win" {
+				if award.Participant != want {
+					t.Fatalf("%s first_win participant = %q, want %q", sportKey, award.Participant, want)
+				}
+				return
+			}
+		}
+		t.Fatalf("missing %s first_win badge in %+v", sportKey, projection.BadgeAwards)
+	}
+	assertBadgeParticipant("badminton", "participant_1")
+	assertBadgeParticipant("basketball", "participant_2")
+
+	for _, rivalry := range projection.RivalryStates {
+		if rivalry.SportKey == "badminton" {
+			if got, want := rivalry.Participants, []string{"participant_1", "participant_3"}; !slices.Equal(got, want) {
+				t.Fatalf("badminton rivalry participants = %v, want %v", got, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing badminton rivalry in %+v", projection.RivalryStates)
+}
+
 func TestMemberGameIdentityScopesToCaller(t *testing.T) {
 	userID := uuid.MustParse("00000000-0000-0000-0000-000000000010")
 	computedAt := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
