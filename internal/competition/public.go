@@ -19,10 +19,6 @@ const (
 
 var (
 	publicCompetitionDeferred = []string{
-		"cp",
-		"badges",
-		"rivalry",
-		"squads",
 		"messaging_chat",
 		"public_social_graph",
 		"rating_read_path_switch",

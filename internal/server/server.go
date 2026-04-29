@@ -86,6 +86,8 @@ type CompetitionManager interface {
 	ListMemberStats(ctx context.Context, userID uuid.UUID) ([]competition.MemberStat, error)
 	PublicCompetitionReadiness(ctx context.Context) (competition.PublicCompetitionReadiness, error)
 	ListPublicCompetitionLeaderboard(ctx context.Context, input competition.PublicCompetitionLeaderboardInput) (competition.PublicCompetitionLeaderboard, error)
+	PublicGameIdentity(ctx context.Context, input competition.PublicGameIdentityInput) (competition.GameIdentityProjection, error)
+	MemberGameIdentity(ctx context.Context, userID uuid.UUID, input competition.PublicGameIdentityInput) (competition.GameIdentityProjection, error)
 	CompetitionReadiness(actor competition.StaffActor) competition.CompetitionCommandReadiness
 	CompetitionSafetyReadiness(ctx context.Context, actor competition.StaffActor) (competition.CompetitionSafetyReadiness, error)
 	GetCompetitionSafetyReview(ctx context.Context, actor competition.StaffActor, limit int) (competition.CompetitionSafetyReview, error)
@@ -532,6 +534,25 @@ func NewHandler(deps Dependencies) http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, leaderboard)
+	})
+	router.Get("/api/v1/public/competition/game-identity", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Competition == nil {
+			writeError(w, http.StatusServiceUnavailable, errors.New("competition dependency is unavailable"))
+			return
+		}
+
+		input, err := parseGameIdentityInput(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		identity, err := deps.Competition.PublicGameIdentity(r.Context(), input)
+		if err != nil {
+			writeCompetitionError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, identity)
 	})
 
 	router.Group(func(authenticated chi.Router) {
@@ -1078,6 +1099,21 @@ func NewHandler(deps Dependencies) http.Handler {
 			}
 
 			writeJSON(w, http.StatusOK, memberStats)
+		})
+		authenticated.Get("/api/v1/competition/game-identity", func(w http.ResponseWriter, r *http.Request) {
+			principal := principalFromContext(r.Context())
+			input, err := parseGameIdentityInput(r)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			identity, err := deps.Competition.MemberGameIdentity(r.Context(), principal.UserID, input)
+			if err != nil {
+				writeCompetitionError(w, err)
+				return
+			}
+
+			writeJSON(w, http.StatusOK, identity)
 		})
 		authenticated.Get("/api/v1/competition/history", func(w http.ResponseWriter, r *http.Request) {
 			if deps.CompetitionHistory == nil {
@@ -2684,6 +2720,25 @@ func normalizeDecodeError(err error) error {
 	}
 
 	return err
+}
+
+func parseGameIdentityInput(r *http.Request) (competition.PublicGameIdentityInput, error) {
+	limit := 0
+	if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+		parsed, err := strconv.Atoi(rawLimit)
+		if err != nil {
+			return competition.PublicGameIdentityInput{}, errors.New("game identity limit is invalid")
+		}
+		limit = parsed
+	}
+
+	return competition.PublicGameIdentityInput{
+		SportKey:    r.URL.Query().Get("sport_key"),
+		ModeKey:     r.URL.Query().Get("mode_key"),
+		FacilityKey: r.URL.Query().Get("facility_key"),
+		TeamScope:   r.URL.Query().Get("team_scope"),
+		Limit:       limit,
+	}, nil
 }
 
 func parseUUIDParam(r *http.Request, name string) (uuid.UUID, error) {

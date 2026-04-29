@@ -155,6 +155,7 @@ type Store interface {
 	ListMemberHistoryByUserID(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error)
 	GetPublicCompetitionReadiness(ctx context.Context) (publicCompetitionReadinessRecord, error)
 	ListPublicCompetitionLeaderboard(ctx context.Context, input PublicCompetitionLeaderboardInput) ([]publicCompetitionLeaderboardRowRecord, error)
+	ListGameIdentityProjectionRows(ctx context.Context, input GameIdentityProjectionInput) ([]gameIdentityProjectionRowRecord, error)
 }
 
 type Service struct {
@@ -339,6 +340,105 @@ type PublicCompetitionLeaderboardRow struct {
 	StatValue    float64    `json:"stat_value"`
 	LastResultAt *time.Time `json:"last_result_at,omitempty"`
 	ComputedAt   time.Time  `json:"computed_at"`
+}
+
+type PublicGameIdentityInput struct {
+	SportKey    string
+	ModeKey     string
+	FacilityKey string
+	TeamScope   string
+	Limit       int
+}
+
+type GameIdentityProjectionInput struct {
+	UserID      *uuid.UUID
+	SportKey    string
+	ModeKey     string
+	FacilityKey string
+	TeamScope   string
+	Limit       int
+}
+
+type GameIdentityProjection struct {
+	ContractVersion      string                      `json:"contract_version"`
+	ProjectionVersion    string                      `json:"projection_version"`
+	Status               string                      `json:"status"`
+	ResultSource         string                      `json:"result_source"`
+	RatingSource         string                      `json:"rating_source"`
+	CPPolicyVersion      string                      `json:"cp_policy_version"`
+	BadgePolicyVersion   string                      `json:"badge_policy_version"`
+	RivalryPolicyVersion string                      `json:"rivalry_policy_version"`
+	SquadPolicyVersion   string                      `json:"squad_policy_version"`
+	CP                   []GameIdentityCPProjection  `json:"cp"`
+	BadgeAwards          []GameIdentityBadgeAward    `json:"badge_awards"`
+	RivalryStates        []GameIdentityRivalryState  `json:"rivalry_states"`
+	SquadIdentities      []GameIdentitySquadIdentity `json:"squad_identities"`
+}
+
+type GameIdentityCPProjection struct {
+	Rank        int                       `json:"rank"`
+	Participant string                    `json:"participant"`
+	SportKey    string                    `json:"sport_key"`
+	ModeKey     string                    `json:"mode_key"`
+	FacilityKey string                    `json:"facility_key"`
+	TeamScope   string                    `json:"team_scope"`
+	CP          int                       `json:"cp"`
+	Components  []GameIdentityCPComponent `json:"components"`
+	ComputedAt  time.Time                 `json:"computed_at"`
+}
+
+type GameIdentityCPComponent struct {
+	Metric        string  `json:"metric"`
+	UnitValue     float64 `json:"unit_value"`
+	PointsPerUnit int     `json:"points_per_unit"`
+	Points        int     `json:"points"`
+}
+
+type GameIdentityBadgeAward struct {
+	Participant   string                      `json:"participant"`
+	BadgeKey      string                      `json:"badge_key"`
+	BadgeName     string                      `json:"badge_name"`
+	PolicyVersion string                      `json:"policy_version"`
+	SportKey      string                      `json:"sport_key"`
+	ModeKey       string                      `json:"mode_key"`
+	FacilityKey   string                      `json:"facility_key"`
+	TeamScope     string                      `json:"team_scope"`
+	Evidence      []GameIdentityBadgeEvidence `json:"evidence"`
+	AwardedAt     *time.Time                  `json:"awarded_at,omitempty"`
+	ComputedAt    time.Time                   `json:"computed_at"`
+}
+
+type GameIdentityBadgeEvidence struct {
+	Metric    string  `json:"metric"`
+	Value     float64 `json:"value"`
+	Threshold float64 `json:"threshold"`
+}
+
+type GameIdentityRivalryState struct {
+	RivalryKey    string    `json:"rivalry_key"`
+	State         string    `json:"state"`
+	PolicyVersion string    `json:"policy_version"`
+	SportKey      string    `json:"sport_key"`
+	ModeKey       string    `json:"mode_key"`
+	FacilityKey   string    `json:"facility_key"`
+	TeamScope     string    `json:"team_scope"`
+	Participants  []string  `json:"participants"`
+	Leader        string    `json:"leader"`
+	CPGap         int       `json:"cp_gap"`
+	ComputedAt    time.Time `json:"computed_at"`
+}
+
+type GameIdentitySquadIdentity struct {
+	SquadKey         string    `json:"squad_key"`
+	SquadName        string    `json:"squad_name"`
+	PolicyVersion    string    `json:"policy_version"`
+	SportKey         string    `json:"sport_key"`
+	ModeKey          string    `json:"mode_key"`
+	FacilityKey      string    `json:"facility_key"`
+	TeamScope        string    `json:"team_scope"`
+	ParticipantCount int       `json:"participant_count"`
+	CPTotal          int       `json:"cp_total"`
+	ComputedAt       time.Time `json:"computed_at"`
 }
 
 type CreateSessionInput struct {
@@ -559,6 +659,20 @@ type publicCompetitionLeaderboardRowRecord struct {
 	Confidence   float64
 	LastResultAt *time.Time
 	ComputedAt   time.Time
+}
+
+type gameIdentityProjectionRowRecord struct {
+	UserID        uuid.UUID
+	SportKey      string
+	ModeKey       string
+	FacilityKey   string
+	TeamScope     string
+	MatchesPlayed float64
+	Wins          float64
+	Losses        float64
+	Draws         float64
+	LastResultAt  *time.Time
+	ComputedAt    time.Time
 }
 
 func NewService(repository Store) *Service {
