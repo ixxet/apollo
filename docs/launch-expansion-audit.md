@@ -8,7 +8,7 @@ Date: 2026-04-26
 
 Do not launch the full expansion as one line. The system can support the vision, but only if the trust substrate lands before public excitement mechanics.
 
-The current APOLLO codebase is strongest at bounded, authenticated, backend-first workflows: member auth, profile state, presence-derived member context, lobby intent, competition sessions, queueing, assignment, match result capture, staff attribution, schedule/booking controls, public-safe booking intake, internal tournaments, and manager/internal safety and reliability facts. It is not yet ready for public ratings, public leaderboards, rivalry, badges, tournaments with public stakes, public/member safety UI, messaging/chat, or broad public competition surfaces.
+The current APOLLO codebase is strongest at bounded, authenticated, backend-first workflows: member auth, profile state, presence-derived member context, lobby intent, competition sessions, queueing, assignment, match result capture, staff attribution, schedule/booking controls, public-safe booking intake, public-safe competition readiness/leaderboards, public/member-safe game identity projections, internal tournaments, and manager/internal safety and reliability facts. It is not yet ready for public ratings, public tournaments with stakes, public/member safety UI, messaging/chat, broad public social graph behavior, public profiles/scouting, or OpenSkill public stakes.
 
 The correct strategic pattern is:
 
@@ -21,12 +21,11 @@ The correct strategic pattern is:
 7. Add social safety before public surfaces.
 8. Add retention mechanics after public trust is durable.
 
-Phase 3B.18 has now closed the internal social safety/reliability foundation
-after 3B.12 result trust, 3B.13 legacy rating, 3B.14 OpenSkill comparison,
-3B.15 ARES v2 proposal facts, 3B.16 internal analytics, and 3B.17 internal
-tournaments. The next launch-expansion packet should stay on public competition
-readiness or a bounded hardening pass, not dashboards, public profiles, public
-tournaments, badges, messaging/chat, or an OpenSkill hard swap.
+Phase 3B.20 has now closed the first trusted game identity layer after 3B.19
+public competition readiness and 3B.18 internal social safety/reliability. The
+next launch-expansion packet should stay on bounded cohesion hardening or a
+separately gated next line, not dashboards, public profiles, public tournaments,
+messaging/chat, broad social graph behavior, or an OpenSkill hard swap.
 
 ## Evidence Anchors
 
@@ -1219,14 +1218,14 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-26 | Hybrid OpenSkill means OpenSkill kernel plus APOLLO policy plus legacy Elo characterization/fallback, not two permanent competing ratings. | This audit consolidation. |
 | 2026-04-26 | CLI should start as a service-backed wrapper and evolve toward a shared application command layer; no independent CLI domain model. | This audit consolidation. |
 | 2026-04-27 | Substrate decomposition accepted: internal Themis ops shell, approval/proposal workflow, match lifecycle, notifications, schedule policy, and resource splitting are reusable primitives, not public surfaces. | This audit consolidation. |
-| 2026-04-27 | Phase 3B.11 shipped only command/readiness/CLI/Themis ops foundation; result trust, OpenSkill, analytics, tournament runtime, public competition surfaces, and game identity remain deferred. | 3B.11 closeout. |
-| 2026-04-27 | Phase 3B.12 shipped lifecycle/result trust only: canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, and finalized/corrected-only rating consumption. Rating extraction, OpenSkill, analytics, tournament runtime, public surfaces, and game identity remain deferred. | 3B.12 closeout. |
+| 2026-04-27 | Phase 3B.11 shipped only command/readiness/CLI/Themis ops foundation; result trust, OpenSkill, analytics, tournament runtime, public competition surfaces, and game identity were still deferred at that closeout. | 3B.11 closeout. |
+| 2026-04-27 | Phase 3B.12 shipped lifecycle/result trust only: canonical result identity, recorded/finalized/disputed/corrected/voided facts, correction supersession, and finalized/corrected-only rating consumption. Rating extraction, OpenSkill, analytics, tournament runtime, public surfaces, and game identity were still deferred at that closeout. | 3B.12 closeout. |
 | 2026-04-27 | Phase 3B.12.1 cohesion hardening found no runtime, Themis, Hestia, or docs truth drift; no patch worker changes were required. | 3B.12.1 hardening closeout. |
 | 2026-04-27 | Phase 3B.13 shipped legacy rating foundation only: current rating math is explicit, versioned, golden-tested, auditable, bound to finalized/corrected canonical results, and stored with deterministic projection watermarks. OpenSkill remains deferred to 3B.14. | 3B.13 closeout. |
-| 2026-04-28 | Phase 3B.14 shipped OpenSkill dual-run comparison only: internal OpenSkill comparison rows/events, legacy/OpenSkill deltas, accepted budgets, scenarios, and delta flags are real while the legacy rating projection remains the active read path. OpenSkill cutover, ARES v2, analytics, tournaments, public surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.14 closeout. |
+| 2026-04-28 | Phase 3B.14 shipped OpenSkill dual-run comparison only: internal OpenSkill comparison rows/events, legacy/OpenSkill deltas, accepted budgets, scenarios, and delta flags are real while the legacy rating projection remains the active read path. OpenSkill cutover, ARES v2, analytics, tournaments, public surfaces, CP/badges/rivalry/squads, and SemVer governance were still deferred at that closeout. | 3B.14 closeout. |
 | 2026-04-28 | Phase 3B.14.1 cohesion hardening fixed OpenSkill delta flag/storage boundary coherence, added focused boundary coverage, and corrected stale 3B.14/SemVer docs truth. OpenSkill remains internal dual-run only, the legacy read path remains active, canonical-result-only rating guards still hold, comparison facts remain deterministic/auditable, and no Hestia 3B.14 comparison leak was proven. | 3B.14.1 hardening closeout. |
-| 2026-04-28 | Phase 3B.15 shipped ARES v2 proposal/match-preview foundation only: queue intent facts, internal preview projections/events, match quality, predicted win probability, and explanation codes are real over trusted APOLLO projections while ARES remains a proposal engine and not a result, rating, booking, or public competition owner. OpenSkill read-path switch, analytics, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.15 closeout. |
-| 2026-04-28 | Phase 3B.16 shipped competition analytics foundation only: internal stat events and analytics projections are deterministic, versioned, and derived from finalized/corrected canonical results plus legacy active rating facts. Dashboard-first work, public profiles/stats/scouting, carry coefficient, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, OpenSkill read-path switch, and SemVer governance remain deferred. | 3B.16 closeout. |
+| 2026-04-28 | Phase 3B.15 shipped ARES v2 proposal/match-preview foundation only: queue intent facts, internal preview projections/events, match quality, predicted win probability, and explanation codes are real over trusted APOLLO projections while ARES remains a proposal engine and not a result, rating, booking, or public competition owner. OpenSkill read-path switch, analytics, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, and SemVer governance were still deferred at that closeout. | 3B.15 closeout. |
+| 2026-04-28 | Phase 3B.16 shipped competition analytics foundation only: internal stat events and analytics projections are deterministic, versioned, and derived from finalized/corrected canonical results plus legacy active rating facts. Dashboard-first work, public profiles/stats/scouting, carry coefficient, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, OpenSkill read-path switch, and SemVer governance were still deferred at that closeout. | 3B.16 closeout. |
 | 2026-04-28 | Phase 3B.17 shipped internal tournament runtime only: staff-only tournament, bracket, seed, immutable team snapshot, match binding, round advancement, advance-reason, and tournament event facts are real; advancement consumes finalized/corrected canonical result truth only and does not own result, rating, analytics, ARES, public, or game identity truth. Public tournaments remain deferred beyond 3B.19. | 3B.17 closeout. |
 | 2026-04-28 | Phase 3B.18 shipped internal social safety/reliability foundation only: competition-scoped report facts, block facts, reliability events, safety audit events, capability-gated manager readiness/review reads, and aligned safety/reliability commands are real; safety facts remain private manager/internal truth and do not mutate result, rating, analytics, ARES, tournament, public, member, or game identity truth. Public competition readiness closed later in 3B.19. | 3B.18 closeout. |
 
@@ -1418,8 +1417,8 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Current next packet after 3B.19.1 hardening: 3B.20 Game Identity Layer, unless
-another narrow public-readiness hardening issue is found.
+Later closed by 3B.20. Current post-3B.20 launch-expansion work should start
+with 3B.20.1 cohesion hardening unless another narrow production issue is found.
 
 ## 3B.12.1 Cohesion Hardening Addendum
 
@@ -1467,8 +1466,8 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Current next packet after 3B.19.1 hardening: 3B.20 Game Identity Layer, unless
-another narrow public-readiness hardening issue is found.
+Later closed by 3B.20. Current post-3B.20 launch-expansion work should start
+with 3B.20.1 cohesion hardening unless another narrow production issue is found.
 
 ## 3B.13 Rating Foundation Addendum
 
@@ -1689,7 +1688,7 @@ Still deferred:
 - Tournament runtime remains deferred to Phase 3B.17.
 - Social safety remains deferred to Phase 3B.18.
 - Public competition surfaces remain deferred to Phase 3B.19.
-- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- CP, badges, rivalry, and squads were later closed in Phase 3B.20.
 - OpenSkill read-path switch remains deferred.
 - Project-wide SemVer governance, proposal workflow, recurring schedule, court
   splitting, booking/commercial work, browser trusted-surface token, and
@@ -1745,7 +1744,7 @@ Confirmed boundaries:
 Still deferred:
 
 - Public competition readiness closed in Phase 3B.19; public tournaments remain deferred.
-- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- CP, badges, rivalry, and squads were later closed in Phase 3B.20.
 - Messaging/chat, public/member safety UI, public profiles, scouting, and
   leaderboards remain deferred.
 - OpenSkill read-path switch remains deferred.
@@ -1803,7 +1802,7 @@ Still deferred:
 - Public tournaments remain deferred.
 - Public/social/member safety surfaces, messaging/chat, public profiles,
   scouting, and leaderboards remain deferred.
-- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- CP, badges, rivalry, and squads were later closed in Phase 3B.20.
 - OpenSkill read-path switch remains deferred.
 - ARES behavior changes remain deferred.
 - Dashboard-first analytics and carry coefficient remain deferred.
@@ -1883,7 +1882,7 @@ Still deferred:
 - Public tournaments remain deferred.
 - Public/social/member safety surfaces, messaging/chat, public profiles,
   scouting, and leaderboards remain deferred.
-- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- CP, badges, rivalry, and squads were later closed in Phase 3B.20.
 - OpenSkill read-path switch remains deferred.
 - ARES behavior changes remain deferred.
 - Dashboard-first analytics and carry coefficient remain deferred.
@@ -1934,7 +1933,7 @@ Confirmed boundaries:
 Still deferred:
 
 - Public tournaments remain deferred.
-- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- CP, badges, rivalry, and squads were later closed in Phase 3B.20.
 - Messaging/chat and public social graph remain out of scope.
 - OpenSkill read-path switch remains deferred.
 - Public/member safety UI remains deferred.
@@ -1943,8 +1942,7 @@ Still deferred:
 - Deployment remains unchanged until a separate deploy packet explicitly
   verifies and reports it.
 
-Current next packet if launch expansion continues cleanly: 3B.20 Game Identity
-Layer.
+That path was later closed by 3B.20 and hardened by 3B.20.1.
 
 ## 3B.19.1 Cohesion Hardening Addendum
 
@@ -1990,7 +1988,7 @@ Confirmed boundaries:
 Still deferred:
 
 - Public tournaments remain deferred.
-- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- CP, badges, rivalry, and squads were later closed in Phase 3B.20.
 - Messaging/chat and public social graph remain out of scope.
 - OpenSkill read-path switch remains deferred.
 - Public/member safety UI remains deferred.
@@ -2044,5 +2042,52 @@ Still deferred:
 - Booking/commercial/proposal workflows remain parked.
 - Project-wide SemVer governance remains deferred.
 
-Current next packet if launch expansion continues cleanly: 3B.20.1 Cohesion
-Hardening.
+## 3B.20.1 Cohesion Hardening Addendum
+
+Date: 2026-04-29
+
+Phase 3B.20.1 `Cohesion Hardening` verified the just-shipped game identity
+layer across APOLLO, Hestia, Themis, Prometheus, and platform docs. Two real
+3B.20 cohesion issues were patched:
+
+- APOLLO rivalry states now compare participants only inside the same
+  sport/mode/facility/team-scope projection context.
+- APOLLO badge and rivalry labels now stay scoped to the exact projection row,
+  so broad requests with multiple rows for the same user cannot overwrite CP
+  row labels.
+
+Additional hardening:
+
+- APOLLO has focused coverage for cross-context rivalry prevention and
+  duplicate-user row label stability.
+- Hestia roadmap truth now matches the shipped APOLLO-provided game identity
+  surface instead of treating CP/badges/rivalry/squads as still deferred.
+- Platform docs now record 3B.20.1 as a hardening closeout, not the next open
+  launch-expansion packet.
+
+Confirmed boundaries:
+
+- APOLLO owns CP, badge award, rivalry state, and squad identity projections.
+- Identity policies remain explicit and versioned.
+- Public/member-safe contracts exclude private/internal APOLLO truth.
+- Game identity remains read-only and does not mutate result, rating,
+  analytics, ARES, tournament, safety, public-readiness, booking, member, or UI
+  truth.
+- Hestia consumes APOLLO projections only and proxy boundaries remain intact.
+- Themis and Prometheus remain untouched.
+- Deployed truth remains unchanged.
+
+Still deferred:
+
+- Messaging/chat remains out of scope.
+- Broad public social graph remains deferred beyond shipped redacted
+  squad/rivalry identity facts.
+- OpenSkill read-path switch remains deferred.
+- Public OpenSkill comparison exposure remains deferred.
+- Public/member safety detail exposure remains deferred.
+- Public tournaments remain deferred.
+- Booking/commercial/proposal workflows remain parked.
+- Project-wide SemVer governance remains deferred.
+
+Current next launch-expansion packet requires a fresh scope ruling after this
+hardening closeout.

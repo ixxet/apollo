@@ -7,10 +7,10 @@ jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3B.20 game identity layer
-over Phase 3B.19 public competition readiness, Phase 3B.18 internal social
-safety/reliability foundation, Phase 3B.17 internal tournament runtime, and
-Phase 3B.16 competition analytics foundation,
+Current repo/runtime working line on `main`: Phase 3B.20.1 cohesion hardening
+over Phase 3B.20 game identity, Phase 3B.19 public competition readiness, Phase
+3B.18 internal social safety/reliability foundation, Phase 3B.17 internal
+tournament runtime, and Phase 3B.16 competition analytics foundation,
 Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
@@ -265,18 +265,19 @@ and staff-side edit/replacement plus bounded staff schedule-control lines.
 | `Phase 3B.18` | internal social safety/reliability foundation on `main`: competition-scoped report facts, block facts, reliability events, safety audit events, manager-only readiness/review reads, and aligned safety/reliability commands | keep safety and reliability manager/internal, capability-gated, auditable, immutable, and separate from canonical competition truth | do not widen into public/member safety UI, messaging/chat, public profiles/scouting/leaderboards/tournaments, Hestia expansion, CP, badges, rivalry, squads, OpenSkill read-path switch, ARES behavior changes, analytics dashboards, booking/commercial/proposal workflow, SemVer governance, or deploy claims |
 | `Phase 3B.19` | public competition readiness on `main`: public-safe readiness and leaderboard projection contracts over finalized/corrected canonical result truth plus legacy active rating fields | keep public contracts projection-only, redacted, deterministic, and separate from private/internal truth | do not widen into public tournaments, CP, badges, rivalry, squads, messaging/chat, public social graph, OpenSkill read-path switch, ARES proposal exposure, analytics dashboards, booking/commercial/proposal workflow, SemVer governance, or deploy claims |
 | `Phase 3B.20` | game identity layer on `main`: public/member-safe CP, badge award, rivalry state, and squad identity projection contracts over public-safe competition projection rows | keep APOLLO as game identity owner, keep policies explicit/versioned, keep Hestia as consumer only, and keep outputs redacted or self-scoped | do not widen into messaging/chat, broad public social graph, public safety detail exposure, OpenSkill read-path switch, public tournaments, booking/commercial/proposal workflow, project-wide SemVer governance, fake UI data, or deployment claims |
-| launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, CP, badges, squads, public rivalry, or public leaderboards |
+| launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, public safety UI, public profiles/scouting, broad social graph behavior, or broader public leaderboard/game-identity expansion |
 
 ## Current Phase 3B Line
 
-Phase 3B.20 game identity is now real in repo/runtime on `main`, with deployed
-truth still separate and unchanged. APOLLO exposes public/member-safe game
-identity contracts that consume public-safe competition projection rows only:
-CP, badge award facts, rivalry state facts, and squad identity facts. The
-contracts redact public participant identity, scope member output to the caller,
-and exclude private/internal safety, manager, command, OpenSkill comparison,
-ARES proposal, tournament ops, source-result, projection watermark,
-sample/confidence metadata, and operational truth.
+Phase 3B.20 game identity is now real in repo/runtime on `main`, and Phase
+3B.20.1 has hardened its cohesion with deployed truth still separate and
+unchanged. APOLLO exposes public/member-safe game identity contracts that consume
+public-safe competition projection rows only: CP, badge award facts, rivalry
+state facts, and squad identity facts. The contracts redact public participant
+identity, scope member output to the caller, keep rivalry and labels scoped to
+their projection row/context, and exclude private/internal safety, manager,
+command, OpenSkill comparison, ARES proposal, tournament ops, source-result,
+projection watermark, sample/confidence metadata, and operational truth.
 
 Any later widening should stay separate:
 

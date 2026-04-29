@@ -84,7 +84,8 @@ recommendations, and the ARES matchmaking subsystem.
 > 3B.20 adds the first APOLLO-owned game identity projection layer: CP, badge
 > award, rivalry state, and squad identity facts are derived from public-safe
 > competition projections only, with explicit policy versions and redacted
-> public/member contracts. Public tournaments, messaging/chat, broad public
+> public/member contracts; 3B.20.1 hardens rivalry context, row-scoped labels,
+> and docs truth. Public tournaments, messaging/chat, broad public
 > social graph, public profiles, booking/commercial/proposal workflows,
 > OpenSkill read-path switch, and project-wide SemVer governance remain
 > deferred.
@@ -317,7 +318,8 @@ computed time, projection version, and projection watermark, and do not mutate
 result, rating, ARES, lifecycle, booking, public, or UI truth. Dashboard-first
 work, public profiles/stats/scouting, carry coefficient, OpenSkill read-path
 switch, tournament runtime to Phase 3B.17, public competition surfaces to Phase
-3B.19, and CP, badges, rivalry, and squads to Phase 3B.20 remain deferred.
+3B.19, and CP, badges, rivalry, and squads to Phase 3B.20 were still deferred at
+that closeout.
 
 Phase 3B.17 closes only the internal tournament runtime: APOLLO stores
 staff/internal tournament, bracket, seed, immutable team snapshot, match
@@ -326,7 +328,7 @@ facts. The first supported format is `single_elimination`. Tournament
 advancement consumes finalized/corrected canonical result truth only and does
 not mutate or replace canonical result, rating, analytics, ARES, lifecycle,
 booking, public, or UI truth. Public tournaments remain deferred, and
-CP/badges/rivalry/squads remain deferred to 3B.20.
+CP/badges/rivalry/squads were later closed in 3B.20.
 
 Phase 3B.18 closes only the internal social safety/reliability foundation:
 APOLLO stores competition-scoped report facts, block facts, reliability events,
@@ -409,9 +411,9 @@ Current ruling:
 | ARES v2 proposal foundation | Explicit competition queue intent facts plus deterministic internal match-preview proposals with APOLLO-computed match quality, predicted win probability, and explanation codes | Closure-clean on `main` | `Phase 3B.15` | Keep ARES proposal-only; competition analytics closes separately in 3B.16, while OpenSkill read-path switch, dashboard-first analytics, public profiles/stats/scouting, carry coefficient, tournament runtime, public/member competition surfaces, CP, badges, rivalry, squads, proposal workflow, booking/commercial work, and deploy claims remain deferred |
 | Competition analytics foundation | Internal derived stat events and analytics projections over finalized/corrected canonical results plus legacy rating facts | Closure-clean on `main` | `Phase 3B.16` | Keep analytics internal and derived; dashboard-first work, public profiles/stats/scouting, carry coefficient, OpenSkill read-path switch, tournament runtime, public competition surfaces, CP, badges, rivalry, squads, booking/commercial work, and deploy claims remain deferred |
 | Internal tournament runtime | Staff/internal tournament containers, single-elimination bracket/seed facts, immutable team snapshots, APOLLO match bindings, audited round advancement, and explicit advance reasons over finalized/corrected canonical result truth | Closure-clean on `main` | `Phase 3B.17` | Keep tournaments internal and staff-run; public tournaments, Hestia member/public expansion, booking/commercial/proposal workflow, OpenSkill read-path switch, dashboard-first analytics, CP, badges, rivalry, squads, and deploy claims remain deferred |
-| Social safety/reliability foundation | Competition-scoped report facts, block facts, reliability events, safety audit events, manager-only readiness/review reads, and aligned safety/reliability commands | Closure-clean on `main` | `Phase 3B.18` | Keep safety/reliability manager/internal, capability-gated, auditable, and separate from canonical competition truth; public/member safety UI, messaging/chat, public profiles/scouting/leaderboards, public tournaments, CP/badges/rivalry/squads, OpenSkill read-path switch, booking/commercial/proposal workflows, SemVer governance, and deploy claims remain deferred |
-| Public competition readiness | Public-safe readiness and leaderboard contracts over finalized/corrected canonical result truth plus legacy active rating projections | Closure-clean on `main` | `Phase 3B.19` | Keep public contracts projection-only and redacted; public tournaments, CP/badges/rivalry/squads, messaging/chat, public social graph, OpenSkill read-path switch, proposal workflows, SemVer governance, and deploy claims remain deferred |
-| Game identity layer | Public/member-safe CP, badge award, rivalry state, and squad identity projection contracts over APOLLO public-safe competition projection rows | Closure-clean on `main` | `Phase 3B.20` | Keep game identity derived and projection-only; no UI-owned formulas, messaging/chat, broad public social graph, OpenSkill read-path switch, public safety detail exposure, public tournaments, proposal workflows, SemVer governance, or deploy claims |
+| Social safety/reliability foundation | Competition-scoped report facts, block facts, reliability events, safety audit events, manager-only readiness/review reads, and aligned safety/reliability commands | Closure-clean on `main` | `Phase 3B.18` | Keep safety/reliability manager/internal, capability-gated, auditable, and separate from canonical competition truth; public/member safety UI, messaging/chat, public profiles/scouting/leaderboards, public tournaments, OpenSkill read-path switch, booking/commercial/proposal workflows, SemVer governance, and deploy claims remain deferred; CP/badges/rivalry/squads closed later in 3B.20 |
+| Public competition readiness | Public-safe readiness and leaderboard contracts over finalized/corrected canonical result truth plus legacy active rating projections | Closure-clean on `main` | `Phase 3B.19` | Keep public contracts projection-only and redacted; public tournaments, messaging/chat, public social graph, OpenSkill read-path switch, proposal workflows, SemVer governance, and deploy claims remain deferred; CP/badges/rivalry/squads closed later in 3B.20 |
+| Game identity layer | Public/member-safe CP, badge award, rivalry state, and squad identity projection contracts over APOLLO public-safe competition projection rows | Closure-clean on `main` | `Phase 3B.20` / `3B.20.1` | Keep game identity derived and projection-only; 3B.20.1 hardens rivalry context and row-scoped labels; no UI-owned formulas, messaging/chat, broad public social graph, OpenSkill read-path switch, public safety detail exposure, public tournaments, proposal workflows, SemVer governance, or deploy claims |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
