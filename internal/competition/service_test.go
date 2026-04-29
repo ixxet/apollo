@@ -61,6 +61,7 @@ type stubStore struct {
 	listMemberHistoryByUser  func(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error)
 	publicReadiness          func(ctx context.Context) (publicCompetitionReadinessRecord, error)
 	publicLeaderboard        func(ctx context.Context, input PublicCompetitionLeaderboardInput) ([]publicCompetitionLeaderboardRowRecord, error)
+	gameIdentityRows         func(ctx context.Context, input GameIdentityProjectionInput) ([]gameIdentityProjectionRowRecord, error)
 }
 
 func (s stubStore) GetUserByID(ctx context.Context, userID uuid.UUID) (*store.ApolloUser, error) {
@@ -290,6 +291,13 @@ func (s stubStore) ListPublicCompetitionLeaderboard(ctx context.Context, input P
 		return nil, nil
 	}
 	return s.publicLeaderboard(ctx, input)
+}
+
+func (s stubStore) ListGameIdentityProjectionRows(ctx context.Context, input GameIdentityProjectionInput) ([]gameIdentityProjectionRowRecord, error) {
+	if s.gameIdentityRows == nil {
+		return nil, nil
+	}
+	return s.gameIdentityRows(ctx, input)
 }
 
 func TestAddRosterMemberMapsSchemaUniqueConflictToErrRosterConflict(t *testing.T) {

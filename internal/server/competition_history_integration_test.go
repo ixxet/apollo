@@ -162,6 +162,36 @@ func TestCompetitionHistoryRuntimeRecordsResultsCompletesSessionsAndExposesDeriv
 	if strings.Contains(publicLeaderboardBody, "source_result_id") || strings.Contains(publicLeaderboardBody, "canonical_result_id") || strings.Contains(publicLeaderboardBody, "competition_match_id") {
 		t.Fatalf("public leaderboard leaked internal result identity: %s", publicLeaderboardBody)
 	}
+
+	beforeIdentitySnapshot := competitionTruthSnapshot(t, env, completedSession.ID, completedSession.Matches[0].ID)
+	publicGameIdentityResponse := env.doRequest(t, http.MethodGet, "/api/v1/public/competition/game-identity?sport_key=badminton&mode_key=head_to_head:s2-p1", nil)
+	if publicGameIdentityResponse.Code != http.StatusOK {
+		t.Fatalf("publicGameIdentityResponse.Code = %d, want %d body=%s", publicGameIdentityResponse.Code, http.StatusOK, publicGameIdentityResponse.Body.String())
+	}
+	publicGameIdentityBody := publicGameIdentityResponse.Body.String()
+	assertGameIdentityBodySafe(t, publicGameIdentityBody, owner.ID, memberTwo.ID)
+	if !strings.Contains(publicGameIdentityBody, `"contract_version":"apollo_game_identity_v1"`) {
+		t.Fatalf("public game identity missing contract version: %s", publicGameIdentityBody)
+	}
+	if !strings.Contains(publicGameIdentityBody, `"cp_policy_version":"apollo_cp_v1"`) || !strings.Contains(publicGameIdentityBody, `"badge_policy_version":"apollo_badge_awards_v1"`) {
+		t.Fatalf("public game identity missing policy versions: %s", publicGameIdentityBody)
+	}
+	if !strings.Contains(publicGameIdentityBody, `"badge_key":"first_match"`) || !strings.Contains(publicGameIdentityBody, `"rivalry_states"`) || !strings.Contains(publicGameIdentityBody, `"squad_identities"`) {
+		t.Fatalf("public game identity missing derived identity facts: %s", publicGameIdentityBody)
+	}
+	if !strings.Contains(publicGameIdentityBody, `"participant":"participant_1"`) {
+		t.Fatalf("public game identity missing redacted participant label: %s", publicGameIdentityBody)
+	}
+	memberGameIdentityResponse := env.doRequest(t, http.MethodGet, "/api/v1/competition/game-identity", nil, ownerCookie)
+	if memberGameIdentityResponse.Code != http.StatusOK {
+		t.Fatalf("memberGameIdentityResponse.Code = %d, want %d body=%s", memberGameIdentityResponse.Code, http.StatusOK, memberGameIdentityResponse.Body.String())
+	}
+	memberGameIdentityBody := memberGameIdentityResponse.Body.String()
+	assertGameIdentityBodySafe(t, memberGameIdentityBody, owner.ID, memberTwo.ID)
+	if !strings.Contains(memberGameIdentityBody, `"participant":"member_self"`) {
+		t.Fatalf("member game identity missing self-scoped participant label: %s", memberGameIdentityBody)
+	}
+	assertCompetitionTruthSnapshot(t, env, completedSession.ID, completedSession.Matches[0].ID, beforeIdentitySnapshot)
 }
 
 func TestCompetitionHistoryRuntimeRejectsInvalidResultWrites(t *testing.T) {
@@ -271,6 +301,16 @@ func TestPublicCompetitionReadinessExcludesRecordedOnlyResults(t *testing.T) {
 	assertPublicCompetitionBodySafe(t, publicLeaderboardBody, owner.ID, memberTwo.ID)
 	if !strings.Contains(publicLeaderboardBody, `"leaderboard":[]`) {
 		t.Fatalf("public leaderboard included non-final result truth: %s", publicLeaderboardBody)
+	}
+
+	publicGameIdentityResponse := env.doRequest(t, http.MethodGet, "/api/v1/public/competition/game-identity?sport_key=badminton&mode_key=head_to_head:s2-p1", nil)
+	if publicGameIdentityResponse.Code != http.StatusOK {
+		t.Fatalf("publicGameIdentityResponse.Code = %d, want %d body=%s", publicGameIdentityResponse.Code, http.StatusOK, publicGameIdentityResponse.Body.String())
+	}
+	publicGameIdentityBody := publicGameIdentityResponse.Body.String()
+	assertGameIdentityBodySafe(t, publicGameIdentityBody, owner.ID, memberTwo.ID)
+	if !strings.Contains(publicGameIdentityBody, `"status":"unavailable"`) || !strings.Contains(publicGameIdentityBody, `"cp":[]`) {
+		t.Fatalf("public game identity included non-final result truth: %s", publicGameIdentityBody)
 	}
 }
 
@@ -1181,6 +1221,48 @@ func assertPublicCompetitionBodySafe(t *testing.T, body string, userIDs ...uuid.
 	} {
 		if strings.Contains(strings.ToLower(body), forbidden) {
 			t.Fatalf("public competition body leaked %q: %s", forbidden, body)
+		}
+	}
+}
+
+func assertGameIdentityBodySafe(t *testing.T, body string, userIDs ...uuid.UUID) {
+	t.Helper()
+
+	for _, userID := range userIDs {
+		if strings.Contains(body, userID.String()) {
+			t.Fatalf("game identity body leaked user id %s: %s", userID, body)
+		}
+	}
+	for _, forbidden := range []string{
+		"user_id",
+		"source_result_id",
+		"canonical_result_id",
+		"competition_match_id",
+		"openskill",
+		"accepted_delta_budget",
+		"safety",
+		"reliability",
+		"reporter_user_id",
+		"subject_user_id",
+		"blocked_user_id",
+		"private_notes",
+		"trusted_surface",
+		"actor_user_id",
+		"command",
+		"readiness_message",
+		"match_quality",
+		"predicted_win_probability",
+		"projection_watermark",
+		"sample_size",
+		"confidence",
+		"rating_engine",
+		"engine_version",
+		"rating_mu",
+		"rating_sigma",
+		"current_rating",
+	} {
+		if strings.Contains(strings.ToLower(body), forbidden) {
+			t.Fatalf("game identity body leaked %q: %s", forbidden, body)
 		}
 	}
 }

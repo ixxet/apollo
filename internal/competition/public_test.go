@@ -2,9 +2,13 @@ package competition
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestPublicCompetitionReadinessUsesExplicitPublicContract(t *testing.T) {
@@ -36,7 +40,7 @@ func TestPublicCompetitionReadinessUsesExplicitPublicContract(t *testing.T) {
 	if readiness.Status != publicCompetitionStatusAvailable {
 		t.Fatalf("Status = %q, want %q", readiness.Status, publicCompetitionStatusAvailable)
 	}
-	if !slices.Contains(readiness.Deferred, "cp") || !slices.Contains(readiness.Deferred, "rating_read_path_switch") {
+	if slices.Contains(readiness.Deferred, "cp") || !slices.Contains(readiness.Deferred, "rating_read_path_switch") {
 		t.Fatalf("Deferred = %#v, want public competition deferments", readiness.Deferred)
 	}
 }
@@ -87,5 +91,133 @@ func TestListPublicCompetitionLeaderboardNormalizesAndRedactsParticipants(t *tes
 	}
 	if row.StatType != analyticsStatWins || row.StatValue != 4 {
 		t.Fatalf("row = %+v, want wins projection", row)
+	}
+}
+
+func TestPublicGameIdentityProjectionIsDeterministicAndPolicyVersioned(t *testing.T) {
+	firstUserID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	secondUserID := uuid.MustParse("00000000-0000-0000-0000-000000000002")
+	computedAt := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	lastResultAt := time.Date(2026, 4, 29, 11, 0, 0, 0, time.UTC)
+	var captured GameIdentityProjectionInput
+	svc := NewService(stubStore{
+		gameIdentityRows: func(_ context.Context, input GameIdentityProjectionInput) ([]gameIdentityProjectionRowRecord, error) {
+			captured = input
+			return []gameIdentityProjectionRowRecord{
+				{
+					UserID:        secondUserID,
+					SportKey:      "badminton",
+					ModeKey:       "head_to_head:s2-p1",
+					FacilityKey:   "gym-floor",
+					TeamScope:     analyticsDimensionAll,
+					MatchesPlayed: 2,
+					Wins:          2,
+					ComputedAt:    computedAt,
+				},
+				{
+					UserID:        firstUserID,
+					SportKey:      "badminton",
+					ModeKey:       "head_to_head:s2-p1",
+					FacilityKey:   "gym-floor",
+					TeamScope:     analyticsDimensionAll,
+					MatchesPlayed: 5,
+					Wins:          2,
+					Losses:        3,
+					LastResultAt:  &lastResultAt,
+					ComputedAt:    computedAt.Add(time.Minute),
+				},
+			}, nil
+		},
+	})
+
+	projection, err := svc.PublicGameIdentity(context.Background(), PublicGameIdentityInput{
+		TeamScope: "private_scope",
+		Limit:     1000,
+	})
+	if err != nil {
+		t.Fatalf("PublicGameIdentity() error = %v", err)
+	}
+	if captured.TeamScope != analyticsDimensionAll || captured.Limit != maxGameIdentityLimit {
+		t.Fatalf("captured input = %+v, want normalized public-safe scope and limit", captured)
+	}
+	if projection.ContractVersion != gameIdentityContractVersion || projection.ProjectionVersion != gameIdentityProjectionVersion {
+		t.Fatalf("projection versions = %q/%q, want game identity versions", projection.ContractVersion, projection.ProjectionVersion)
+	}
+	if projection.CPPolicyVersion != gameIdentityCPPolicyVersion || projection.BadgePolicyVersion != gameIdentityBadgePolicyVersion || projection.RivalryPolicyVersion != gameIdentityRivalryPolicyVersion || projection.SquadPolicyVersion != gameIdentitySquadPolicyVersion {
+		t.Fatalf("policy versions missing from projection: %+v", projection)
+	}
+	if got, want := projection.CP[0].Participant, "participant_1"; got != want {
+		t.Fatalf("top participant = %q, want %q", got, want)
+	}
+	if got, want := projection.CP[0].CP, 125; got != want {
+		t.Fatalf("top CP = %d, want %d", got, want)
+	}
+	if got, want := len(projection.BadgeAwards), 5; got != want {
+		t.Fatalf("len(BadgeAwards) = %d, want %d", got, want)
+	}
+	if got, want := projection.RivalryStates[0].State, "active"; got != want {
+		t.Fatalf("rivalry state = %q, want %q", got, want)
+	}
+	if got, want := projection.RivalryStates[0].CPGap, 45; got != want {
+		t.Fatalf("rivalry CP gap = %d, want %d", got, want)
+	}
+	if got, want := projection.SquadIdentities[0].CPTotal, 205; got != want {
+		t.Fatalf("squad CP total = %d, want %d", got, want)
+	}
+
+	raw, err := json.Marshal(projection)
+	if err != nil {
+		t.Fatalf("json.Marshal(projection) error = %v", err)
+	}
+	body := strings.ToLower(string(raw))
+	for _, forbidden := range []string{
+		firstUserID.String(),
+		secondUserID.String(),
+		"user_id",
+		"source_result_id",
+		"canonical_result_id",
+		"openskill",
+		"sample_size",
+		"confidence",
+		"projection_watermark",
+		"safety",
+		"trusted_surface",
+		"command",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("game identity projection leaked %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestMemberGameIdentityScopesToCaller(t *testing.T) {
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000010")
+	computedAt := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+	var captured GameIdentityProjectionInput
+	svc := NewService(stubStore{
+		gameIdentityRows: func(_ context.Context, input GameIdentityProjectionInput) ([]gameIdentityProjectionRowRecord, error) {
+			captured = input
+			return []gameIdentityProjectionRowRecord{{
+				UserID:        userID,
+				SportKey:      "badminton",
+				ModeKey:       analyticsDimensionAll,
+				FacilityKey:   analyticsDimensionAll,
+				TeamScope:     analyticsDimensionAll,
+				MatchesPlayed: 1,
+				Wins:          1,
+				ComputedAt:    computedAt,
+			}}, nil
+		},
+	})
+
+	projection, err := svc.MemberGameIdentity(context.Background(), userID, PublicGameIdentityInput{})
+	if err != nil {
+		t.Fatalf("MemberGameIdentity() error = %v", err)
+	}
+	if captured.UserID == nil || *captured.UserID != userID {
+		t.Fatalf("captured.UserID = %v, want caller scope", captured.UserID)
+	}
+	if got, want := projection.CP[0].Participant, "member_self"; got != want {
+		t.Fatalf("participant = %q, want %q", got, want)
 	}
 }
