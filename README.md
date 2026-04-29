@@ -320,8 +320,8 @@ binding, round advancement, explicit advance-reason, and tournament event
 facts. The first supported format is `single_elimination`. Tournament
 advancement consumes finalized/corrected canonical result truth only and does
 not mutate or replace canonical result, rating, analytics, ARES, lifecycle,
-booking, public, or UI truth. Public tournaments remain deferred to Phase
-3B.19, and CP/badges/rivalry/squads to 3B.20.
+booking, public, or UI truth. Public tournaments remain deferred, and
+CP/badges/rivalry/squads remain deferred to 3B.20.
 
 Phase 3B.18 closes only the internal social safety/reliability foundation:
 APOLLO stores competition-scoped report facts, block facts, reliability events,
@@ -696,17 +696,18 @@ exercise, recommendations, or matchmaking.
 | `Phase 3B.16` | - | Runtime-local on `main` | Competition analytics foundation: internal derived stat events and projections for match counts, outcomes, streaks, rating movement, opponent strength, team-vs-solo delta, and facility/sport/mode splits over finalized/corrected canonical results plus legacy rating facts | Dashboard-first work, public profiles/stats/scouting, carry coefficient, OpenSkill read-path switch, tournament runtime, public competition surfaces, Hestia competition expansion, CP, badges, rivalry, squads, proposal workflow, booking/commercial work, and deploy claims |
 | `Phase 3B.17` | - | Runtime-local on `main` | Internal tournament runtime: staff/internal tournament containers, single-elimination bracket/seed/team-snapshot/match-binding/advancement facts, and tournament events over trusted APOLLO competition truth | Public tournaments, Hestia member/public competition expansion, booking/commercial/proposal workflow, rating algorithm/read-path changes, ARES behavior changes, dashboard-first analytics, CP, badges, rivalry, squads, and deploy claims |
 | `Phase 3B.18` | - | Runtime-local on `main` | Social safety/reliability foundation: manager/internal report, block, reliability, and safety audit facts plus manager-only readiness/review contracts and aligned commands | Public competition readiness to 3B.19, public/member safety UI, messaging/chat, public profiles/scouting/leaderboards/tournaments, CP/badges/rivalry/squads to 3B.20, OpenSkill read-path switch, booking/commercial/proposal workflows, SemVer governance, and deploy claims |
+| `Phase 3B.19` | - | Runtime-local on `main` | Public competition readiness: public-safe readiness and leaderboard contracts over finalized/corrected canonical result truth plus legacy active rating fields | Public tournaments, CP/badges/rivalry/squads, messaging/chat, public social graph, OpenSkill read-path switch, proposal workflows, SemVer governance, and deploy claims |
 
 ## Release Lines
 
 Tracer 24 remains the tagged coaching line on `v0.15.0`, and `v0.15.1`
 remains the narrow hardening patch on that same line. The current
-repo/runtime closeout truth on `main` includes Phase 3B.18 social
-safety/reliability foundation over Phase 3B.17 internal tournament runtime,
-Phase 3B.16 competition analytics foundation, Phase 3B.13 legacy rating
-foundation, Phase 3B.14 OpenSkill comparison evidence, Tracer 28
-authz/staff-boundary truth, and the Milestone 2.0 hardening follow-up closed on
-`v0.19.1`. Later planned lines begin below.
+repo/runtime closeout truth on `main` includes Phase 3B.19 public competition
+readiness over Phase 3B.18 social safety/reliability foundation,
+Phase 3B.17 internal tournament runtime, Phase 3B.16 competition analytics
+foundation, Phase 3B.13 legacy rating foundation, Phase 3B.14 OpenSkill
+comparison evidence, Tracer 28 authz/staff-boundary truth, and the Milestone
+2.0 hardening follow-up closed on `v0.19.1`. Later planned lines begin below.
 
 | Release line | Intended purpose | Restrictions | What it should not do yet |
 | --- | --- | --- | --- |
@@ -727,6 +728,7 @@ authz/staff-boundary truth, and the Milestone 2.0 hardening follow-up closed on
 | `Phase 3B.16` | competition analytics foundation on `main`: internal derived stat events and projections over finalized/corrected canonical results plus legacy rating facts | keep analytics internal, derived, deterministic, versioned, and separate from UI/public truth | do not widen into dashboards, public profiles/stats/scouting, carry coefficient, OpenSkill read-path switch, tournament runtime, public/member competition surfaces, CP/badges/rivalry/squads, proposal workflow, booking/commercial work, or deploy claims |
 | `Phase 3B.17` | internal tournament runtime on `main`: staff-only tournament containers, single-elimination bracket/seed/team-snapshot/match-binding/advancement facts, and tournament events over trusted APOLLO competition truth | keep APOLLO as tournament fact owner and bind advancement to finalized/corrected canonical result truth only | do not widen into public tournaments, Hestia member/public competition expansion, booking/commercial/proposal workflow, rating algorithm/read-path changes, ARES behavior changes, dashboard-first analytics, CP/badges/rivalry/squads, or deploy claims |
 | `Phase 3B.18` | internal social safety/reliability foundation on `main`: competition-scoped report facts, block facts, reliability events, safety audit events, manager-only readiness/review reads, and aligned safety/reliability commands | keep safety/reliability manager/internal, capability-gated, auditable, immutable, and separate from canonical competition truth | do not widen into public/member safety UI, messaging/chat, public profiles/scouting/leaderboards/tournaments, Hestia expansion, CP/badges/rivalry/squads, OpenSkill read-path switch, ARES behavior changes, analytics dashboards, booking/commercial/proposal workflow, SemVer governance, or deploy claims |
+| `Phase 3B.19` | public competition readiness on `main`: public-safe readiness and leaderboard projection contracts over finalized/corrected canonical result truth plus legacy active rating fields | keep public contracts projection-only, redacted, deterministic, and separate from private/internal truth | do not widen into public tournaments, CP, badges, rivalry, squads, messaging/chat, public social graph, OpenSkill read-path switch, ARES proposal exposure, analytics dashboards, booking/commercial/proposal workflow, SemVer governance, or deploy claims |
 
 ## Versioning Discipline
 

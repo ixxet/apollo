@@ -1227,8 +1227,8 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-28 | Phase 3B.14.1 cohesion hardening fixed OpenSkill delta flag/storage boundary coherence, added focused boundary coverage, and corrected stale 3B.14/SemVer docs truth. OpenSkill remains internal dual-run only, the legacy read path remains active, canonical-result-only rating guards still hold, comparison facts remain deterministic/auditable, and no Hestia 3B.14 comparison leak was proven. | 3B.14.1 hardening closeout. |
 | 2026-04-28 | Phase 3B.15 shipped ARES v2 proposal/match-preview foundation only: queue intent facts, internal preview projections/events, match quality, predicted win probability, and explanation codes are real over trusted APOLLO projections while ARES remains a proposal engine and not a result, rating, booking, or public competition owner. OpenSkill read-path switch, analytics, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, and SemVer governance remain deferred. | 3B.15 closeout. |
 | 2026-04-28 | Phase 3B.16 shipped competition analytics foundation only: internal stat events and analytics projections are deterministic, versioned, and derived from finalized/corrected canonical results plus legacy active rating facts. Dashboard-first work, public profiles/stats/scouting, carry coefficient, tournament runtime, public competition surfaces, CP/badges/rivalry/squads, OpenSkill read-path switch, and SemVer governance remain deferred. | 3B.16 closeout. |
-| 2026-04-28 | Phase 3B.17 shipped internal tournament runtime only: staff-only tournament, bracket, seed, immutable team snapshot, match binding, round advancement, advance-reason, and tournament event facts are real; advancement consumes finalized/corrected canonical result truth only and does not own result, rating, analytics, ARES, public, or game identity truth. Public tournaments remain deferred to 3B.19. | 3B.17 closeout. |
-| 2026-04-28 | Phase 3B.18 shipped internal social safety/reliability foundation only: competition-scoped report facts, block facts, reliability events, safety audit events, capability-gated manager readiness/review reads, and aligned safety/reliability commands are real; safety facts remain private manager/internal truth and do not mutate result, rating, analytics, ARES, tournament, public, member, or game identity truth. Public competition readiness remains deferred to 3B.19. | 3B.18 closeout. |
+| 2026-04-28 | Phase 3B.17 shipped internal tournament runtime only: staff-only tournament, bracket, seed, immutable team snapshot, match binding, round advancement, advance-reason, and tournament event facts are real; advancement consumes finalized/corrected canonical result truth only and does not own result, rating, analytics, ARES, public, or game identity truth. Public tournaments remain deferred beyond 3B.19. | 3B.17 closeout. |
+| 2026-04-28 | Phase 3B.18 shipped internal social safety/reliability foundation only: competition-scoped report facts, block facts, reliability events, safety audit events, capability-gated manager readiness/review reads, and aligned safety/reliability commands are real; safety facts remain private manager/internal truth and do not mutate result, rating, analytics, ARES, tournament, public, member, or game identity truth. Public competition readiness closed later in 3B.19. | 3B.18 closeout. |
 
 ## Kill Criteria
 
@@ -1418,8 +1418,8 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Current next packet if launch expansion continues after 3B.18: 3B.19 Public
-Competition Readiness, unless a 3B.18.1 hardening pass is needed.
+Current next packet after 3B.19.1 hardening: 3B.20 Game Identity Layer, unless
+another narrow public-readiness hardening issue is found.
 
 ## 3B.12.1 Cohesion Hardening Addendum
 
@@ -1467,8 +1467,8 @@ Still deferred:
   work, browser trusted-surface token, and public/Hestia competition expansion
   remain out of scope until separately reopened.
 
-Current next packet if launch expansion continues after 3B.18: 3B.19 Public
-Competition Readiness, unless a 3B.18.1 hardening pass is needed.
+Current next packet after 3B.19.1 hardening: 3B.20 Game Identity Layer, unless
+another narrow public-readiness hardening issue is found.
 
 ## 3B.13 Rating Foundation Addendum
 
@@ -1744,8 +1744,7 @@ Confirmed boundaries:
 
 Still deferred:
 
-- Public competition readiness and public tournaments remain deferred to Phase
-  3B.19.
+- Public competition readiness closed in Phase 3B.19; public tournaments remain deferred.
 - CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
 - Messaging/chat, public/member safety UI, public profiles, scouting, and
   leaderboards remain deferred.
@@ -1800,8 +1799,8 @@ Confirmed boundaries:
 
 Still deferred:
 
-- Public competition readiness remains deferred to Phase 3B.19.
-- Public tournaments remain deferred to Phase 3B.19.
+- Public competition readiness closed in Phase 3B.19.
+- Public tournaments remain deferred.
 - Public/social/member safety surfaces, messaging/chat, public profiles,
   scouting, and leaderboards remain deferred.
 - CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
@@ -1880,8 +1879,8 @@ Verification completed:
 
 Still deferred:
 
-- Public competition readiness remains deferred to Phase 3B.19.
-- Public tournaments remain deferred to Phase 3B.19.
+- Public competition readiness closed in Phase 3B.19.
+- Public tournaments remain deferred.
 - Public/social/member safety surfaces, messaging/chat, public profiles,
   scouting, and leaderboards remain deferred.
 - CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
@@ -1909,12 +1908,14 @@ the public-safe competition readiness layer:
   truth plus legacy active rating fields.
 - Public leaderboard participant labels are redacted and do not expose user IDs
   or public profile identity.
+- Public leaderboard contracts do not expose internal analytics metadata such
+  as sample size, confidence, source result IDs, or projection watermarks.
 - Hestia renders `/competition` from the APOLLO public-safe contracts only.
 - Hestia keeps browser-visible `/api/v1/public/*` proxy access denied and
   continues stripping trusted-surface request headers.
 - Leak tests cover private safety/reliability, OpenSkill comparison,
-  source-result, projection watermark, command, ARES proposal, and internal
-  competition truth.
+  source-result, projection watermark, sample size, confidence, command, ARES
+  proposal, and internal competition truth.
 
 Confirmed boundaries:
 
@@ -1941,6 +1942,60 @@ Still deferred:
 - Project-wide SemVer governance remains deferred.
 - Deployment remains unchanged until a separate deploy packet explicitly
   verifies and reports it.
+
+Current next packet if launch expansion continues cleanly: 3B.20 Game Identity
+Layer.
+
+## 3B.19.1 Cohesion Hardening Addendum
+
+Date: 2026-04-29
+
+Phase 3B.19.1 `Cohesion Hardening` verified the just-shipped public
+competition readiness line across APOLLO, Hestia, Themis, Prometheus, and
+platform docs. One real 3B.19 cohesion issue was patched: public leaderboard
+DTOs no longer expose analytics `sample_size` or `confidence` metadata. Those
+values may remain internal query inputs or ordering aids, but they are not part
+of the public contract.
+
+Additional hardening:
+
+- APOLLO now has a focused public-readiness test proving recorded-only,
+  non-final canonical result truth does not count toward public readiness and
+  does not appear in public leaderboards.
+- APOLLO leak tests now reject public exposure of sample size, confidence,
+  rating engine/policy internals, rating values, source-result identity,
+  projection watermarks, OpenSkill comparison facts, safety/reliability facts,
+  ARES proposal facts, command/readiness internals, and manager/ops truth.
+- Hestia public competition parsing continues to use an allowlist and now drops
+  sample size and confidence if APOLLO or a test double sends them.
+- Hestia has focused desktop/mobile coverage for unavailable public competition
+  reads rendering as unavailable instead of fake records.
+- Themis remains untouched and internal-only.
+- Prometheus remains untouched.
+- Deployed truth remains unchanged.
+
+Confirmed boundaries:
+
+- Public contracts expose public-safe competition projections only.
+- Public projection inputs are finalized/corrected canonical results plus
+  legacy active rating fields only.
+- OpenSkill comparison facts remain internal and are not exposed publicly.
+- Safety/report/block/reliability facts remain private manager/internal truth.
+- Manager/internal command, readiness, ARES proposal, tournament ops, and
+  operational truth remain non-public.
+- Hestia `/competition` consumes APOLLO public-safe contracts server-side.
+- Hestia browser proxy denies `/api/v1/public/*` passthrough, blocks internal
+  competition routes, and strips trusted-surface headers.
+
+Still deferred:
+
+- Public tournaments remain deferred.
+- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- Messaging/chat and public social graph remain out of scope.
+- OpenSkill read-path switch remains deferred.
+- Public/member safety UI remains deferred.
+- Booking/commercial/proposal workflows remain parked.
+- Project-wide SemVer governance remains deferred.
 
 Current next packet if launch expansion continues cleanly: 3B.20 Game Identity
 Layer.

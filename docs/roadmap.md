@@ -229,10 +229,11 @@ They should not be used as permission to skip the launch-expansion gates.
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
 hardening patch on that same line. The current repo/runtime working line on
-`main` is Phase 3B.18 internal social safety/reliability foundation over the
-Phase 3B.17 internal tournament runtime, Phase 3B.16 competition analytics
-foundation, Phase 3B.13 rating foundation, Phase 3B.14 OpenSkill comparison
-evidence, Phase 3B.15 ARES v2 proposal foundation, and the closed
+`main` is Phase 3B.19 public competition readiness over the Phase 3B.18
+internal social safety/reliability foundation, Phase 3B.17 internal tournament
+runtime, Phase 3B.16 competition analytics foundation, Phase 3B.13 rating
+foundation, Phase 3B.14 OpenSkill comparison evidence, Phase 3B.15 ARES v2
+proposal foundation, and the closed
 Tracer 28 authz/staff-boundary truth,
 Milestone 2.0 hardening follow-up, scheduling substrate, member-safe calendar,
 ops-read, approved booking lifecycle, public request/status/availability lines,
