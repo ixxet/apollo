@@ -30,6 +30,7 @@ func TestCompetitionCommandReadinessIsBackedByAPOLLOCapabilities(t *testing.T) {
 	assertReadinessCommand(t, supervisorReadiness, competition.CommandUpdateQueueIntent, true)
 	assertReadinessCommand(t, supervisorReadiness, competition.CommandGenerateMatchPreview, true)
 	assertReadinessCommand(t, supervisorReadiness, competition.CommandCreateTeam, false)
+	assertReadinessCommandAbsent(t, supervisorReadiness, competition.CommandRecordSafetyReport)
 
 	memberResponse := env.doRequest(t, http.MethodGet, "/api/v1/competition/commands/readiness", nil, memberCookie)
 	if memberResponse.Code != http.StatusOK {
@@ -41,6 +42,7 @@ func TestCompetitionCommandReadinessIsBackedByAPOLLOCapabilities(t *testing.T) {
 	}
 	assertReadinessCommand(t, memberReadiness, competition.CommandOpenQueue, false)
 	assertReadinessCommand(t, memberReadiness, competition.CommandGenerateMatchPreview, false)
+	assertReadinessCommandAbsent(t, memberReadiness, competition.CommandRecordSafetyReport)
 }
 
 func TestCompetitionCommandEndpointDryRunDoesNotMutate(t *testing.T) {
@@ -211,6 +213,16 @@ func assertReadinessCommand(t *testing.T, readiness competition.CompetitionComma
 		}
 	}
 	t.Fatalf("readiness missing command %s", name)
+}
+
+func assertReadinessCommandAbsent(t *testing.T, readiness competition.CompetitionCommandReadiness, name competition.CommandName) {
+	t.Helper()
+
+	for _, command := range readiness.Commands {
+		if command.Name == name {
+			t.Fatalf("readiness exposes command %s, want absent", name)
+		}
+	}
 }
 
 func containsJSONText(body string, value string) bool {

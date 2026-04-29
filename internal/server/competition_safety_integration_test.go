@@ -22,6 +22,7 @@ func TestCompetitionSafetyReliabilityRuntimeCapturesManagerOnlyFacts(t *testing.
 	ownerCookie, owner := createVerifiedSessionViaHTTP(t, env, "student-safety-runtime-001", "safety-runtime-001@example.com")
 	memberCookie, member := createVerifiedSessionViaHTTP(t, env, "student-safety-runtime-002", "safety-runtime-002@example.com")
 	supervisorCookie, supervisor := createVerifiedSessionViaHTTP(t, env, "student-safety-runtime-003", "safety-runtime-003@example.com")
+	_, outsider := createVerifiedSessionViaHTTP(t, env, "student-safety-runtime-004", "safety-runtime-004@example.com")
 	setUserRole(t, env, owner.ID, authz.RoleOwner)
 	setUserRole(t, env, supervisor.ID, authz.RoleSupervisor)
 
@@ -33,6 +34,23 @@ func TestCompetitionSafetyReliabilityRuntimeCapturesManagerOnlyFacts(t *testing.
 	match := session.Matches[0]
 
 	beforeSnapshot := competitionTruthSnapshot(t, env, session.ID, match.ID)
+	outOfScopeReport := env.doJSONRequest(t, http.MethodPost, "/api/v1/competition/safety/reports", fmt.Sprintf(`{
+		"competition_session_id":"%s",
+		"reporter_user_id":"%s",
+		"subject_user_id":"%s",
+		"target_type":"competition_member",
+		"target_id":"%s",
+		"reason_code":"conduct",
+		"note":"out-of-scope report should not persist"
+	}`, session.ID, outsider.ID, member.ID, member.ID), ownerCookie)
+	if outOfScopeReport.Code != http.StatusBadRequest {
+		t.Fatalf("outOfScopeReport.Code = %d, want %d body=%s", outOfScopeReport.Code, http.StatusBadRequest, outOfScopeReport.Body.String())
+	}
+	if !strings.Contains(outOfScopeReport.Body.String(), competition.ErrSafetyUserOutOfScope.Error()) {
+		t.Fatalf("outOfScopeReport body = %s, want out-of-scope error", outOfScopeReport.Body.String())
+	}
+	assertTableRowCount(t, env, "apollo.competition_safety_reports", 0)
+
 	reportResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/competition/safety/reports", fmt.Sprintf(`{
 		"competition_session_id":"%s",
 		"reporter_user_id":"%s",
@@ -52,6 +70,18 @@ func TestCompetitionSafetyReliabilityRuntimeCapturesManagerOnlyFacts(t *testing.
 	assertCompetitionTruthSnapshot(t, env, session.ID, match.ID, beforeSnapshot)
 	assertTableRowCount(t, env, "apollo.competition_safety_reports", 1)
 	assertTableRowCount(t, env, "apollo.competition_safety_events", 1)
+
+	outOfScopeBlock := env.doJSONRequest(t, http.MethodPost, "/api/v1/competition/safety/blocks", fmt.Sprintf(`{
+		"competition_session_id":"%s",
+		"competition_match_id":"%s",
+		"blocker_user_id":"%s",
+		"blocked_user_id":"%s",
+		"reason_code":"conduct"
+	}`, session.ID, match.ID, owner.ID, outsider.ID), ownerCookie)
+	if outOfScopeBlock.Code != http.StatusBadRequest {
+		t.Fatalf("outOfScopeBlock.Code = %d, want %d body=%s", outOfScopeBlock.Code, http.StatusBadRequest, outOfScopeBlock.Body.String())
+	}
+	assertTableRowCount(t, env, "apollo.competition_safety_blocks", 0)
 
 	blockResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/competition/safety/blocks", fmt.Sprintf(`{
 		"competition_session_id":"%s",
@@ -78,6 +108,19 @@ func TestCompetitionSafetyReliabilityRuntimeCapturesManagerOnlyFacts(t *testing.
 	}
 	assertTableRowCount(t, env, "apollo.competition_safety_blocks", 1)
 	assertTableRowCount(t, env, "apollo.competition_safety_events", 2)
+
+	outOfScopeReliability := env.doJSONRequest(t, http.MethodPost, "/api/v1/competition/reliability/events", fmt.Sprintf(`{
+		"competition_session_id":"%s",
+		"competition_match_id":"%s",
+		"subject_user_id":"%s",
+		"reliability_type":"no_show",
+		"severity":"warning",
+		"note":"out-of-scope reliability should not persist"
+	}`, session.ID, match.ID, outsider.ID), ownerCookie)
+	if outOfScopeReliability.Code != http.StatusBadRequest {
+		t.Fatalf("outOfScopeReliability.Code = %d, want %d body=%s", outOfScopeReliability.Code, http.StatusBadRequest, outOfScopeReliability.Body.String())
+	}
+	assertTableRowCount(t, env, "apollo.competition_reliability_events", 0)
 
 	reliabilityResponse := env.doJSONRequest(t, http.MethodPost, "/api/v1/competition/reliability/events", fmt.Sprintf(`{
 		"competition_session_id":"%s",

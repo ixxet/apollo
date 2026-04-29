@@ -180,6 +180,7 @@ func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 	if err := testutil.ApplySQLFiles(
 		ctx,
 		postgresEnv.DB,
+		testutil.RepoFilePath("db", "migrations", "032_competition_safety_reliability_delete_guard.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "031_competition_safety_reliability.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "030_internal_tournament_cohesion.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "029_internal_tournament_runtime.down.sql"),
@@ -288,6 +289,14 @@ WHERE id = $1
 `, reportID)
 	if err == nil {
 		t.Fatal("update safety report error = nil, want immutable trigger failure")
+	}
+
+	_, err = postgresEnv.DB.Exec(ctx, `
+DELETE FROM apollo.competition_safety_reports
+WHERE id = $1
+`, reportID)
+	if err == nil {
+		t.Fatal("delete safety report error = nil, want immutable trigger failure")
 	}
 
 	_, err = postgresEnv.DB.Exec(ctx, `

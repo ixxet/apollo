@@ -21,6 +21,7 @@ func TestCompetitionReadinessExposesRoleCapabilities(t *testing.T) {
 	}
 	assertCommandAvailable(t, readiness, CommandOpenQueue, true)
 	assertCommandAvailable(t, readiness, CommandCreateTeam, false)
+	assertCommandAbsent(t, readiness, CommandRecordSafetyReport)
 
 	resultDefinition, ok := commandCapability(readiness, CommandRecordMatchResult)
 	if !ok {
@@ -32,6 +33,11 @@ func TestCompetitionReadinessExposesRoleCapabilities(t *testing.T) {
 	if !resultDefinition.DryRunSupported {
 		t.Fatal("record_match_result DryRunSupported = false, want true")
 	}
+
+	managerReadiness := svc.CompetitionReadiness(StaffActor{Role: authz.RoleManager})
+	assertCommandAvailable(t, managerReadiness, CommandRecordSafetyReport, true)
+	assertCommandAvailable(t, managerReadiness, CommandRecordSafetyBlock, true)
+	assertCommandAvailable(t, managerReadiness, CommandRecordReliabilityEvent, true)
 }
 
 func TestCompetitionCommandDryRunPlansWithoutMutation(t *testing.T) {
@@ -208,4 +214,11 @@ func commandCapability(readiness CompetitionCommandReadiness, name CommandName) 
 		}
 	}
 	return CompetitionCommandCapability{}, false
+}
+
+func assertCommandAbsent(t *testing.T, readiness CompetitionCommandReadiness, name CommandName) {
+	t.Helper()
+	if _, ok := commandCapability(readiness, name); ok {
+		t.Fatalf("readiness exposes command %s, want absent", name)
+	}
 }
