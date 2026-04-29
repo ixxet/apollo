@@ -153,6 +153,8 @@ type Store interface {
 	ListMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]memberRatingRecord, error)
 	ListMemberStatRowsByUserID(ctx context.Context, userID uuid.UUID) ([]memberStatRowRecord, error)
 	ListMemberHistoryByUserID(ctx context.Context, userID uuid.UUID) ([]memberHistoryRowRecord, error)
+	GetPublicCompetitionReadiness(ctx context.Context) (publicCompetitionReadinessRecord, error)
+	ListPublicCompetitionLeaderboard(ctx context.Context, input PublicCompetitionLeaderboardInput) ([]publicCompetitionLeaderboardRowRecord, error)
 }
 
 type Service struct {
@@ -297,6 +299,48 @@ type MemberHistoryEntry struct {
 	FacilityKey        string    `json:"facility_key"`
 	RecordedAt         time.Time `json:"recorded_at"`
 	Outcome            string    `json:"outcome"`
+}
+
+type PublicCompetitionReadiness struct {
+	ContractVersion           string   `json:"contract_version"`
+	ProjectionVersion         string   `json:"projection_version"`
+	Status                    string   `json:"status"`
+	ResultSource              string   `json:"result_source"`
+	RatingSource              string   `json:"rating_source"`
+	AvailableLeaderboards     int      `json:"available_leaderboards"`
+	AvailableCanonicalResults int      `json:"available_canonical_results"`
+	Deferred                  []string `json:"deferred"`
+}
+
+type PublicCompetitionLeaderboardInput struct {
+	SportKey  string
+	ModeKey   string
+	StatType  string
+	TeamScope string
+	Limit     int
+}
+
+type PublicCompetitionLeaderboard struct {
+	ContractVersion   string                            `json:"contract_version"`
+	ProjectionVersion string                            `json:"projection_version"`
+	ResultSource      string                            `json:"result_source"`
+	RatingSource      string                            `json:"rating_source"`
+	Leaderboard       []PublicCompetitionLeaderboardRow `json:"leaderboard"`
+}
+
+type PublicCompetitionLeaderboardRow struct {
+	Rank         int        `json:"rank"`
+	Participant  string     `json:"participant"`
+	SportKey     string     `json:"sport_key"`
+	ModeKey      string     `json:"mode_key"`
+	FacilityKey  string     `json:"facility_key"`
+	TeamScope    string     `json:"team_scope"`
+	StatType     string     `json:"stat_type"`
+	StatValue    float64    `json:"stat_value"`
+	SampleSize   int        `json:"sample_size"`
+	Confidence   float64    `json:"confidence"`
+	LastResultAt *time.Time `json:"last_result_at,omitempty"`
+	ComputedAt   time.Time  `json:"computed_at"`
 }
 
 type CreateSessionInput struct {
@@ -499,6 +543,24 @@ type memberHistoryRowRecord struct {
 	ParticipantsPerSide int
 	RecordedAt          time.Time
 	Outcome             string
+}
+
+type publicCompetitionReadinessRecord struct {
+	AvailableLeaderboards     int
+	AvailableCanonicalResults int
+}
+
+type publicCompetitionLeaderboardRowRecord struct {
+	SportKey     string
+	ModeKey      string
+	FacilityKey  string
+	TeamScope    string
+	StatType     string
+	StatValue    float64
+	SampleSize   int
+	Confidence   float64
+	LastResultAt *time.Time
+	ComputedAt   time.Time
 }
 
 func NewService(repository Store) *Service {

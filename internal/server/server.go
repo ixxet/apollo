@@ -84,6 +84,8 @@ type CompetitionManager interface {
 	ListTournaments(ctx context.Context) ([]competition.TournamentSummary, error)
 	GetTournament(ctx context.Context, tournamentID uuid.UUID) (competition.Tournament, error)
 	ListMemberStats(ctx context.Context, userID uuid.UUID) ([]competition.MemberStat, error)
+	PublicCompetitionReadiness(ctx context.Context) (competition.PublicCompetitionReadiness, error)
+	ListPublicCompetitionLeaderboard(ctx context.Context, input competition.PublicCompetitionLeaderboardInput) (competition.PublicCompetitionLeaderboard, error)
 	CompetitionReadiness(actor competition.StaffActor) competition.CompetitionCommandReadiness
 	CompetitionSafetyReadiness(ctx context.Context, actor competition.StaffActor) (competition.CompetitionSafetyReadiness, error)
 	GetCompetitionSafetyReview(ctx context.Context, actor competition.StaffActor, limit int) (competition.CompetitionSafetyReview, error)
@@ -486,6 +488,50 @@ func NewHandler(deps Dependencies) http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, status)
+	})
+	router.Get("/api/v1/public/competition/readiness", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Competition == nil {
+			writeError(w, http.StatusServiceUnavailable, errors.New("competition dependency is unavailable"))
+			return
+		}
+
+		readiness, err := deps.Competition.PublicCompetitionReadiness(r.Context())
+		if err != nil {
+			writeCompetitionError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, readiness)
+	})
+	router.Get("/api/v1/public/competition/leaderboards", func(w http.ResponseWriter, r *http.Request) {
+		if deps.Competition == nil {
+			writeError(w, http.StatusServiceUnavailable, errors.New("competition dependency is unavailable"))
+			return
+		}
+
+		limit := 0
+		if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+			parsed, err := strconv.Atoi(rawLimit)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, errors.New("public competition leaderboard limit is invalid"))
+				return
+			}
+			limit = parsed
+		}
+
+		leaderboard, err := deps.Competition.ListPublicCompetitionLeaderboard(r.Context(), competition.PublicCompetitionLeaderboardInput{
+			SportKey:  r.URL.Query().Get("sport_key"),
+			ModeKey:   r.URL.Query().Get("mode_key"),
+			StatType:  r.URL.Query().Get("stat_type"),
+			TeamScope: r.URL.Query().Get("team_scope"),
+			Limit:     limit,
+		})
+		if err != nil {
+			writeCompetitionError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, leaderboard)
 	})
 
 	router.Group(func(authenticated chi.Router) {
