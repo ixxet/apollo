@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/ixxet/apollo/internal/telemetry"
 )
 
 const (
@@ -44,6 +46,11 @@ func (s *Service) MemberGameIdentity(ctx context.Context, userID uuid.UUID, inpu
 }
 
 func (s *Service) gameIdentityProjection(ctx context.Context, userID *uuid.UUID, input PublicGameIdentityInput, participantPrefix string) (GameIdentityProjection, error) {
+	startedAt := time.Now()
+	defer func() {
+		telemetry.ObserveGameIdentityProjection(time.Since(startedAt))
+	}()
+
 	normalized := normalizeGameIdentityInput(input)
 	rows, err := s.repository.ListGameIdentityProjectionRows(ctx, GameIdentityProjectionInput{
 		UserID:      userID,

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ixxet/apollo/internal/rating"
 	"github.com/ixxet/apollo/internal/store"
+	"github.com/ixxet/apollo/internal/telemetry"
 )
 
 func (r *Repository) GetMatchResultByMatchID(ctx context.Context, matchID uuid.UUID) (*matchResultRecord, error) {
@@ -464,6 +465,7 @@ func buildMatchResultRecordValues(id uuid.UUID, matchID uuid.UUID, recordedBy uu
 }
 
 func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, sportKey string, updatedAt time.Time) error {
+	startedAt := time.Now()
 	rows, err := queries.ListCompetitionRatingParticipantsBySport(ctx, sportKey)
 	if err != nil {
 		return err
@@ -505,6 +507,7 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 
 	projection := rating.RebuildLegacy(matches)
 	comparison := rating.RebuildOpenSkillComparison(matches, projection)
+	telemetry.RecordRatingRebuild(len(rows), rating.PolicyVersionLegacy, time.Since(startedAt), len(comparison.Facts))
 	if err := recordRatingPolicySelectedEventTx(ctx, queries, sportKey, projection.Watermark, updatedAt); err != nil {
 		return err
 	}

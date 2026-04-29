@@ -32,6 +32,7 @@ import (
 	"github.com/ixxet/apollo/internal/profile"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/schedule"
+	"github.com/ixxet/apollo/internal/telemetry"
 	"github.com/ixxet/apollo/internal/workouts"
 )
 
@@ -336,6 +337,7 @@ func NewHandler(deps Dependencies) http.Handler {
 	router := chi.NewRouter()
 	trustedSurfaceVerifier := authz.NewTrustedSurfaceVerifierFromEnv()
 	registerWebUIRoutes(router, deps)
+	router.Get("/metrics", telemetry.Handler())
 	router.Get("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, healthResponse{
 			Service:         "apollo",
@@ -453,6 +455,7 @@ func NewHandler(deps Dependencies) http.Handler {
 		writeJSON(w, http.StatusOK, availability)
 	})
 	router.Post("/api/v1/public/booking/requests", func(w http.ResponseWriter, r *http.Request) {
+		telemetry.RecordPublicBookingSubmit()
 		if deps.Booking == nil {
 			writeError(w, http.StatusServiceUnavailable, errors.New("booking request dependency is unavailable"))
 			return
@@ -831,6 +834,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				writeError(w, http.StatusInternalServerError, err)
 				return
 			}
+			telemetry.RecordARESPreview("unknown", "unknown", "unknown")
 
 			slog.Info(
 				"lobby match preview read",
@@ -861,6 +865,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			if !command.DryRun {
 				surface, err := trustedSurfaceVerifier.VerifyRequest(r)
 				if err != nil {
+					telemetry.RecordTrustedSurfaceFailure(err.Error())
 					outcome := competition.CompetitionCommandOutcome{
 						Name:    command.Name,
 						Status:  competition.CommandStatusDenied,
@@ -877,6 +882,7 @@ func NewHandler(deps Dependencies) http.Handler {
 			command.Actor = competitionCommandActorFromPrincipal(principal, "")
 
 			outcome, err := deps.Competition.ExecuteCommand(r.Context(), command)
+			recordCompetitionCommandTelemetry(command, outcome, err)
 			writeJSON(w, competitionCommandHTTPStatus(outcome, err), outcome)
 		})
 		authenticated.Get("/api/v1/competition/safety/readiness", withCompetitionAccess(authz.CapabilityCompetitionSafetyReview, true, trustedSurfaceVerifier, func(w http.ResponseWriter, r *http.Request, actor competition.StaffActor) {
@@ -918,6 +924,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				writeCompetitionError(w, err)
 				return
 			}
+			telemetry.RecordSafetyReport(request.ReasonCode)
 
 			writeJSON(w, http.StatusCreated, report)
 		}))
@@ -933,6 +940,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				writeCompetitionError(w, err)
 				return
 			}
+			telemetry.RecordSafetyBlock()
 
 			writeJSON(w, http.StatusCreated, block)
 		}))
@@ -948,6 +956,7 @@ func NewHandler(deps Dependencies) http.Handler {
 				writeCompetitionError(w, err)
 				return
 			}
+			telemetry.RecordReliabilityEvent(request.ReliabilityType)
 
 			writeJSON(w, http.StatusCreated, event)
 		}))
@@ -1431,19 +1440,23 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			var request recordCompetitionMatchResultRequest
 			if err := decodeJSONBody(w, r, &request); err != nil {
+				telemetry.RecordResultWriteReject("validation")
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
 			if request.ExpectedResultVersion == nil || *request.ExpectedResultVersion < 0 {
+				telemetry.RecordResultWriteReject("validation")
 				writeError(w, http.StatusBadRequest, competition.ErrMatchResultVersion)
 				return
 			}
 
+			telemetry.RecordResultWriteAttempt("record")
 			session, err := deps.Competition.RecordMatchResult(r.Context(), actor, sessionID, matchID, competition.RecordMatchResultInput{
 				ExpectedResultVersion: *request.ExpectedResultVersion,
 				Sides:                 request.Sides,
 			})
 			if err != nil {
+				telemetry.RecordResultWriteReject(err.Error())
 				writeCompetitionError(w, err)
 				return
 			}
@@ -1464,11 +1477,14 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			expectedVersion, ok := decodeCompetitionResultExpectedVersion(w, r)
 			if !ok {
+				telemetry.RecordResultWriteReject("validation")
 				return
 			}
 
+			telemetry.RecordResultWriteAttempt("finalize")
 			session, err := deps.Competition.FinalizeMatchResult(r.Context(), actor, sessionID, matchID, expectedVersion)
 			if err != nil {
+				telemetry.RecordResultWriteReject(err.Error())
 				writeCompetitionError(w, err)
 				return
 			}
@@ -1489,14 +1505,18 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			expectedVersion, ok := decodeCompetitionResultExpectedVersion(w, r)
 			if !ok {
+				telemetry.RecordResultWriteReject("validation")
 				return
 			}
 
+			telemetry.RecordResultWriteAttempt("dispute")
 			session, err := deps.Competition.DisputeMatchResult(r.Context(), actor, sessionID, matchID, expectedVersion)
 			if err != nil {
+				telemetry.RecordResultWriteReject(err.Error())
 				writeCompetitionError(w, err)
 				return
 			}
+			telemetry.RecordDisputeOpened("result_disputed")
 
 			writeJSON(w, http.StatusOK, session)
 		}))
@@ -1514,19 +1534,23 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			var request recordCompetitionMatchResultRequest
 			if err := decodeJSONBody(w, r, &request); err != nil {
+				telemetry.RecordResultWriteReject("validation")
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
 			if request.ExpectedResultVersion == nil || *request.ExpectedResultVersion < 0 {
+				telemetry.RecordResultWriteReject("validation")
 				writeError(w, http.StatusBadRequest, competition.ErrMatchResultVersion)
 				return
 			}
 
+			telemetry.RecordResultWriteAttempt("correct")
 			session, err := deps.Competition.CorrectMatchResult(r.Context(), actor, sessionID, matchID, competition.RecordMatchResultInput{
 				ExpectedResultVersion: *request.ExpectedResultVersion,
 				Sides:                 request.Sides,
 			})
 			if err != nil {
+				telemetry.RecordResultWriteReject(err.Error())
 				writeCompetitionError(w, err)
 				return
 			}
@@ -1547,11 +1571,14 @@ func NewHandler(deps Dependencies) http.Handler {
 
 			expectedVersion, ok := decodeCompetitionResultExpectedVersion(w, r)
 			if !ok {
+				telemetry.RecordResultWriteReject("validation")
 				return
 			}
 
+			telemetry.RecordResultWriteAttempt("void")
 			session, err := deps.Competition.VoidMatchResult(r.Context(), actor, sessionID, matchID, expectedVersion)
 			if err != nil {
+				telemetry.RecordResultWriteReject(err.Error())
 				writeCompetitionError(w, err)
 				return
 			}
@@ -2495,6 +2522,7 @@ func withCompetitionAccess(required authz.Capability, requireTrustedSurface bool
 	return func(w http.ResponseWriter, r *http.Request) {
 		principal := principalFromContext(r.Context())
 		if !authz.HasCapability(principal.Capabilities, required) {
+			telemetry.RecordTrustedSurfaceFailure("capability_denied")
 			writeError(w, http.StatusForbidden, authz.ErrCapabilityDenied)
 			return
 		}
@@ -2502,6 +2530,7 @@ func withCompetitionAccess(required authz.Capability, requireTrustedSurface bool
 		if requireTrustedSurface {
 			surface, err := verifier.VerifyRequest(r)
 			if err != nil {
+				telemetry.RecordTrustedSurfaceFailure(err.Error())
 				writeError(w, http.StatusForbidden, err)
 				return
 			}
@@ -2518,6 +2547,7 @@ func withScheduleAccess(required authz.Capability, requireTrustedSurface bool, v
 	return func(w http.ResponseWriter, r *http.Request) {
 		principal := principalFromContext(r.Context())
 		if !authz.HasCapability(principal.Capabilities, required) {
+			telemetry.RecordTrustedSurfaceFailure("capability_denied")
 			writeError(w, http.StatusForbidden, authz.ErrCapabilityDenied)
 			return
 		}
@@ -2526,6 +2556,7 @@ func withScheduleAccess(required authz.Capability, requireTrustedSurface bool, v
 		if requireTrustedSurface {
 			surface, err := verifier.VerifyRequest(r)
 			if err != nil {
+				telemetry.RecordTrustedSurfaceFailure(err.Error())
 				writeError(w, http.StatusForbidden, err)
 				return
 			}
@@ -2540,6 +2571,7 @@ func withBookingAccess(required authz.Capability, requireTrustedSurface bool, ve
 	return func(w http.ResponseWriter, r *http.Request) {
 		principal := principalFromContext(r.Context())
 		if !authz.HasCapability(principal.Capabilities, required) {
+			telemetry.RecordTrustedSurfaceFailure("capability_denied")
 			writeError(w, http.StatusForbidden, authz.ErrCapabilityDenied)
 			return
 		}
@@ -2548,6 +2580,7 @@ func withBookingAccess(required authz.Capability, requireTrustedSurface bool, ve
 		if requireTrustedSurface {
 			surface, err := verifier.VerifyRequest(r)
 			if err != nil {
+				telemetry.RecordTrustedSurfaceFailure(err.Error())
 				writeError(w, http.StatusForbidden, err)
 				return
 			}
@@ -2796,6 +2829,77 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, errorResponse{Error: err.Error()})
+}
+
+func recordCompetitionCommandTelemetry(command competition.CompetitionCommand, outcome competition.CompetitionCommandOutcome, err error) {
+	if command.DryRun {
+		return
+	}
+	failed := err != nil || outcome.Status == competition.CommandStatusDenied || outcome.Status == competition.CommandStatusRejected || outcome.Status == competition.CommandStatusFailed
+	failureReason := outcome.Error
+	if failureReason == "" && err != nil {
+		failureReason = err.Error()
+	}
+
+	switch command.Name {
+	case competition.CommandRecordMatchResult:
+		telemetry.RecordResultWriteAttempt("record")
+		if failed {
+			telemetry.RecordResultWriteReject(failureReason)
+		}
+	case competition.CommandFinalizeMatchResult:
+		telemetry.RecordResultWriteAttempt("finalize")
+		if failed {
+			telemetry.RecordResultWriteReject(failureReason)
+		}
+	case competition.CommandDisputeMatchResult:
+		telemetry.RecordResultWriteAttempt("dispute")
+		if failed {
+			telemetry.RecordResultWriteReject(failureReason)
+			return
+		}
+		telemetry.RecordDisputeOpened("result_disputed")
+	case competition.CommandCorrectMatchResult:
+		telemetry.RecordResultWriteAttempt("correct")
+		if failed {
+			telemetry.RecordResultWriteReject(failureReason)
+		}
+	case competition.CommandVoidMatchResult:
+		telemetry.RecordResultWriteAttempt("void")
+		if failed {
+			telemetry.RecordResultWriteReject(failureReason)
+		}
+	case competition.CommandGenerateMatchPreview:
+		if failed {
+			telemetry.RecordARESQueueAssignmentFailure(failureReason)
+			return
+		}
+		telemetry.RecordARESPreview("unknown", "unknown", "unknown")
+	case competition.CommandAssignQueue:
+		if failed {
+			telemetry.RecordARESQueueAssignmentFailure(failureReason)
+		}
+	case competition.CommandSeedTournament, competition.CommandLockTournamentTeam:
+		if !failed {
+			telemetry.RecordTournamentSeedLock()
+		}
+	case competition.CommandAdvanceTournamentRound:
+		if !failed {
+			telemetry.RecordTournamentAdvancement("single_elimination")
+		}
+	case competition.CommandRecordSafetyReport:
+		if !failed && command.SafetyReport != nil {
+			telemetry.RecordSafetyReport(command.SafetyReport.ReasonCode)
+		}
+	case competition.CommandRecordSafetyBlock:
+		if !failed {
+			telemetry.RecordSafetyBlock()
+		}
+	case competition.CommandRecordReliabilityEvent:
+		if !failed && command.ReliabilityEvent != nil {
+			telemetry.RecordReliabilityEvent(command.ReliabilityEvent.ReliabilityType)
+		}
+	}
 }
 
 func competitionCommandHTTPStatus(outcome competition.CompetitionCommandOutcome, err error) int {
@@ -3095,6 +3199,14 @@ func writeScheduleError(w http.ResponseWriter, err error) {
 }
 
 func writeBookingError(w http.ResponseWriter, err error) {
+	if errors.Is(err, booking.ErrIdempotencyConflict) {
+		telemetry.RecordBookingIdempotencyConflict()
+	}
+	if errors.Is(err, booking.ErrRequestVersionStale) ||
+		errors.Is(err, booking.ErrRequestTransitionInvalid) ||
+		errors.Is(err, booking.ErrLinkedScheduleBlockDrift) {
+		telemetry.RecordBookingApprovalConflict()
+	}
 	switch {
 	case errors.Is(err, booking.ErrRequestNotFound),
 		errors.Is(err, booking.ErrPublicReceiptNotFound),
@@ -3143,6 +3255,12 @@ func writeBookingError(w http.ResponseWriter, err error) {
 }
 
 func writePublicBookingError(w http.ResponseWriter, err error) {
+	if errors.Is(err, booking.ErrIdempotencyConflict) {
+		telemetry.RecordBookingIdempotencyConflict()
+	}
+	if errors.Is(err, booking.ErrPublicReceiptNotFound) {
+		telemetry.RecordPublicReceiptNotFound()
+	}
 	switch {
 	case errors.Is(err, booking.ErrPublicOptionNotFound),
 		errors.Is(err, booking.ErrPublicReceiptNotFound),
