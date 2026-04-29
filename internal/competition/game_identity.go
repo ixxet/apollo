@@ -68,10 +68,10 @@ func (s *Service) gameIdentityProjection(ctx context.Context, userID *uuid.UUID,
 	}
 
 	cp := make([]GameIdentityCPProjection, 0, len(rows))
-	labels := make(map[uuid.UUID]string, len(rows))
+	labels := make(map[gameIdentityLabelKey]string, len(rows))
 	for index, row := range rows {
 		label := gameIdentityParticipantLabel(participantPrefix, index+1)
-		labels[row.UserID] = label
+		labels[gameIdentityRowLabelKey(row)] = label
 		cp = append(cp, buildGameIdentityCPProjection(row, index+1, label))
 	}
 
@@ -171,10 +171,10 @@ func pointsFor(value float64, pointsPerUnit int) int {
 	return int(math.Round(value)) * pointsPerUnit
 }
 
-func buildGameIdentityBadgeAwards(rows []gameIdentityProjectionRowRecord, labels map[uuid.UUID]string) []GameIdentityBadgeAward {
+func buildGameIdentityBadgeAwards(rows []gameIdentityProjectionRowRecord, labels map[gameIdentityLabelKey]string) []GameIdentityBadgeAward {
 	awards := make([]GameIdentityBadgeAward, 0)
 	for _, row := range rows {
-		participant := labels[row.UserID]
+		participant := labels[gameIdentityRowLabelKey(row)]
 		if row.MatchesPlayed >= 1 {
 			awards = append(awards, gameIdentityBadgeAward(row, participant, "first_match", "First match", analyticsStatMatchesPlayed, row.MatchesPlayed, 1))
 		}
@@ -215,34 +215,54 @@ func gameIdentityBadgeAward(row gameIdentityProjectionRowRecord, participant str
 	}
 }
 
-func buildGameIdentityRivalryStates(rows []gameIdentityProjectionRowRecord, labels map[uuid.UUID]string) []GameIdentityRivalryState {
-	if len(rows) < 2 {
-		return []GameIdentityRivalryState{}
+func buildGameIdentityRivalryStates(rows []gameIdentityProjectionRowRecord, labels map[gameIdentityLabelKey]string) []GameIdentityRivalryState {
+	groups := make(map[gameIdentitySquadKey][]gameIdentityProjectionRowRecord)
+	for _, row := range rows {
+		key := gameIdentityRowContextKey(row)
+		groups[key] = append(groups[key], row)
 	}
 
-	left := rows[0]
-	right := rows[1]
-	leftCP := gameIdentityCP(left)
-	rightCP := gameIdentityCP(right)
-	gap := leftCP - rightCP
-	state := "emerging"
-	if gap <= 50 {
-		state = "active"
+	keys := make([]gameIdentitySquadKey, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
 	}
-	computedAt := latestTime(left.ComputedAt, right.ComputedAt)
-	return []GameIdentityRivalryState{{
-		RivalryKey:    gameIdentityKey("rivalry", left.SportKey, left.ModeKey, left.FacilityKey, left.TeamScope),
-		State:         state,
-		PolicyVersion: gameIdentityRivalryPolicyVersion,
-		SportKey:      left.SportKey,
-		ModeKey:       left.ModeKey,
-		FacilityKey:   left.FacilityKey,
-		TeamScope:     left.TeamScope,
-		Participants:  []string{labels[left.UserID], labels[right.UserID]},
-		Leader:        labels[left.UserID],
-		CPGap:         gap,
-		ComputedAt:    computedAt.UTC(),
-	}}
+	sort.SliceStable(keys, func(i, j int) bool {
+		return keys[i].String() < keys[j].String()
+	})
+
+	rivalries := make([]GameIdentityRivalryState, 0)
+	for _, key := range keys {
+		group := groups[key]
+		if len(group) < 2 {
+			continue
+		}
+		sortGameIdentityRows(group)
+
+		left := group[0]
+		right := group[1]
+		leftCP := gameIdentityCP(left)
+		rightCP := gameIdentityCP(right)
+		gap := leftCP - rightCP
+		state := "emerging"
+		if gap <= 50 {
+			state = "active"
+		}
+		computedAt := latestTime(left.ComputedAt, right.ComputedAt)
+		rivalries = append(rivalries, GameIdentityRivalryState{
+			RivalryKey:    gameIdentityKey("rivalry", key.sportKey, key.modeKey, key.facilityKey, key.teamScope),
+			State:         state,
+			PolicyVersion: gameIdentityRivalryPolicyVersion,
+			SportKey:      key.sportKey,
+			ModeKey:       key.modeKey,
+			FacilityKey:   key.facilityKey,
+			TeamScope:     key.teamScope,
+			Participants:  []string{labels[gameIdentityRowLabelKey(left)], labels[gameIdentityRowLabelKey(right)]},
+			Leader:        labels[gameIdentityRowLabelKey(left)],
+			CPGap:         gap,
+			ComputedAt:    computedAt.UTC(),
+		})
+	}
+	return rivalries
 }
 
 func buildGameIdentitySquadIdentities(rows []gameIdentityProjectionRowRecord) []GameIdentitySquadIdentity {
@@ -255,12 +275,7 @@ func buildGameIdentitySquadIdentities(rows []gameIdentityProjectionRowRecord) []
 
 	aggregates := make(map[gameIdentitySquadKey]*squadAggregate)
 	for _, row := range rows {
-		key := gameIdentitySquadKey{
-			sportKey:    row.SportKey,
-			modeKey:     row.ModeKey,
-			facilityKey: row.FacilityKey,
-			teamScope:   row.TeamScope,
-		}
+		key := gameIdentityRowContextKey(row)
 		aggregate, exists := aggregates[key]
 		if !exists {
 			aggregate = &squadAggregate{key: key}
@@ -303,6 +318,27 @@ type gameIdentitySquadKey struct {
 	modeKey     string
 	facilityKey string
 	teamScope   string
+}
+
+type gameIdentityLabelKey struct {
+	userID uuid.UUID
+	key    gameIdentitySquadKey
+}
+
+func gameIdentityRowContextKey(row gameIdentityProjectionRowRecord) gameIdentitySquadKey {
+	return gameIdentitySquadKey{
+		sportKey:    row.SportKey,
+		modeKey:     row.ModeKey,
+		facilityKey: row.FacilityKey,
+		teamScope:   row.TeamScope,
+	}
+}
+
+func gameIdentityRowLabelKey(row gameIdentityProjectionRowRecord) gameIdentityLabelKey {
+	return gameIdentityLabelKey{
+		userID: row.UserID,
+		key:    gameIdentityRowContextKey(row),
+	}
 }
 
 func (k gameIdentitySquadKey) String() string {
