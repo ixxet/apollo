@@ -83,8 +83,6 @@ func (s *Service) ListPublicCompetitionLeaderboard(ctx context.Context, input Pu
 			TeamScope:    row.TeamScope,
 			StatType:     row.StatType,
 			StatValue:    row.StatValue,
-			SampleSize:   row.SampleSize,
-			Confidence:   row.Confidence,
 			LastResultAt: row.LastResultAt,
 			ComputedAt:   row.ComputedAt,
 		})

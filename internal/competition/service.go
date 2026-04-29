@@ -337,8 +337,6 @@ type PublicCompetitionLeaderboardRow struct {
 	TeamScope    string     `json:"team_scope"`
 	StatType     string     `json:"stat_type"`
 	StatValue    float64    `json:"stat_value"`
-	SampleSize   int        `json:"sample_size"`
-	Confidence   float64    `json:"confidence"`
 	LastResultAt *time.Time `json:"last_result_at,omitempty"`
 	ComputedAt   time.Time  `json:"computed_at"`
 }
