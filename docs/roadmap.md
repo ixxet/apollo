@@ -7,8 +7,9 @@ jump straight to a broad product.
 
 ## Current Line
 
-Current repo/runtime working line on `main`: Phase 3B.18 internal social
-safety/reliability foundation over the already-closed Phase 3B.17 internal
+Current repo/runtime working line on `main`: Phase 3B.19 public competition
+readiness over the already-closed Phase 3B.18 internal social
+safety/reliability foundation, Phase 3B.17 internal
 tournament runtime and Phase 3B.16 competition analytics foundation,
 Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
@@ -187,6 +188,12 @@ schedule-control lines
   manager-only readiness/review reads, and keeps these private facts out of
   public/member projections and canonical competition result/rating/analytics/
   ARES/tournament truth
+- Phase 3B.19 public competition readiness is now real in repo/runtime on
+  `main`: APOLLO exposes public-safe readiness and leaderboard projection
+  contracts over finalized/corrected canonical result truth plus legacy active
+  rating fields, while private/internal safety, manager, command, OpenSkill
+  comparison, ARES proposal, tournament ops, source-result, and projection
+  watermark facts stay non-public
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -250,32 +257,30 @@ and staff-side edit/replacement plus bounded staff schedule-control lines.
 | `Phase 3B.16` | competition analytics foundation on `main`: internal stat events and analytics projections over finalized/corrected canonical results plus legacy rating facts | keep analytics internal, derived, deterministic, versioned, and separate from UI/public truth | do not widen into dashboards, public profiles/stats/scouting, carry coefficient, OpenSkill read-path switch, tournament runtime, public competition surfaces, Hestia member/public expansion, CP, badges, rivalry, squads, proposal workflow, booking, or deploy claims |
 | `Phase 3B.17` | internal tournament runtime on `main`: staff-only tournament containers, single-elimination bracket/seed/team-snapshot/match-binding/advancement facts, explicit advance reasons, and tournament events over trusted APOLLO competition truth | keep tournaments internal, staff-run, additive, audited, and bound to finalized/corrected canonical result truth only | do not widen into public tournaments, Hestia member/public competition expansion, booking/commercial/proposal workflow, OpenSkill read-path switch, ARES behavior changes, dashboard-first analytics, CP, badges, rivalry, squads, or deploy claims |
 | `Phase 3B.18` | internal social safety/reliability foundation on `main`: competition-scoped report facts, block facts, reliability events, safety audit events, manager-only readiness/review reads, and aligned safety/reliability commands | keep safety and reliability manager/internal, capability-gated, auditable, immutable, and separate from canonical competition truth | do not widen into public/member safety UI, messaging/chat, public profiles/scouting/leaderboards/tournaments, Hestia expansion, CP, badges, rivalry, squads, OpenSkill read-path switch, ARES behavior changes, analytics dashboards, booking/commercial/proposal workflow, SemVer governance, or deploy claims |
+| `Phase 3B.19` | public competition readiness on `main`: public-safe readiness and leaderboard projection contracts over finalized/corrected canonical result truth plus legacy active rating fields | keep public contracts projection-only, redacted, deterministic, and separate from private/internal truth | do not widen into public tournaments, CP, badges, rivalry, squads, messaging/chat, public social graph, OpenSkill read-path switch, ARES proposal exposure, analytics dashboards, booking/commercial/proposal workflow, SemVer governance, or deploy claims |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, CP, badges, squads, public rivalry, or public leaderboards |
 
 ## Current Phase 3B Line
 
-Phase 3B.18 internal social safety/reliability foundation is now real in
-repo/runtime on `main`, with deployed truth still separate and unchanged. APOLLO
-now records competition-scoped report facts, block facts, reliability events,
-and safety audit events, exposes manager-only safety/reliability readiness and
-review reads, and accepts aligned safety/reliability commands through the
-existing capability/trusted-surface command foundation. These facts are
-manager/internal first and do not own or mutate match lifecycle, canonical
-results, rating truth, analytics truth, ARES proposal truth, tournament truth,
-booking/commercial truth, UI truth, public truth, member truth, or game identity
-truth.
+Phase 3B.19 public competition readiness is now real in repo/runtime on
+`main`, with deployed truth still separate and unchanged. APOLLO exposes
+public-safe readiness and leaderboard contracts that consume projections only:
+finalized/corrected canonical result truth plus legacy active rating fields.
+The contracts redact participant identity and exclude private/internal safety,
+manager, command, OpenSkill comparison, ARES proposal, tournament ops,
+source-result, projection watermark, and operational truth.
 
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
 - OpenSkill read-path switch only after comparison evidence is accepted
-- public competition readiness and public tournaments in Phase 3B.19
-- public competition surfaces, public/member safety UI, and game identity
+- public tournaments and game identity
+- public/member safety UI
 - carry coefficient and broader scouting/profile analytics until separate gates
 - public self-edit/rebook, broader customer self-service/status portal, and instant booking
 - in-place approved-booking editing
 - recurring schedule rules, broad operating-hours editing, and owner policy controls
-- public competition, rivalry, messaging/chat, or social presentation
+- rivalry, messaging/chat, or social presentation
 - CP, badges, rivalry, and squads in Phase 3B.20
 - booking/commercial/proposal workflows and project-wide SemVer governance
 - public competition expansion must follow `launch-expansion-audit.md`

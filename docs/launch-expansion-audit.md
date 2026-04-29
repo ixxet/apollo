@@ -1893,5 +1893,54 @@ Still deferred:
   public/Hestia competition expansion remain out of scope until separately
   reopened.
 
-Current next packet if launch expansion continues: 3B.19 Public Competition
-Readiness.
+## 3B.19 Public Competition Readiness Addendum
+
+Date: 2026-04-29
+
+Phase 3B.19 `Public Competition Readiness` is closed in APOLLO repo/runtime
+truth, with Hestia consuming the APOLLO public-safe contract through a
+server-mediated public page and with deployed truth unchanged. It shipped only
+the public-safe competition readiness layer:
+
+- APOLLO exposes `GET /api/v1/public/competition/readiness`.
+- APOLLO exposes `GET /api/v1/public/competition/leaderboards`.
+- Public competition contracts consume APOLLO projections only.
+- Public leaderboard rows are derived from finalized/corrected canonical result
+  truth plus legacy active rating fields.
+- Public leaderboard participant labels are redacted and do not expose user IDs
+  or public profile identity.
+- Hestia renders `/competition` from the APOLLO public-safe contracts only.
+- Hestia keeps browser-visible `/api/v1/public/*` proxy access denied and
+  continues stripping trusted-surface request headers.
+- Leak tests cover private safety/reliability, OpenSkill comparison,
+  source-result, projection watermark, command, ARES proposal, and internal
+  competition truth.
+
+Confirmed boundaries:
+
+- Private report, block, reliability, actor, reporter, subject, manager,
+  command, trusted-surface, and ops facts remain non-public.
+- OpenSkill comparison facts remain internal dual-run truth; the active public
+  rating source remains the legacy active projection.
+- ARES proposal facts, match quality, predicted win probability, and
+  explanation codes remain non-public.
+- Internal tournament runtime and public tournament presentation remain
+  deferred.
+- Public projections do not create game identity truth.
+- Themis remains an internal privileged ops shell and is not public source
+  truth.
+
+Still deferred:
+
+- Public tournaments remain deferred.
+- CP, badges, rivalry, and squads remain deferred to Phase 3B.20.
+- Messaging/chat and public social graph remain out of scope.
+- OpenSkill read-path switch remains deferred.
+- Public/member safety UI remains deferred.
+- Booking/commercial/proposal workflows remain parked.
+- Project-wide SemVer governance remains deferred.
+- Deployment remains unchanged until a separate deploy packet explicitly
+  verifies and reports it.
+
+Current next packet if launch expansion continues cleanly: 3B.20 Game Identity
+Layer.

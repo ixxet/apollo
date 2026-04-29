@@ -76,11 +76,15 @@ recommendations, and the ARES matchmaking subsystem.
 > foundation: competition-scoped report, block, reliability, and safety audit
 > facts plus capability-gated manager review/readiness reads. Safety and
 > reliability facts do not mutate canonical result, rating, analytics, ARES,
-> tournament, public, or game identity truth. Public competition readiness and
-> public tournaments remain deferred to Phase 3B.19; CP, badges, rivalry, and
-> squads remain deferred to Phase 3B.20; messaging/chat, public profiles,
-> booking/commercial/proposal workflows, OpenSkill read-path switch, and
-> project-wide SemVer governance remain deferred.
+> tournament, public, or game identity truth. Phase 3B.19 adds public-safe
+> competition readiness contracts and leaderboard projections derived only from
+> finalized/corrected canonical results plus the legacy active rating path.
+> Private/internal safety, manager, command, OpenSkill comparison, ARES
+> proposal, tournament ops, and analytics internals remain non-public. Public
+> tournaments, CP, badges, rivalry, and squads remain deferred to Phase 3B.20;
+> messaging/chat, public profiles, booking/commercial/proposal workflows,
+> OpenSkill read-path switch, and project-wide SemVer governance remain
+> deferred.
 
 This repo is now executable, but still intentionally narrow. The right way to
 document it is to separate what is already real from what is only authored in
@@ -189,6 +193,8 @@ flowchart LR
 | Competition command readiness | `GET /api/v1/competition/commands/readiness` | Real in repo/runtime | Authenticated APOLLO-backed readiness/capability truth for staff competition ops; unsupported roles receive an explicit unsupported payload instead of fake capability |
 | Competition command execution | `POST /api/v1/competition/commands` and `apollo competition command run` | Real in repo/runtime | Shared command/outcome/dry-run contract over existing competition services; live commands require role capability plus trusted-surface proof, idempotency support is reported explicitly, result lifecycle commands support dry-run/apply with result-version guards, and the internal command path can update queue intent tier facts and generate ARES v2 match previews |
 | Competition tournament runtime | `GET/POST /api/v1/competition/tournaments`, `GET /api/v1/competition/tournaments/{id}`, `POST /api/v1/competition/tournaments/{id}/{seed,teams/lock,matches/bind,rounds/advance}`, and `apollo competition tournament {list,show}` | Real in repo/runtime | Staff/internal tournament runtime only; reads require `competition_read`, writes require the matching competition capability plus trusted-surface proof, and round advancement consumes finalized/corrected canonical result truth without mutating result, rating, analytics, ARES, or public truth |
+| Public competition readiness | `GET /api/v1/public/competition/readiness` | Real in repo/runtime | Unauthenticated public-safe contract read; reports contract/projection versions, available projection counts, finalized/corrected canonical result source, and legacy active rating source without exposing private safety, manager, command, OpenSkill comparison, ARES proposal, tournament ops, or analytics internals |
+| Public competition leaderboard | `GET /api/v1/public/competition/leaderboards` | Real in repo/runtime | Unauthenticated public-safe leaderboard projection over APOLLO analytics projections; returns redacted participant labels and allowlisted sport/mode/facility/stat facts derived from finalized/corrected canonical results plus legacy active ratings, without user IDs, result IDs, OpenSkill comparison facts, safety/reliability facts, or internal watermarks |
 | Ops facility overview | `GET /api/v1/ops/facilities/{facilityKey}/overview?from=<RFC3339>&until=<RFC3339>[&bucket_minutes=N]` | Real in repo/runtime | Requires `ops_read`, is supervisor/manager/owner only, composes APOLLO schedule calendar truth with ATHENA current occupancy and bounded analytics, and returns sanitized aggregate ops truth without booking writes, raw tap hashes, or identity-level presence detail |
 | Staff schedule blocks | `GET /api/v1/schedule/blocks?facility_key=...`, `POST /api/v1/schedule/blocks`, `POST /api/v1/schedule/blocks/{id}/cancel` | Real in repo/runtime | Reads require `schedule_read` and return `X-Apollo-Schedule-Can-Manage`; writes require `schedule_manage` plus trusted-surface proof, create typed APOLLO schedule blocks through existing conflict rules, and generic cancel requires `expected_version` while refusing booking-linked reservations |
 | Booking request list/detail | `GET /api/v1/booking/requests`, `GET /api/v1/booking/requests/{id}` | Real in repo/runtime | Requires `booking_read`; supervisor, manager, and owner can read request state, source/channel, and APOLLO-computed availability without payment fields |
@@ -211,7 +217,7 @@ flowchart LR
 | workout history | broad staff product workflows outside the bounded competition and ops-read control boundaries |
 | deterministic recommendation and coaching context | the shared wire contract definitions |
 | sport registry, facility-sport capability, and static sport rules/config | ATHENA-owned facility hours, closures, and raw live availability until a later APOLLO scheduling substrate composes over those inputs |
-| competition session / team / roster / match containers, queue/assignment/lifecycle truth, result capture, ratings, standings, self-scoped member stats, internal tournament runtime facts, manager/internal safety/reliability facts, and the bounded competition staff authz substrate | public competition reads, public tournaments, role-management product flows, facility-scoped staffing, persistent approval objects, rivalry/badge logic, messaging/chat, and broad public social competition surfaces |
+| competition session / team / roster / match containers, queue/assignment/lifecycle truth, result capture, ratings, standings, self-scoped member stats, public-safe competition readiness/leaderboard projections, internal tournament runtime facts, manager/internal safety/reliability facts, and the bounded competition staff authz substrate | public tournaments, role-management product flows, facility-scoped staffing, persistent approval objects, rivalry/badge logic, messaging/chat, CP/badges/squads, public profiles, and broad public social competition surfaces |
 | read-only ops composition over APOLLO schedule truth and ATHENA occupancy/analytics truth plus internal request-first booking runtime truth, bounded public intake, public-safe availability hints, and public-safe receipt/status/message lookup | raw tap identities, identity-level presence search, ATHENA analytics semantics, HERMES staff UX, customer self-booking, quotes/payments, broad customer self-service, and deploy orchestration |
 | explicit matchmaking intent and deterministic ARES preview | tool routing, invites, notification delivery, and reusable approval/proposal workflow |
 
@@ -247,6 +253,7 @@ eligibility, or any social state.
 | `apollo.competition_match_results`, `apollo.competition_match_result_sides`, `apollo.competition_lifecycle_events`, `apollo.competition_rating_events`, `apollo.competition_rating_comparisons`, and `apollo.competition_member_ratings` | Real in repo/runtime | Stores canonical result identity, recorded/finalized/disputed/corrected/voided lifecycle facts, correction supersession, immutable result sides, auditable legacy rating compute/policy/rebuild events, internal OpenSkill dual-run comparison facts/events, and current versioned legacy rating projections derived only from finalized or corrected canonical results; OpenSkill is not the active read path |
 | `apollo.competition_queue_intents`, `apollo.competition_queue_intent_events`, `apollo.competition_match_previews`, `apollo.competition_match_preview_members`, and `apollo.competition_match_preview_events` | Real in repo/runtime | Stores explicit internal queue intent facts and deterministic ARES v2 match-preview proposal facts, including facility/sport/mode/tier, match quality, predicted win probability, and explanation code output; this is proposal truth only and does not own match lifecycle, results, ratings, booking, or public competition truth |
 | `apollo.competition_analytics_events` and `apollo.competition_analytics_projections` | Real in repo/runtime | Stores internal derived competition stat events and current analytics projections with `stat_type`, `stat_value`, `source_match_id`, `source_result_id`, `sample_size`, `confidence`, `computed_at`, `projection_version`, and deterministic projection watermarks over finalized/corrected canonical results plus legacy rating facts only |
+| public competition projection contracts | Real in repo/runtime | Public-safe HTTP contracts project only allowlisted readiness and leaderboard facts from finalized/corrected canonical results plus legacy active rating fields; they redact participant identity and exclude OpenSkill comparison facts, safety/reliability facts, command/readiness internals, ARES proposal facts, tournament ops truth, source result IDs, and projection watermarks |
 | `apollo.competition_tournaments`, `apollo.competition_tournament_brackets`, `apollo.competition_tournament_seeds`, `apollo.competition_tournament_team_snapshots`, `apollo.competition_tournament_team_snapshot_members`, `apollo.competition_tournament_match_bindings`, `apollo.competition_tournament_advancements`, and `apollo.competition_tournament_events` | Real in repo/runtime | Stores internal-only single-elimination tournament containers, bracket/seed facts, immutable locked team snapshots, match bindings, explicit advance reasons, and tournament event facts; advancement binds to finalized/corrected canonical result truth and does not own result, rating, analytics, ARES, public, or game identity truth |
 | `apollo.competition_safety_reports`, `apollo.competition_safety_blocks`, `apollo.competition_reliability_events`, and `apollo.competition_safety_events` | Real in repo/runtime | Stores manager/internal competition-scoped report facts, active block facts, operational reliability events, and audit events with private actor/subject references; the facts are immutable, capability-gated, and excluded from public/member projections |
 | `apollo.competition_staff_action_attributions` | Real in repo/runtime | Stores durable actor/session/role/capability/trusted-surface attribution for successful staff-sensitive competition mutations |
@@ -322,11 +329,17 @@ and safety audit events, exposes capability-gated manager-only
 safety/reliability readiness and review reads, and accepts aligned
 trusted-surface safety/reliability commands. These facts are private
 manager/internal truth and do not mutate result, rating, analytics, ARES,
-tournament, lifecycle, booking, public, member, or game identity truth. Public
-competition readiness remains deferred to Phase 3B.19; CP, badges, rivalry,
-and squads remain deferred to Phase 3B.20; messaging/chat, public profiles,
-booking/commercial/proposal workflows, OpenSkill read-path switch, and
-project-wide SemVer governance remain deferred.
+tournament, lifecycle, booking, public, member, or game identity truth.
+
+Phase 3B.19 closes only public competition readiness: APOLLO exposes
+public-safe readiness and leaderboard projection contracts derived from
+finalized/corrected canonical result truth plus the legacy active rating path.
+The public contracts do not expose private/internal safety, manager, command,
+OpenSkill comparison, ARES proposal, tournament ops, source-result, projection
+watermark, or operational truth. Public tournaments remain deferred; CP,
+badges, rivalry, and squads remain deferred to Phase 3B.20; messaging/chat,
+public profiles, booking/commercial/proposal workflows, OpenSkill read-path
+switch, and project-wide SemVer governance remain deferred.
 
 ## Launch Expansion Source Of Truth
 
@@ -386,6 +399,7 @@ Current ruling:
 | Competition analytics foundation | Internal derived stat events and analytics projections over finalized/corrected canonical results plus legacy rating facts | Closure-clean on `main` | `Phase 3B.16` | Keep analytics internal and derived; dashboard-first work, public profiles/stats/scouting, carry coefficient, OpenSkill read-path switch, tournament runtime, public competition surfaces, CP, badges, rivalry, squads, booking/commercial work, and deploy claims remain deferred |
 | Internal tournament runtime | Staff/internal tournament containers, single-elimination bracket/seed facts, immutable team snapshots, APOLLO match bindings, audited round advancement, and explicit advance reasons over finalized/corrected canonical result truth | Closure-clean on `main` | `Phase 3B.17` | Keep tournaments internal and staff-run; public tournaments, Hestia member/public expansion, booking/commercial/proposal workflow, OpenSkill read-path switch, dashboard-first analytics, CP, badges, rivalry, squads, and deploy claims remain deferred |
 | Social safety/reliability foundation | Competition-scoped report facts, block facts, reliability events, safety audit events, manager-only readiness/review reads, and aligned safety/reliability commands | Closure-clean on `main` | `Phase 3B.18` | Keep safety/reliability manager/internal, capability-gated, auditable, and separate from canonical competition truth; public/member safety UI, messaging/chat, public profiles/scouting/leaderboards, public tournaments, CP/badges/rivalry/squads, OpenSkill read-path switch, booking/commercial/proposal workflows, SemVer governance, and deploy claims remain deferred |
+| Public competition readiness | Public-safe readiness and leaderboard contracts over finalized/corrected canonical result truth plus legacy active rating projections | Closure-clean on `main` | `Phase 3B.19` | Keep public contracts projection-only and redacted; public tournaments, CP/badges/rivalry/squads, messaging/chat, public social graph, OpenSkill read-path switch, proposal workflows, SemVer governance, and deploy claims remain deferred |
 | Frontend widening | broader shell, PWA, offline sync, and richer design-system work | Deferred | later than `v0.17.0` | Not part of Phase 2 |
 
 ## Current Ingest Path
