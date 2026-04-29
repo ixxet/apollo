@@ -1997,5 +1997,52 @@ Still deferred:
 - Booking/commercial/proposal workflows remain parked.
 - Project-wide SemVer governance remains deferred.
 
-Current next packet if launch expansion continues cleanly: 3B.20 Game Identity
-Layer.
+## 3B.20 Game Identity Layer Addendum
+
+Date: 2026-04-29
+
+Phase 3B.20 `Game Identity Layer` is closed in APOLLO/Hestia repo/runtime
+truth, with deployed truth unchanged. It shipped only the first trusted game
+identity projection layer:
+
+- APOLLO exposes `GET /api/v1/public/competition/game-identity`.
+- APOLLO exposes `GET /api/v1/competition/game-identity`.
+- APOLLO derives CP, badge award facts, rivalry state facts, and squad
+  identity facts from public-safe competition projection rows only.
+- CP, badge, rivalry, and squad policies are explicit and versioned:
+  `apollo_cp_v1`, `apollo_badge_awards_v1`, `apollo_rivalry_state_v1`, and
+  `apollo_squad_identity_v1`.
+- Public output uses redacted participant labels. Member output is self-scoped.
+- Hestia renders APOLLO-provided game identity contracts only on `/competition`
+  and the member competition surface.
+- Hestia keeps browser-visible `/api/v1/public/*` proxy access denied and
+  continues stripping trusted-surface request headers.
+- Leak and boundary tests cover user IDs, source result IDs, canonical result
+  IDs, OpenSkill comparison facts, safety/reliability facts, command/readiness
+  internals, ARES proposal facts, tournament ops truth, analytics sample size,
+  confidence, and projection watermarks.
+
+Confirmed boundaries:
+
+- Game identity is derived projection truth; no storage migration was required.
+- Game identity does not mutate canonical result, rating, analytics, ARES,
+  tournament, safety, public-readiness, booking, member, or UI truth.
+- Public/member projections consume trusted APOLLO competition projections only.
+- Hestia does not compute CP, badge, rivalry, or squad truth client-side.
+- Themis remains internal and is not public game identity source truth.
+- Prometheus remains untouched.
+
+Still deferred:
+
+- Messaging/chat remains out of scope.
+- Broad public social graph remains deferred beyond the shipped redacted
+  squad/rivalry identity facts.
+- OpenSkill read-path switch remains deferred.
+- Public OpenSkill comparison exposure remains deferred.
+- Public/member safety detail exposure remains deferred.
+- Public tournaments remain deferred.
+- Booking/commercial/proposal workflows remain parked.
+- Project-wide SemVer governance remains deferred.
+
+Current next packet if launch expansion continues cleanly: 3B.20.1 Cohesion
+Hardening.
