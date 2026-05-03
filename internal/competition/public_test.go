@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/ixxet/apollo/internal/rating"
 )
 
 func TestPublicCompetitionReadinessUsesExplicitPublicContract(t *testing.T) {
@@ -91,6 +93,92 @@ func TestListPublicCompetitionLeaderboardNormalizesAndRedactsParticipants(t *tes
 	}
 	if row.StatType != analyticsStatWins || row.StatValue != 4 {
 		t.Fatalf("row = %+v, want wins projection", row)
+	}
+}
+
+func TestPublicAndMemberCompetitionReadsDoNotExposeOpenSkillComparison(t *testing.T) {
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	recordedAt := time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC)
+	svc := NewService(stubStore{
+		publicReadiness: func(context.Context) (publicCompetitionReadinessRecord, error) {
+			return publicCompetitionReadinessRecord{
+				AvailableLeaderboards:     1,
+				AvailableCanonicalResults: 1,
+			}, nil
+		},
+		publicLeaderboard: func(_ context.Context, input PublicCompetitionLeaderboardInput) ([]publicCompetitionLeaderboardRowRecord, error) {
+			if input.StatType != analyticsStatWins {
+				t.Fatalf("input.StatType = %q, want public-safe normalization to wins", input.StatType)
+			}
+			return []publicCompetitionLeaderboardRowRecord{{
+				SportKey:   "badminton",
+				ModeKey:    "head_to_head:s2-p1",
+				TeamScope:  analyticsDimensionAll,
+				StatType:   analyticsStatWins,
+				StatValue:  1,
+				ComputedAt: recordedAt,
+			}}, nil
+		},
+		listMemberStatRowsByUser: func(context.Context, uuid.UUID) ([]memberStatRowRecord, error) {
+			return []memberStatRowRecord{{
+				SportKey:            "badminton",
+				CompetitionMode:     "head_to_head",
+				SidesPerMatch:       2,
+				ParticipantsPerSide: 1,
+				RecordedAt:          recordedAt,
+				Outcome:             matchOutcomeWin,
+			}}, nil
+		},
+		listMemberRatingsByUser: func(context.Context, uuid.UUID) ([]memberRatingRecord, error) {
+			return []memberRatingRecord{{
+				UserID:            userID,
+				SportKey:          "badminton",
+				ModeKey:           "head_to_head:s2-p1",
+				Mu:                26.5,
+				Sigma:             8,
+				MatchesPlayed:     1,
+				RatingEngine:      rating.EngineLegacyEloLike,
+				EngineVersion:     rating.EngineVersionLegacy,
+				PolicyVersion:     rating.PolicyVersionActive,
+				CalibrationStatus: rating.CalibrationStatusProvisional,
+			}}, nil
+		},
+	})
+
+	readiness, err := svc.PublicCompetitionReadiness(context.Background())
+	if err != nil {
+		t.Fatalf("PublicCompetitionReadiness() error = %v", err)
+	}
+	leaderboard, err := svc.ListPublicCompetitionLeaderboard(context.Background(), PublicCompetitionLeaderboardInput{StatType: "openskill_delta"})
+	if err != nil {
+		t.Fatalf("ListPublicCompetitionLeaderboard() error = %v", err)
+	}
+	stats, err := svc.ListMemberStats(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("ListMemberStats() error = %v", err)
+	}
+	if len(stats) != 1 || stats[0].RatingEngine != rating.EngineLegacyEloLike || stats[0].RatingPolicyVersion != rating.PolicyVersionActive {
+		t.Fatalf("member stats = %+v, want active legacy-engine policy metadata", stats)
+	}
+
+	raw, err := json.Marshal(struct {
+		Readiness   PublicCompetitionReadiness   `json:"readiness"`
+		Leaderboard PublicCompetitionLeaderboard `json:"leaderboard"`
+		MemberStats []MemberStat                 `json:"member_stats"`
+	}{readiness, leaderboard, stats})
+	if err != nil {
+		t.Fatalf("json.Marshal(reads) error = %v", err)
+	}
+	body := strings.ToLower(string(raw))
+	for _, forbidden := range []string{
+		"openskill",
+		"comparison",
+		"delta_from_legacy",
+		"accepted_delta_budget",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("public/member reads leaked %q: %s", forbidden, body)
+		}
 	}
 }
 

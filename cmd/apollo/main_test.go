@@ -16,6 +16,7 @@ import (
 	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/config"
+	"github.com/ixxet/apollo/internal/rating"
 	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/testutil"
 )
@@ -598,6 +599,49 @@ func TestCompetitionCLIDemoProjectionSafetyAndPreviewReads(t *testing.T) {
 	}
 	if !strings.Contains(previewOutput, `"preview_version": "v2"`) || !strings.Contains(previewOutput, `"active_rating_read_path": "apollo_rating_policy_wrapper_v1"`) {
 		t.Fatalf("previewOutput = %s, want APOLLO ARES preview result", previewOutput)
+	}
+}
+
+func TestCompetitionRatingSimulationCLIJSONAndText(t *testing.T) {
+	jsonOutput := runRootCommand(t, "competition", "rating", "simulation", "--format", "json")
+	var report rating.SimulationReport
+	if err := json.Unmarshal([]byte(jsonOutput), &report); err != nil {
+		t.Fatalf("json.Unmarshal(rating simulation) error = %v output=%s", err, jsonOutput)
+	}
+	if report.ReportVersion != rating.SimulationReportVersion {
+		t.Fatalf("ReportVersion = %q, want %q", report.ReportVersion, rating.SimulationReportVersion)
+	}
+	if report.ActiveRatingEngine != rating.EngineLegacyEloLike || report.ActivePolicyVersion != rating.PolicyVersionActive {
+		t.Fatalf("active report path = %s/%s, want legacy engine active policy", report.ActiveRatingEngine, report.ActivePolicyVersion)
+	}
+	if report.Summary.ScenarioCount != 10 || report.Summary.RejectedScenarioCount != 1 || report.Summary.OpenSkillDeltaRowCount != 60 {
+		t.Fatalf("summary = %+v, want deterministic simulation counts", report.Summary)
+	}
+	if !strings.Contains(jsonOutput, `"openskill_deltas"`) {
+		t.Fatalf("jsonOutput missing OpenSkill sidecar rows: %s", jsonOutput)
+	}
+	if strings.Contains(jsonOutput, `"rating_engine": "openskill"`) {
+		t.Fatalf("jsonOutput switched active policy to OpenSkill: %s", jsonOutput)
+	}
+
+	foundAsymmetric := false
+	for _, scenario := range report.Scenarios {
+		if scenario.Label == "three_v_five_asymmetric_comparison_stress" {
+			foundAsymmetric = true
+			if scenario.AcceptanceStatus != rating.ScenarioAcceptanceRejected || len(scenario.Blockers) == 0 {
+				t.Fatalf("asymmetric scenario = %+v, want rejected blocker output", scenario)
+			}
+		}
+	}
+	if !foundAsymmetric {
+		t.Fatal("rating simulation report missing asymmetric comparison stress scenario")
+	}
+
+	textOutput := runRootCommand(t, "competition", "rating", "simulation", "--format", "text")
+	if !strings.Contains(textOutput, "report=apollo_rating_policy_simulation_v1") ||
+		!strings.Contains(textOutput, "scenario=three_v_five_asymmetric_comparison_stress classification=comparison_only acceptance=rejected") ||
+		!strings.Contains(textOutput, "cutover_blocker=openskill_active_read_path_deferred") {
+		t.Fatalf("textOutput missing simulation proof fields: %s", textOutput)
 	}
 }
 
