@@ -213,18 +213,23 @@ expansion, [`launch-expansion-audit.md`](launch-expansion-audit.md) is the
 active operating doc.
 
 That audit consolidates the older public competition, rivalry, badge, and
-tournament ideas into one gated plan:
+tournament ideas into one gated plan. Current scan state:
 
-- docs truth, CLI parity, capabilities/dry-run, and application commands first
-- versioned legacy rating foundation, OpenSkill dual-run, ARES v2 proposal
-  facts, internal derived analytics, and internal tournament runtime before
-  public stakes
-- match tiers, consensus voting, and disputes before public ratings, badges,
-  leaderboards, tournaments, rivalry, CP, or squads
-- internal Themis competition ops can move earlier only as a staff/internal
-  surface over real APOLLO contracts
-- recurring schedule policy and court/resource splitting are reusable substrate
-  packets, not ad hoc tournament logic
+- closed: docs truth, CLI parity, capability/readiness checks, dry-run/apply
+  command foundation, legacy rating metadata, OpenSkill dual-run comparison,
+  ARES v2 proposal facts, internal analytics, internal tournaments,
+  manager/internal safety, public-safe readiness/leaderboards, and
+  public/member-safe game identity projections
+- closed by Milestone 3.0: bounded APOLLO/ATHENA deploy smoke, APOLLO metrics
+  export, Prometheus scrape proof, and cross-repo compatibility matrix
+- closed locally in repo/runtime: Scale Gate numeric ceilings for rating
+  recompute, public readiness, public leaderboard projections, game identity
+  projections, and CLI/API smoke. This is not full production load validation,
+  and deployed truth is unchanged.
+- still deferred: OpenSkill active read path, public tournaments, public/member
+  safety UI details, messaging/chat, broad public social graph, public profiles
+  and scouting, recurring schedule policy, court/resource splitting, booking/
+  commercial proposal workflows, and project-wide SemVer governance
 
 Historical tracer entries in this roadmap remain evidence of what shipped.
 They should not be used as permission to skip the launch-expansion gates.
@@ -270,14 +275,17 @@ and staff-side edit/replacement plus bounded staff schedule-control lines.
 ## Current Phase 3B Line
 
 Phase 3B.20 game identity is now real in repo/runtime on `main`, and Phase
-3B.20.1 has hardened its cohesion with deployed truth still separate and
-unchanged. APOLLO exposes public/member-safe game identity contracts that consume
-public-safe competition projection rows only: CP, badge award facts, rivalry
-state facts, and squad identity facts. The contracts redact public participant
-identity, scope member output to the caller, keep rivalry and labels scoped to
-their projection row/context, and exclude private/internal safety, manager,
-command, OpenSkill comparison, ARES proposal, tournament ops, source-result,
-projection watermark, sample/confidence metadata, and operational truth.
+3B.20.1 has hardened its cohesion. Milestone 3.0 then proved bounded APOLLO/
+ATHENA deploy smoke, APOLLO metrics export, Prometheus scrape proof, and the
+cross-repo compatibility matrix; Hestia, Themis, and `ashton-mcp-gateway`
+remain recorded as repo-only in the inspected environment. APOLLO exposes
+public/member-safe game identity contracts that consume public-safe competition
+projection rows only: CP, badge award facts, rivalry state facts, and squad
+identity facts. The contracts redact public participant identity, scope member
+output to the caller, keep rivalry and labels scoped to their projection
+row/context, and exclude private/internal safety, manager, command, OpenSkill
+comparison, ARES proposal, tournament ops, source-result, projection watermark,
+sample/confidence metadata, and operational truth.
 
 Any later widening should stay separate:
 
@@ -292,7 +300,8 @@ Any later widening should stay separate:
 - messaging/chat or broad public social presentation
 - booking/commercial/proposal workflows and project-wide SemVer governance
 - public competition expansion must follow `launch-expansion-audit.md`
-- staff shell, HERMES widening, gateway coupling, and deploy work
+- full staff shell/product widening, HERMES widening, gateway coupling, and
+  Hestia/Themis/gateway deployment work
 
 ## Verified Audit Carry-Forward
 
@@ -341,6 +350,9 @@ lines. Project-wide SemVer governance remains deferred.
 - do not let visit changes silently affect match preview output
 - do not let competition history runtime widen into rivalry/badge logic or
   public competition reads
+- treat 3B.19 public readiness/leaderboards and 3B.20 game identity as separate
+  derived projection layers over competition truth, not as permission to push
+  public/social behavior into the competition-history runtime itself
 - do not widen deployment truth unless a bounded deployment workstream proves it
 
 ## Tracer / Workstream Ownership
