@@ -37,6 +37,7 @@ import (
 	"github.com/ixxet/apollo/internal/planner"
 	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/profile"
+	"github.com/ixxet/apollo/internal/rating"
 	"github.com/ixxet/apollo/internal/recommendations"
 	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/server"
@@ -442,12 +443,19 @@ func newCompetitionCmd() *cobra.Command {
 	safetyCmd.AddCommand(newCompetitionSafetyReadinessCmd())
 	safetyCmd.AddCommand(newCompetitionSafetyReviewCmd())
 
+	ratingCmd := &cobra.Command{
+		Use:   "rating",
+		Short: "Run local APOLLO rating proof reports.",
+	}
+	ratingCmd.AddCommand(newCompetitionRatingSimulationCmd())
+
 	competitionCmd.AddCommand(publicCmd)
 	competitionCmd.AddCommand(memberCmd)
 	competitionCmd.AddCommand(sessionCmd)
 	competitionCmd.AddCommand(tournamentCmd)
 	competitionCmd.AddCommand(commandCmd)
 	competitionCmd.AddCommand(safetyCmd)
+	competitionCmd.AddCommand(ratingCmd)
 	return competitionCmd
 }
 
@@ -1046,6 +1054,29 @@ func newCompetitionSafetyReviewCmd() *cobra.Command {
 	addCompetitionSafetyActorFlags(cmd, &actorUserID, &actorSessionID, &actorRole, &trustedSurfaceKey, &trustedSurfaceLabel)
 	cmd.Flags().IntVar(&limit, "limit", 25, "maximum rows per safety review section")
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	return cmd
+}
+
+func newCompetitionRatingSimulationCmd() *cobra.Command {
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "simulation",
+		Short: "Show deterministic local APOLLO rating policy simulation proof.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			report := rating.BuildActivePolicySimulationReport()
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, report)
+			case "text":
+				return writeRatingSimulationText(cmd, report)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "json", "output format: text or json")
 	return cmd
 }
 
@@ -2377,6 +2408,60 @@ func writeCompetitionSafetyReviewText(cmd *cobra.Command, review competition.Com
 	}
 	for _, event := range review.AuditEvents {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "audit_event=%s type=%s privacy_scope=%s occurred_at=%s\n", event.ID, event.EventType, event.PrivacyScope, formatCompetitionTime(event.OccurredAt)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeRatingSimulationText(cmd *cobra.Command, report rating.SimulationReport) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"report=%s fixture=%s active_engine=%s active_policy=%s legacy_policy=%s openskill_policy=%s scenarios=%d accepted=%d rejected=%d blockers=%d openskill_delta_rows=%d\n",
+		report.ReportVersion,
+		report.FixtureVersion,
+		report.ActiveRatingEngine,
+		report.ActivePolicyVersion,
+		report.LegacyPolicyVersion,
+		report.OpenSkillPolicyVersion,
+		report.Summary.ScenarioCount,
+		report.Summary.AcceptedScenarioCount,
+		report.Summary.RejectedScenarioCount,
+		report.Summary.CutoverBlockerCount,
+		report.Summary.OpenSkillDeltaRowCount,
+	); err != nil {
+		return err
+	}
+	for _, scenario := range report.Scenarios {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"scenario=%s classification=%s acceptance=%s risk=%s matches=%d participants=%d active_policy=%s legacy_deltas=%d openskill_deltas=%d reason=%q\n",
+			scenario.Label,
+			scenario.Classification,
+			scenario.AcceptanceStatus,
+			scenario.RiskClassification,
+			scenario.MatchCount,
+			scenario.ParticipantCount,
+			scenario.ActivePolicy.PolicyVersion,
+			len(scenario.LegacyDeltas),
+			len(scenario.OpenSkillDeltas),
+			scenario.Reason,
+		); err != nil {
+			return err
+		}
+		for _, blocker := range scenario.Blockers {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "scenario_blocker=%s blocker=%s\n", scenario.Label, blocker); err != nil {
+				return err
+			}
+		}
+	}
+	for _, blocker := range report.CutoverBlockers {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "cutover_blocker=%s status=%s reason=%q\n", blocker.Key, blocker.Status, blocker.Reason); err != nil {
+			return err
+		}
+	}
+	for _, risk := range report.PolicyRisks {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "policy_risk=%s classification=%s deferred_to=%q reason=%q\n", risk.Key, risk.Classification, risk.DeferredTo, risk.Reason); err != nil {
 			return err
 		}
 	}
