@@ -308,6 +308,293 @@ func TestCompetitionCommandCLIResultLifecycleSmoke(t *testing.T) {
 	t.Logf("scale_ceiling path=cli_smoke sequence_duration=%s hard_ceiling=%s", smokeDuration, 30*time.Second)
 }
 
+func TestCompetitionCLIDemoProjectionSafetyAndPreviewReads(t *testing.T) {
+	ctx := context.Background()
+	postgresEnv, err := testutil.StartPostgres(ctx)
+	if err != nil {
+		t.Fatalf("StartPostgres() error = %v", err)
+	}
+	defer func() {
+		if closeErr := postgresEnv.Close(); closeErr != nil {
+			t.Fatalf("Close() error = %v", closeErr)
+		}
+	}()
+
+	if err := testutil.ApplyApolloSchema(ctx, postgresEnv.DB); err != nil {
+		t.Fatalf("ApplyApolloSchema() error = %v", err)
+	}
+
+	t.Setenv("APOLLO_DATABASE_URL", postgresEnv.DatabaseURL)
+
+	actorUserID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	actorSessionID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	memberOneID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+	memberTwoID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	eligiblePreferences := `{"visibility_mode":"discoverable","availability_mode":"available_now","coaching_profile":{},"nutrition_profile":{}}`
+	for _, user := range []struct {
+		id          uuid.UUID
+		studentID   string
+		name        string
+		email       string
+		role        string
+		preferences string
+	}{
+		{actorUserID, "competition-cli-demo-manager", "Competition CLI Demo Manager", "competition-cli-demo-manager@example.com", "manager", eligiblePreferences},
+		{memberOneID, "competition-cli-demo-one", "Competition CLI Demo One", "competition-cli-demo-one@example.com", "member", eligiblePreferences},
+		{memberTwoID, "competition-cli-demo-two", "Competition CLI Demo Two", "competition-cli-demo-two@example.com", "member", eligiblePreferences},
+	} {
+		if _, err := postgresEnv.DB.Exec(ctx, `INSERT INTO apollo.users (id, student_id, display_name, email, role, preferences) VALUES ($1, $2, $3, $4, $5, $6::jsonb)`, user.id, user.studentID, user.name, user.email, user.role, user.preferences); err != nil {
+			t.Fatalf("insert user %s error = %v", user.studentID, err)
+		}
+		if _, err := postgresEnv.DB.Exec(ctx, `INSERT INTO apollo.lobby_memberships (user_id, status, joined_at, updated_at) VALUES ($1, 'joined', NOW(), NOW())`, user.id); err != nil {
+			t.Fatalf("insert lobby membership %s error = %v", user.studentID, err)
+		}
+	}
+	if _, err := postgresEnv.DB.Exec(ctx, `INSERT INTO apollo.sessions (id, user_id, expires_at, revoked_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour', NULL)`, actorSessionID, actorUserID); err != nil {
+		t.Fatalf("insert actor session error = %v", err)
+	}
+
+	service := competition.NewService(competition.NewRepository(postgresEnv.DB))
+	structureActor := competition.StaffActor{
+		UserID:              actorUserID,
+		Role:                authz.RoleManager,
+		SessionID:           actorSessionID,
+		Capability:          authz.CapabilityCompetitionStructureManage,
+		TrustedSurfaceKey:   "staff-console",
+		TrustedSurfaceLabel: "staff console",
+	}
+	liveActor := structureActor
+	liveActor.Capability = authz.CapabilityCompetitionLiveManage
+	zoneKey := "gym-floor"
+	session, err := service.CreateSession(ctx, structureActor, competition.CreateSessionInput{
+		DisplayName:         "CLI Demo Spine Result",
+		SportKey:            "badminton",
+		FacilityKey:         "ashtonbee",
+		ZoneKey:             &zoneKey,
+		ParticipantsPerSide: 1,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession result fixture error = %v", err)
+	}
+	teamOne, err := service.CreateTeam(ctx, structureActor, session.ID, competition.CreateTeamInput{SideIndex: 1})
+	if err != nil {
+		t.Fatalf("CreateTeam one error = %v", err)
+	}
+	teamTwo, err := service.CreateTeam(ctx, structureActor, session.ID, competition.CreateTeamInput{SideIndex: 2})
+	if err != nil {
+		t.Fatalf("CreateTeam two error = %v", err)
+	}
+	if _, err := service.AddRosterMember(ctx, structureActor, session.ID, teamOne.ID, competition.AddRosterMemberInput{UserID: memberOneID, SlotIndex: 1}); err != nil {
+		t.Fatalf("AddRosterMember one error = %v", err)
+	}
+	if _, err := service.AddRosterMember(ctx, structureActor, session.ID, teamTwo.ID, competition.AddRosterMemberInput{UserID: memberTwoID, SlotIndex: 1}); err != nil {
+		t.Fatalf("AddRosterMember two error = %v", err)
+	}
+	match, err := service.CreateMatch(ctx, structureActor, session.ID, competition.CreateMatchInput{
+		MatchIndex: 1,
+		SideSlots: []competition.MatchSideInput{
+			{TeamID: teamOne.ID, SideIndex: 1},
+			{TeamID: teamTwo.ID, SideIndex: 2},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateMatch error = %v", err)
+	}
+	if _, err := postgresEnv.DB.Exec(ctx, `UPDATE apollo.competition_sessions SET status = $2 WHERE id = $1`, session.ID, competition.SessionStatusInProgress); err != nil {
+		t.Fatalf("mark session in progress error = %v", err)
+	}
+	if _, err := postgresEnv.DB.Exec(ctx, `UPDATE apollo.competition_matches SET status = $2 WHERE id = $1`, match.ID, competition.MatchStatusInProgress); err != nil {
+		t.Fatalf("mark match in progress error = %v", err)
+	}
+
+	resultInput := fmt.Sprintf(`{"match_result":{"sides":[{"side_index":1,"competition_session_team_id":"%s","outcome":"win"},{"side_index":2,"competition_session_team_id":"%s","outcome":"loss"}]}}`, teamOne.ID, teamTwo.ID)
+	recordOutcome := runCompetitionResultCLICommand(t, "record_match_result", session.ID, match.ID, 0, resultInput, false, actorUserID, actorSessionID)
+	if recordOutcome.Status != competition.CommandStatusSucceeded {
+		t.Fatalf("recordOutcome.Status = %q, want succeeded", recordOutcome.Status)
+	}
+	finalizeOutcome := runCompetitionResultCLICommand(t, "finalize_match_result", session.ID, match.ID, 1, `{}`, false, actorUserID, actorSessionID)
+	if finalizeOutcome.Status != competition.CommandStatusSucceeded {
+		t.Fatalf("finalizeOutcome.Status = %q, want succeeded", finalizeOutcome.Status)
+	}
+
+	sessionJSON := runRootCommand(t, "competition", "session", "show", "--session-id", session.ID.String(), "--format", "json")
+	var shownSession competition.Session
+	if err := json.Unmarshal([]byte(sessionJSON), &shownSession); err != nil {
+		t.Fatalf("json.Unmarshal(session show) error = %v output=%s", err, sessionJSON)
+	}
+	if len(shownSession.Matches) != 1 || shownSession.Matches[0].Result == nil || shownSession.Matches[0].Result.ResultStatus != competition.ResultStatusFinalized {
+		t.Fatalf("shownSession.Matches = %#v, want finalized result inspection", shownSession.Matches)
+	}
+
+	readinessJSON := runRootCommand(t, "competition", "public", "readiness", "--format", "json")
+	var readiness competition.PublicCompetitionReadiness
+	if err := json.Unmarshal([]byte(readinessJSON), &readiness); err != nil {
+		t.Fatalf("json.Unmarshal(public readiness) error = %v output=%s", err, readinessJSON)
+	}
+	if readiness.Status != "available" || readiness.AvailableLeaderboards == 0 || readiness.AvailableCanonicalResults == 0 {
+		t.Fatalf("readiness = %#v, want available public projection", readiness)
+	}
+
+	leaderboardJSON := runRootCommand(t,
+		"competition", "public", "leaderboard",
+		"--sport-key", "badminton",
+		"--mode-key", "head_to_head:s2-p1",
+		"--stat-type", "wins",
+		"--team-scope", "all",
+		"--limit", "10",
+		"--format", "json",
+	)
+	var leaderboard competition.PublicCompetitionLeaderboard
+	if err := json.Unmarshal([]byte(leaderboardJSON), &leaderboard); err != nil {
+		t.Fatalf("json.Unmarshal(public leaderboard) error = %v output=%s", err, leaderboardJSON)
+	}
+	if len(leaderboard.Leaderboard) == 0 || leaderboard.Leaderboard[0].Participant != "participant_1" {
+		t.Fatalf("leaderboard = %#v, want redacted participant row", leaderboard)
+	}
+	if strings.Contains(leaderboardJSON, memberOneID.String()) || strings.Contains(leaderboardJSON, memberTwoID.String()) {
+		t.Fatalf("leaderboardJSON exposed raw member id: %s", leaderboardJSON)
+	}
+
+	publicIdentityJSON := runRootCommand(t,
+		"competition", "public", "game-identity",
+		"--sport-key", "badminton",
+		"--mode-key", "head_to_head:s2-p1",
+		"--facility-key", "ashtonbee",
+		"--team-scope", "all",
+		"--format", "json",
+	)
+	var publicIdentity competition.GameIdentityProjection
+	if err := json.Unmarshal([]byte(publicIdentityJSON), &publicIdentity); err != nil {
+		t.Fatalf("json.Unmarshal(public game identity) error = %v output=%s", err, publicIdentityJSON)
+	}
+	if publicIdentity.Status != "available" || len(publicIdentity.CP) == 0 || !strings.HasPrefix(publicIdentity.CP[0].Participant, "participant_") {
+		t.Fatalf("publicIdentity = %#v, want public redacted projection", publicIdentity)
+	}
+
+	memberStatsJSON := runRootCommand(t, "competition", "member", "stats", "--user-id", memberOneID.String(), "--format", "json")
+	var memberStats []competition.MemberStat
+	if err := json.Unmarshal([]byte(memberStatsJSON), &memberStats); err != nil {
+		t.Fatalf("json.Unmarshal(member stats) error = %v output=%s", err, memberStatsJSON)
+	}
+	if len(memberStats) == 0 || memberStats[0].UserID != memberOneID || memberStats[0].CurrentRatingMu <= 0 {
+		t.Fatalf("memberStats = %#v, want self-scoped rating projection", memberStats)
+	}
+
+	memberHistoryText := runRootCommand(t, "competition", "member", "history", "--user-id", memberOneID.String(), "--format", "text")
+	if !strings.Contains(memberHistoryText, "CLI Demo Spine Result") || !strings.Contains(memberHistoryText, "outcome=win") {
+		t.Fatalf("memberHistoryText = %q, want finalized member history", memberHistoryText)
+	}
+
+	memberIdentityJSON := runRootCommand(t,
+		"competition", "member", "game-identity",
+		"--user-id", memberOneID.String(),
+		"--sport-key", "badminton",
+		"--mode-key", "head_to_head:s2-p1",
+		"--facility-key", "ashtonbee",
+		"--team-scope", "all",
+		"--format", "json",
+	)
+	var memberIdentity competition.GameIdentityProjection
+	if err := json.Unmarshal([]byte(memberIdentityJSON), &memberIdentity); err != nil {
+		t.Fatalf("json.Unmarshal(member game identity) error = %v output=%s", err, memberIdentityJSON)
+	}
+	if memberIdentity.Status != "available" || len(memberIdentity.CP) != 1 || memberIdentity.CP[0].Participant != "member_self" {
+		t.Fatalf("memberIdentity = %#v, want member self-scoped projection", memberIdentity)
+	}
+
+	safetyInput := fmt.Sprintf(`{"safety_report":{"competition_session_id":"%s","reporter_user_id":"%s","subject_user_id":"%s","target_type":"competition_member","reason_code":"conduct","note":"CLI demo safety note"}}`, session.ID, memberOneID, memberTwoID)
+	safetyOutput := runRootCommand(t,
+		"competition", "command", "run",
+		"--name", "record_safety_report",
+		"--actor-user-id", actorUserID.String(),
+		"--actor-session-id", actorSessionID.String(),
+		"--actor-role", "manager",
+		"--trusted-surface-key", "staff-console",
+		"--input-json", safetyInput,
+		"--format", "json",
+	)
+	var safetyOutcome competition.CompetitionCommandOutcome
+	if err := json.Unmarshal([]byte(safetyOutput), &safetyOutcome); err != nil {
+		t.Fatalf("json.Unmarshal(safety command) error = %v output=%s", err, safetyOutput)
+	}
+	if safetyOutcome.Status != competition.CommandStatusSucceeded || !safetyOutcome.Mutated {
+		t.Fatalf("safetyOutcome = %#v, want succeeded mutating safety command", safetyOutcome)
+	}
+
+	safetyReadinessText := runRootCommand(t,
+		"competition", "safety", "readiness",
+		"--actor-user-id", actorUserID.String(),
+		"--actor-session-id", actorSessionID.String(),
+		"--actor-role", "manager",
+		"--trusted-surface-key", "staff-console",
+		"--format", "text",
+	)
+	if !strings.Contains(safetyReadinessText, "reports=1") || !strings.Contains(safetyReadinessText, "record_safety_report") {
+		t.Fatalf("safetyReadinessText = %q, want safety readiness summary and commands", safetyReadinessText)
+	}
+
+	safetyReviewJSON := runRootCommand(t,
+		"competition", "safety", "review",
+		"--actor-user-id", actorUserID.String(),
+		"--actor-session-id", actorSessionID.String(),
+		"--actor-role", "manager",
+		"--trusted-surface-key", "staff-console",
+		"--limit", "5",
+		"--format", "json",
+	)
+	var safetyReview competition.CompetitionSafetyReview
+	if err := json.Unmarshal([]byte(safetyReviewJSON), &safetyReview); err != nil {
+		t.Fatalf("json.Unmarshal(safety review) error = %v output=%s", err, safetyReviewJSON)
+	}
+	if safetyReview.Summary.ReportCount != 1 || len(safetyReview.Reports) != 1 {
+		t.Fatalf("safetyReview = %#v, want one authorized manager/internal report", safetyReview)
+	}
+
+	previewSession, err := service.CreateSession(ctx, structureActor, competition.CreateSessionInput{
+		DisplayName:         "CLI Demo Spine Preview",
+		SportKey:            "badminton",
+		FacilityKey:         "ashtonbee",
+		ZoneKey:             &zoneKey,
+		ParticipantsPerSide: 1,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession preview fixture error = %v", err)
+	}
+	previewSession, err = service.OpenQueue(ctx, liveActor, previewSession.ID)
+	if err != nil {
+		t.Fatalf("OpenQueue preview fixture error = %v", err)
+	}
+	previewSession, err = service.AddQueueMember(ctx, liveActor, previewSession.ID, competition.QueueMemberInput{UserID: memberOneID, Tier: "competitive"})
+	if err != nil {
+		t.Fatalf("AddQueueMember preview one error = %v", err)
+	}
+	previewSession, err = service.AddQueueMember(ctx, liveActor, previewSession.ID, competition.QueueMemberInput{UserID: memberTwoID, Tier: "competitive"})
+	if err != nil {
+		t.Fatalf("AddQueueMember preview two error = %v", err)
+	}
+	previewOutput := runRootCommand(t,
+		"competition", "command", "run",
+		"--name", "generate_match_preview",
+		"--session-id", previewSession.ID.String(),
+		"--expected-version", fmt.Sprint(previewSession.QueueVersion),
+		"--actor-user-id", actorUserID.String(),
+		"--actor-session-id", actorSessionID.String(),
+		"--actor-role", "manager",
+		"--trusted-surface-key", "staff-console",
+		"--format", "json",
+	)
+	var previewOutcome competition.CompetitionCommandOutcome
+	if err := json.Unmarshal([]byte(previewOutput), &previewOutcome); err != nil {
+		t.Fatalf("json.Unmarshal(preview output) error = %v output=%s", err, previewOutput)
+	}
+	if previewOutcome.Status != competition.CommandStatusSucceeded || previewOutcome.ActualVersion == nil || *previewOutcome.ActualVersion != previewSession.QueueVersion {
+		t.Fatalf("previewOutcome = %#v, want succeeded ARES preview generation at current queue version", previewOutcome)
+	}
+	if !strings.Contains(previewOutput, `"preview_version": "v2"`) || !strings.Contains(previewOutput, `"active_rating_read_path": "apollo_legacy_rating_v1"`) {
+		t.Fatalf("previewOutput = %s, want APOLLO ARES preview result", previewOutput)
+	}
+}
+
 func TestScheduleCommandsRoundTripResourcesBlocksAndCalendar(t *testing.T) {
 	ctx := context.Background()
 	postgresEnv, err := testutil.StartPostgres(ctx)
