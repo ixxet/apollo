@@ -27,7 +27,8 @@ Fast scan for agents before reading the full audit:
 | Milestone 3.0 | Bounded APOLLO/ATHENA deploy smoke, APOLLO `/metrics`, Prometheus scrape, telemetry export, and cross-repo compatibility matrix are closed. | Full population-scale validation, tuned alert thresholds, full Hestia/Themis/gateway deployment proof, or destructive live mutation probes. |
 | Remaining gate | Scale Gate numeric ceilings are declared and locally/runtime-proved for APOLLO rating recompute, public readiness, public leaderboard, game identity, and CLI/API smoke paths. | Full production load validation, tuned alert thresholds under real traffic, or permission to ship public tournaments/OpenSkill read-path switch. |
 | CLI/API demo spine | Closed locally in repo/runtime: APOLLO CLI now exposes service-backed public readiness, public leaderboard, public game identity, member stats/history/game identity, safety readiness/review, session/tournament reads, command dry-runs/apply, result lifecycle, and ARES preview generation without frontend dependency. | Deployment readiness, public tournament readiness, OpenSkill active read-path readiness, frontend completion, or CLI-owned formulas. |
-| Rating policy wrapper | Closed locally in repo/runtime: APOLLO active rating projection uses the legacy engine under `apollo_rating_policy_wrapper_v1`, with calibration status, fifth-match ranked transition, inactivity sigma inflation, bounded upward movement, and member-safe additive metadata. | OpenSkill cutover, public OpenSkill values, full historical simulation, public tournaments, or deployed truth. |
+| Rating policy wrapper | Closed locally in repo/runtime: APOLLO active rating projection uses the legacy engine under `apollo_rating_policy_wrapper_v1`, with calibration status, fifth-match ranked transition, inactivity sigma inflation, bounded upward movement, and member-safe additive metadata. | OpenSkill cutover, public OpenSkill values, production historical backtesting, public tournaments, or deployed truth. |
+| Rating policy simulation | Closed locally in repo/runtime: deterministic fixtures and CLI output now cover active policy behavior, legacy baseline deltas, OpenSkill sidecar deltas, accepted/rejected scenarios, blockers, and risk classification. | OpenSkill cutover, public rating launch readiness, production data backtesting, public tournaments, or deployed truth. |
 | Historical evidence | Closeout addenda and hardening docs preserve what was true at the time of each tracer. | Current deferred truth unless a current section says it still applies. |
 
 The strategic pattern that held through 3B.20 is:
@@ -192,6 +193,11 @@ APOLLO currently has:
   `calibration_status`, fifth-match ranked transition, inactivity
   sigma-inflation metadata, and positive movement cap metadata. This is
   repo/local runtime truth only; deployed truth is unchanged.
+- Rating Policy Simulation / Golden Expansion: APOLLO has deterministic local
+  fixtures and CLI proof for active policy behavior, legacy baseline deltas,
+  OpenSkill comparison deltas, accepted/rejected scenario classification,
+  cutover blockers, and policy risks. This is repo/local runtime truth only;
+  deployed truth is unchanged.
 - OpenSkill dual-run comparison: internal comparison rows/events record
   legacy/OpenSkill values, deltas, accepted budgets, scenarios, and explicit
   delta flags from the same finalized/corrected canonical result order while
@@ -238,8 +244,8 @@ APOLLO does not yet have:
 - Match tier classification.
 - Player consensus result voting.
 - Full proposal/approval workflow for disputes or corrections.
-- Comeback bonus, upset bonus, match-tier multipliers, and broader historical
-  rating simulation/backtesting.
+- Comeback bonus, upset bonus, match-tier multipliers, and production
+  historical rating backtesting.
 - Cross-sport transfer.
 - Carry/tank/stability coefficients and broader scouting/profile analytics.
 - Persistent/sediment teams.
@@ -645,8 +651,10 @@ Required cases:
 6. Done in Rating Policy Wrapper: active legacy-engine projection records
    explicit policy version, calibration status, fifth-match ranked transition,
    inactivity sigma inflation, and positive movement caps.
-7. Next: expand rating policy simulation/golden coverage.
-8. Compare OpenSkill deltas by scenario and telemetry.
+7. Done in Rating Policy Simulation / Golden Expansion: expand deterministic
+   rating policy simulation/golden coverage and compare OpenSkill sidecar
+   deltas by scenario.
+8. Compare OpenSkill deltas against real production data and telemetry.
 9. Switch read path to OpenSkill only after wrapper, simulation, rollback, and
    scale evidence are accepted.
 10. Keep legacy fallback for one release.
@@ -725,7 +733,7 @@ projection is already shipped.
 | Season XP | Needs event ledger | Medium | High | Medium | After XP event table and anti-double-counting |
 | Quests/challenges | Needs XP/badge engine | Medium | High | Medium | Toggleable per facility |
 | Badges/trophies | First badge award projection shipped in 3B.20; broader trophy/criteria registry remains gated | Medium | Very high if early | High | Keep 3B.20 projection read-only; no broad public trophies until scale/privacy policy is explicit |
-| Power rating/CP | First CP projection shipped in 3B.20 from public-safe competition rows; OpenSkill-backed public rating remains deferred | Medium | High | Medium | Keep CP display separate from rating truth; no OpenSkill read-path switch before simulation/rollback proof |
+| Power rating/CP | First CP projection shipped in 3B.20 from public-safe competition rows; OpenSkill-backed public rating remains deferred | Medium | High | Medium | Keep CP display separate from rating truth; no OpenSkill read-path switch before production backtesting and rollback/cutover proof |
 | Spectator feed | Needs public-safe competition read | Medium later | High now | Medium | Start authenticated/private |
 | Friend cheer/watchlist | Needs social/privacy | Medium later | High now | Medium | No PII leaks; rate limit |
 | Predictions/pickem | Needs tournament/public read | Medium later | Medium-high now | Medium | Bragging-only, no money |
@@ -1456,6 +1464,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-05-03 | Scale Gate numeric ceilings are declared and locally/runtime-proved for APOLLO rating recompute, public readiness, public leaderboard, game identity, and CLI/API smoke paths. This does not change deployed truth and is not full production load validation. | `go test -count=1 -v ./internal/competition -run 'TestCompetitionScaleCeiling'`; `go test -count=1 -v ./internal/server -run 'TestCompetitionScaleCeilingAPIReadSmoke'`; `go test -count=1 -v ./cmd/apollo -run 'TestCompetitionCommandCLIResultLifecycleSmoke'`; focused package test run. |
 | 2026-05-03 | CLI Demo Spine is closed locally in repo/runtime: APOLLO CLI exposes the competition spine through existing service/command truth for public/member projections, command dry-run/apply, result lifecycle, ARES preview generation, analytics-backed projection reads, sessions, tournaments, and manager/internal safety reads without frontend dependency or CLI-owned formulas. Deployed truth is unchanged. | `go test -count=1 ./cmd/apollo`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server`; `go vet ./...`; `go build ./cmd/apollo`; `go test -count=1 ./...`; `go test -race ./internal/...`. |
 | 2026-05-03 | Rating Policy Wrapper is closed locally in APOLLO repo/runtime: active legacy-engine rating projection uses `apollo_rating_policy_wrapper_v1` with calibration status, fifth-match ranked transition, inactivity sigma inflation, and upward movement cap metadata. OpenSkill remains comparison-only against the legacy baseline; deployed truth is unchanged. | `go test -count=1 ./internal/rating`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server ./cmd/apollo`; `go test -count=1 ./db/migrations`; `go vet ./...`; `go build ./cmd/apollo`; `go test -count=1 ./...`; `go test -race ./internal/...`. |
+| 2026-05-03 | Rating Policy Simulation / Golden Expansion is closed locally in APOLLO repo/runtime: deterministic fixtures and `apollo competition rating simulation --format json` prove active wrapper scenarios, legacy baseline deltas, OpenSkill sidecar deltas, accepted/rejected classification, cutover blockers, and policy risks. OpenSkill remains comparison-only; deployed truth is unchanged. | `git diff --check`; `go test -count=1 ./internal/rating`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server ./cmd/apollo`; `go vet ./...`; `go build ./cmd/apollo`; `go test -count=1 ./...`; `go test -race ./internal/...`. |
 
 ## Hard Non-Touches
 
@@ -1499,8 +1508,8 @@ Kill or defer a tracer if any of these are true:
 ## Recommended Next Packet Stack
 
 After 3B.20.1 cohesion hardening, Milestone 3.0, Scale Gate numeric ceilings,
-CLI Demo Spine, and Rating Policy Wrapper, the following packets are closed for
-their bounded scope:
+CLI Demo Spine, Rating Policy Wrapper, and Rating Policy Simulation / Golden
+Expansion, the following packets are closed for their bounded scope:
 
 | Closed packet | Current status |
 | --- | --- |
@@ -1510,23 +1519,24 @@ their bounded scope:
 | Scale Gate Numeric Ceilings | Closed locally in repo/runtime; not full production load validation. |
 | CLI Demo Spine | Closed locally in repo/runtime; APOLLO CLI/API demo path is agent-operable without frontend dependency. |
 | Rating Policy Wrapper | Closed locally in repo/runtime; active legacy-engine projection is policy-wrapped with calibration/decay/cap metadata; OpenSkill remains comparison-only; not deployed truth. |
+| Rating Policy Simulation / Golden Expansion | Closed locally in repo/runtime; deterministic fixtures, CLI JSON output, accepted/rejected scenarios, cutover blockers, and policy risks are documented; OpenSkill remains comparison-only; not deployed truth. |
 
 Current next launch-expansion packets in priority order:
 
 | Priority | Packet | Why now |
 | --- | --- | --- |
-| 1 | Rating Policy Simulation / Golden Expansion | Stress the wrapper against broader fixtures and historical/synthetic scenarios before any OpenSkill cutover discussion. |
-| 2 | Frontend route/API contract matrix | Milestone 3.0 smoke proved trust-spine touchpoints, but the standalone Hestia/Themis route/API matrix is still useful before broader surface work. |
-| 3 | ATHENA real ingress (cross-repo) | Sediment teams, daily check-in XP, reliability presence verification all depend on stronger physical-truth ingress than current bounded proof. |
-| 4 | Game identity policy hardening | First-version policies need usage-driven tuning. Define the tuning loop before population data accumulates. |
-| 5 | Live destructive-probe and SIGTERM proof plan | Milestone 3.0 intentionally avoided production-destructive mutation probes and in-flight production SIGTERM proof. Plan these before higher-stakes live operation. |
+| 1 | Frontend route/API contract matrix | Milestone 3.0 smoke proved trust-spine touchpoints, but the standalone Hestia/Themis route/API matrix is still useful before broader surface work. |
+| 2 | ATHENA real ingress (cross-repo) | Sediment teams, daily check-in XP, reliability presence verification all depend on stronger physical-truth ingress than current bounded proof. |
+| 3 | Game identity policy hardening | First-version policies need usage-driven tuning. Define the tuning loop before population data accumulates. |
+| 4 | Live destructive-probe and SIGTERM proof plan | Milestone 3.0 intentionally avoided production-destructive mutation probes and in-flight production SIGTERM proof. Plan these before higher-stakes live operation. |
 
 What to avoid as a next packet:
 
 - Public tournaments (Scale Gate and public tournament privacy/product policy
   still need work first).
-- OpenSkill read-path switch (policy wrapper is closed locally, but simulation,
-  rollback, and cutover evidence remain deferred).
+- OpenSkill read-path switch (policy wrapper and deterministic simulation are
+  closed locally, but production backtesting, rollback, and cutover evidence
+  remain deferred).
 - Honor / MVP / quests / drafts / onboarding (retention layer needs scale policy
   and abuse controls, not only repo/deploy proof).
 - Cross-sport transfer (nice-to-have; doesn't unblock anything pressing).
@@ -1567,8 +1577,12 @@ These priorities and avoidances are forward-looking guidance. The Immediate Acti
    records `apollo_rating_policy_wrapper_v1`, calibration/provisional/ranked
    status, inactivity sigma-inflation metadata, and climbing-cap metadata while
    OpenSkill remains internal comparison-only.
-14. Next: Rating Policy Simulation / Golden Expansion before any OpenSkill
-   read-path switch or broader public/social/tournament widening.
+14. Closed by Rating Policy Simulation / Golden Expansion: APOLLO has
+    deterministic local simulation proof, CLI JSON output, accepted/rejected
+    scenario classification, legacy baseline deltas, OpenSkill sidecar deltas,
+    cutover blockers, and policy risks while OpenSkill remains comparison-only.
+15. Next: Frontend Route/API Contract Matrix before broader frontend surface
+    widening.
 
 ## Proof Commands
 
@@ -2440,6 +2454,90 @@ Confirmed boundaries:
 - Public tournaments remain blocked.
 - Public OpenSkill values remain blocked.
 - OpenSkill active read-path switch remains deferred.
-- Full historical simulation/backtesting remains deferred.
+- Deterministic simulation/golden expansion was still deferred at this close.
+- Production historical backtesting remains deferred.
 
-Next launch-expansion packet: Rating Policy Simulation / Golden Expansion.
+Rating Policy Simulation / Golden Expansion closed next. The current next
+launch-expansion packet is Frontend Route/API Contract Matrix.
+
+## Rating Policy Simulation / Golden Expansion Addendum
+
+Date: 2026-05-03
+
+Rating Policy Simulation / Golden Expansion is closed in APOLLO repo/local
+runtime truth only. Deployed truth remains unchanged.
+
+Implemented truth:
+
+- APOLLO rating has deterministic simulation fixtures under
+  `rating.BuildActivePolicySimulationReport`.
+- `rating.RebuildActivePolicy` remains the active policy path, with
+  `rating.RebuildLegacy` preserved as the unchanged legacy baseline.
+- OpenSkill comparison remains sidecar-only through
+  `rating.RebuildOpenSkillComparison`; no active read path was switched.
+- Local agents can run `apollo competition rating simulation --format json`
+  for the proof report.
+- The report includes active policy output, legacy baseline deltas, OpenSkill
+  sidecar deltas, accepted/rejected scenario classification, cutover blockers,
+  and policy risks.
+- Public/member reads remain allowlisted and do not expose OpenSkill comparison
+  facts.
+
+Accepted scenarios:
+
+- unranked 1v1, A wins
+- stronger player beats new player
+- new player beats stronger player
+- repeated wins through fifth-match ranked transition
+- inactivity return after threshold
+- climbing-cap activation
+- draw handling
+- 5v5 even teams
+- OpenSkill comparison delta rows as internal sidecar proof
+- public/member read-safety sentinel
+
+Rejected scenario:
+
+- 3v5 asymmetric match is rejected as active-policy or cutover evidence. It is
+  retained only as comparison stress for OpenSkill sidecar deltas.
+
+Cutover blockers:
+
+- OpenSkill active read path remains deferred.
+- Rollback/cutover mechanics remain unbuilt.
+- Production historical backtesting remains unproven.
+- Public tournament readiness remains blocked.
+
+Policy risk table:
+
+| Risk | Classification | Current handling |
+| --- | --- | --- |
+| Synthetic fixtures may not represent production population dynamics | Moderate | Defer to production backtest and telemetry review. |
+| Asymmetric team math remains a legacy-average limitation | High | Keep 3v5 as comparison-only stress until a future OpenSkill cutover packet. |
+| OpenSkill delta budgets are not product rating claims | Moderate | Keep deltas internal and sidecar-only. |
+| Public claim safety depends on allowlisted routes | Low | Keep public/member contracts redacted and route-matrix work next. |
+
+Verification:
+
+```sh
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+git diff --check
+go test -count=1 ./internal/rating
+go test -count=1 ./internal/competition ./internal/rating ./internal/server ./cmd/apollo
+go vet ./...
+go build ./cmd/apollo
+go test -count=1 ./...
+go test -race ./internal/...
+```
+
+Confirmed boundaries:
+
+- Hestia, Themis, Prometheus, gateway, ATHENA, and deploy/GitOps were untouched.
+- No schema changes were required.
+- No public API, frontend route, or public rating claim was added.
+- Public tournaments remain blocked.
+- Public OpenSkill values remain blocked.
+- OpenSkill active read-path switch remains deferred.
+- Production historical backtesting remains deferred.
+
+Next launch-expansion packet: Frontend Route/API Contract Matrix.

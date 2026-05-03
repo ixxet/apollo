@@ -11,7 +11,8 @@ Current repo/runtime working line on `main`: Phase 3B.20.1 cohesion hardening
 over Phase 3B.20 game identity, Phase 3B.19 public competition readiness, Phase
 3B.18 internal social safety/reliability foundation, Phase 3B.17 internal
 tournament runtime, and Phase 3B.16 competition analytics foundation,
-Rating Policy Wrapper, Scale Gate Numeric Ceilings, CLI Demo Spine,
+Rating Policy Simulation / Golden Expansion, Rating Policy Wrapper, Scale Gate
+Numeric Ceilings, CLI Demo Spine,
 Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
@@ -205,6 +206,11 @@ schedule-control lines
   transition, applies inactivity sigma inflation without mu movement, bounds
   positive mu movement, and exposes member-safe additive policy metadata while
   public surfaces remain redacted and OpenSkill remains comparison-only
+- Rating Policy Simulation / Golden Expansion is now real in repo/runtime on
+  `main`: APOLLO has deterministic local fixtures and CLI JSON output for
+  active wrapper scenarios, legacy baseline deltas, OpenSkill sidecar deltas,
+  accepted/rejected classification, cutover blockers, and policy risks while
+  OpenSkill remains comparison-only
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -245,9 +251,14 @@ tournament ideas into one gated plan. Current scan state:
   inflation, and positive movement cap metadata. OpenSkill remains
   comparison-only, public/member reads do not expose OpenSkill comparison
   facts, and deployed truth is unchanged.
+- closed locally in repo/runtime: Rating Policy Simulation / Golden Expansion.
+  APOLLO now has deterministic fixture simulation, `apollo competition rating
+  simulation --format json`, accepted/rejected scenario classification, legacy
+  baseline deltas, OpenSkill sidecar deltas, cutover blockers, and policy risk
+  output. This does not change deployed truth.
 - still deferred: OpenSkill active read path, public tournaments, public/member
   safety UI details, messaging/chat, broad public social graph, public profiles
-  and scouting, full rating policy simulation/backtesting, recurring schedule
+  and scouting, production historical rating backtesting, recurring schedule
   policy, court/resource splitting, booking/commercial proposal workflows, and
   project-wide SemVer governance
 
@@ -300,9 +311,29 @@ The wrapper covers focused policy behavior only:
   CLI/API paths
 
 OpenSkill remains internal comparison-only and is not used by active public or
-member rating reads. This is not deployed truth and not full historical policy
-simulation proof. The next rating proof packet is Rating Policy Simulation /
-Golden Expansion.
+member rating reads. This is not deployed truth and not production historical
+backtesting proof.
+
+## Rating Policy Simulation / Golden Expansion
+
+Repo/local runtime truth: APOLLO now has deterministic fixture proof through
+`rating.BuildActivePolicySimulationReport` and
+`apollo competition rating simulation --format json`.
+
+The simulation proof covers:
+
+- active wrapper output from `rating.RebuildActivePolicy`
+- unchanged legacy baseline output from `rating.RebuildLegacy`
+- OpenSkill sidecar deltas from `rating.RebuildOpenSkillComparison`
+- accepted scenarios for unranked 1v1, stronger/new expected result, upset,
+  fifth-match transition, inactivity, climbing cap, draw, 5v5, OpenSkill
+  sidecar rows, and public/member read safety
+- rejected 3v5 asymmetric active-policy/cutover evidence, retained only as
+  comparison stress
+- cutover blockers and policy risks
+
+OpenSkill active read path, rollback/cutover mechanics, production historical
+backtesting, public ratings, and public tournaments remain deferred.
 
 ## Release Lines
 
@@ -312,8 +343,8 @@ hardening patch on that same line. The current repo/runtime working line on
 readiness, Phase 3B.18 internal social safety/reliability foundation, Phase
 3B.17 internal tournament runtime, Phase 3B.16 competition analytics
 foundation, Phase 3B.13 rating foundation, Phase 3B.14 OpenSkill comparison
-evidence, Rating Policy Wrapper, Phase 3B.15 ARES v2
-proposal foundation, and the closed
+evidence, Rating Policy Wrapper, Rating Policy Simulation / Golden Expansion,
+Phase 3B.15 ARES v2 proposal foundation, and the closed
 Tracer 28 authz/staff-boundary truth,
 Milestone 2.0 hardening follow-up, scheduling substrate, member-safe calendar,
 ops-read, approved booking lifecycle, public request/status/availability lines,
@@ -340,7 +371,8 @@ and staff-side edit/replacement plus bounded staff schedule-control lines.
 | `Phase 3B.18` | internal social safety/reliability foundation on `main`: competition-scoped report facts, block facts, reliability events, safety audit events, manager-only readiness/review reads, and aligned safety/reliability commands | keep safety and reliability manager/internal, capability-gated, auditable, immutable, and separate from canonical competition truth | do not widen into public/member safety UI, messaging/chat, public profiles/scouting/leaderboards/tournaments, Hestia expansion, CP, badges, rivalry, squads, OpenSkill read-path switch, ARES behavior changes, analytics dashboards, booking/commercial/proposal workflow, SemVer governance, or deploy claims |
 | `Phase 3B.19` | public competition readiness on `main`: public-safe readiness and leaderboard projection contracts over finalized/corrected canonical result truth plus legacy active rating fields | keep public contracts projection-only, redacted, deterministic, and separate from private/internal truth | do not widen into public tournaments, CP, badges, rivalry, squads, messaging/chat, public social graph, OpenSkill read-path switch, ARES proposal exposure, analytics dashboards, booking/commercial/proposal workflow, SemVer governance, or deploy claims |
 | `Phase 3B.20` | game identity layer on `main`: public/member-safe CP, badge award, rivalry state, and squad identity projection contracts over public-safe competition projection rows | keep APOLLO as game identity owner, keep policies explicit/versioned, keep Hestia as consumer only, and keep outputs redacted or self-scoped | do not widen into messaging/chat, broad public social graph, public safety detail exposure, OpenSkill read-path switch, public tournaments, booking/commercial/proposal workflow, project-wide SemVer governance, fake UI data, or deployment claims |
-| Rating Policy Wrapper | post-CLI Demo APOLLO rating policy wrapper on `main`: active legacy-engine projection records `apollo_rating_policy_wrapper_v1`, calibration status, fifth-match ranked transition, inactivity sigma inflation, and climbing-cap metadata | keep legacy engine active, keep OpenSkill comparison-only, keep public outputs redacted, and keep deployed truth separate | do not claim OpenSkill cutover, full historical simulation, public tournaments, frontend completion, or deployed truth |
+| Rating Policy Wrapper | post-CLI Demo APOLLO rating policy wrapper on `main`: active legacy-engine projection records `apollo_rating_policy_wrapper_v1`, calibration status, fifth-match ranked transition, inactivity sigma inflation, and climbing-cap metadata | keep legacy engine active, keep OpenSkill comparison-only, keep public outputs redacted, and keep deployed truth separate | closed by Rating Policy Simulation; do not claim OpenSkill cutover, production backtesting, public tournaments, frontend completion, or deployed truth |
+| Rating Policy Simulation / Golden Expansion | post-wrapper APOLLO rating proof on `main`: deterministic fixtures, CLI JSON output, accepted/rejected scenarios, legacy baseline deltas, OpenSkill sidecar deltas, cutover blockers, and policy risks | keep proof local/CLI, keep OpenSkill sidecar-only, keep public/member reads allowlisted, and keep deployed truth separate | do not claim OpenSkill cutover, production backtesting, public ratings, public tournaments, frontend completion, or deployed truth |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, public safety UI, public profiles/scouting, broad social graph behavior, or broader public leaderboard/game-identity expansion |
 
 ## Current Phase 3B Line
@@ -352,10 +384,13 @@ cross-repo compatibility matrix; Hestia, Themis, and `ashton-mcp-gateway`
 remain recorded as repo-only in the inspected environment. APOLLO exposes
 public/member-safe game identity contracts that consume public-safe competition
 projection rows only: CP, badge award facts, rivalry state facts, and squad
-identity facts. Rating Policy Wrapper is also closed locally in repo/runtime:
-the active legacy-engine rating projection records
-`apollo_rating_policy_wrapper_v1`, calibration status, inactivity sigma
-inflation, and climbing-cap metadata while OpenSkill remains comparison-only.
+identity facts. Rating Policy Wrapper and Rating Policy Simulation / Golden
+Expansion are also closed locally in repo/runtime: the active legacy-engine
+rating projection records `apollo_rating_policy_wrapper_v1`, calibration
+status, inactivity sigma inflation, and climbing-cap metadata, and deterministic
+simulation/CLI proof records active wrapper scenarios, legacy deltas, OpenSkill
+sidecar deltas, accepted/rejected classification, blockers, and risks while
+OpenSkill remains comparison-only.
 The contracts redact public participant identity, scope member
 output to the caller, keep rivalry and labels scoped to their projection
 row/context, and exclude private/internal safety, manager, command, OpenSkill
@@ -365,8 +400,8 @@ sample/confidence metadata, and operational truth.
 Any later widening should stay separate:
 
 - broader APOLLO authz/admin widening only if a real product boundary needs it
-- OpenSkill read-path switch only after wrapper, simulation, rollback, and
-  comparison evidence is accepted
+- OpenSkill read-path switch only after production backtesting, rollback, and
+  cutover evidence is accepted
 - public tournaments
 - public/member safety UI
 - carry coefficient and broader scouting/profile analytics until separate gates
