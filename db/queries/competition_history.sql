@@ -199,7 +199,7 @@ LEFT JOIN apollo.competition_rating_events AS re
   ON re.event_type = 'competition.rating.legacy_computed'
  AND re.rating_engine = 'legacy_elo_like'
  AND re.engine_version = 'legacy_elo_like.v1'
- AND re.policy_version = 'apollo_legacy_rating_v1'
+ AND re.policy_version = 'apollo_rating_policy_wrapper_v1'
  AND re.sport_key = s.sport_key
  AND re.mode_key = sp.competition_mode || ':s' || sp.sides_per_match::TEXT || '-p' || s.participants_per_side::TEXT
  AND re.source_result_id = r.id
@@ -407,10 +407,13 @@ INSERT INTO apollo.competition_rating_events (
   sigma,
   delta_mu,
   delta_sigma,
+  calibration_status,
+  inactivity_decay_applied,
+  climbing_cap_applied,
   projection_watermark,
   occurred_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 RETURNING id,
           event_type,
           rating_engine,
@@ -424,6 +427,9 @@ RETURNING id,
           sigma,
           delta_mu,
           delta_sigma,
+          calibration_status,
+          inactivity_decay_applied,
+          climbing_cap_applied,
           projection_watermark,
           occurred_at,
           created_at;
@@ -442,6 +448,9 @@ INSERT INTO apollo.competition_rating_events (
   sigma,
   delta_mu,
   delta_sigma,
+  calibration_status,
+  inactivity_decay_applied,
+  climbing_cap_applied,
   projection_watermark,
   occurred_at
 )
@@ -459,7 +468,10 @@ VALUES (
   $10,
   $11,
   $12,
-  $13
+  $13,
+  $14,
+  $15,
+  $16
 )
 ON CONFLICT (
   rating_engine,
@@ -476,6 +488,9 @@ DO UPDATE SET
   sigma = EXCLUDED.sigma,
   delta_mu = EXCLUDED.delta_mu,
   delta_sigma = EXCLUDED.delta_sigma,
+  calibration_status = EXCLUDED.calibration_status,
+  inactivity_decay_applied = EXCLUDED.inactivity_decay_applied,
+  climbing_cap_applied = EXCLUDED.climbing_cap_applied,
   projection_watermark = EXCLUDED.projection_watermark,
   occurred_at = EXCLUDED.occurred_at
 RETURNING id,
@@ -491,6 +506,9 @@ RETURNING id,
           sigma,
           delta_mu,
           delta_sigma,
+          calibration_status,
+          inactivity_decay_applied,
+          climbing_cap_applied,
           projection_watermark,
           occurred_at,
           created_at;
@@ -775,9 +793,13 @@ INSERT INTO apollo.competition_member_ratings (
   policy_version,
   source_result_id,
   rating_event_id,
-  projection_watermark
+  projection_watermark,
+  calibration_status,
+  last_inactivity_decay_at,
+  inactivity_decay_count,
+  climbing_cap_applied
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (user_id, sport_key, mode_key)
 DO UPDATE SET
   mu = EXCLUDED.mu,
@@ -790,7 +812,11 @@ DO UPDATE SET
   policy_version = EXCLUDED.policy_version,
   source_result_id = EXCLUDED.source_result_id,
   rating_event_id = EXCLUDED.rating_event_id,
-  projection_watermark = EXCLUDED.projection_watermark
+  projection_watermark = EXCLUDED.projection_watermark,
+  calibration_status = EXCLUDED.calibration_status,
+  last_inactivity_decay_at = EXCLUDED.last_inactivity_decay_at,
+  inactivity_decay_count = EXCLUDED.inactivity_decay_count,
+  climbing_cap_applied = EXCLUDED.climbing_cap_applied
 RETURNING user_id,
           sport_key,
           mode_key,
@@ -804,7 +830,11 @@ RETURNING user_id,
           policy_version,
           source_result_id,
           rating_event_id,
-          projection_watermark;
+          projection_watermark,
+          calibration_status,
+          last_inactivity_decay_at,
+          inactivity_decay_count,
+          climbing_cap_applied;
 
 -- name: ListCompetitionMemberRatingsByUserID :many
 SELECT user_id,
@@ -814,7 +844,14 @@ SELECT user_id,
        sigma,
        matches_played,
        last_played,
-       updated_at
+       updated_at,
+       rating_engine,
+       engine_version,
+       policy_version,
+       calibration_status,
+       last_inactivity_decay_at,
+       inactivity_decay_count,
+       climbing_cap_applied
 FROM apollo.competition_member_ratings
 WHERE user_id = $1
 ORDER BY sport_key ASC, mode_key ASC;

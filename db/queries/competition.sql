@@ -369,6 +369,9 @@ LEFT JOIN apollo.competition_member_ratings AS r
   ON r.user_id = q.user_id
  AND r.sport_key = qi.sport_key
  AND r.mode_key = qi.mode_key
+ AND r.rating_engine = 'legacy_elo_like'
+ AND r.engine_version = 'legacy_elo_like.v1'
+ AND r.policy_version = 'apollo_rating_policy_wrapper_v1'
 WHERE q.competition_session_id = $1
 ORDER BY q.joined_at ASC, q.user_id ASC;
 

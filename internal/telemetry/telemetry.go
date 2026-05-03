@@ -90,7 +90,7 @@ func newRegistry() *telemetryRegistry {
 	r.reliabilityEventTotal = r.counter("reliability_event_total", "Competition reliability events recorded.", []string{"kind"}, [][]string{{"uncategorized"}})
 
 	r.disputeResolutionDurationSeconds = r.summary("competition_dispute_resolution_duration_seconds", "Competition dispute resolution duration in seconds.", nil, nil)
-	r.ratingUpdateDurationSeconds = r.summary("rating_update_duration_seconds", "APOLLO rating update duration in seconds.", []string{"policy_version"}, [][]string{{"apollo_legacy_rating_v1"}})
+	r.ratingUpdateDurationSeconds = r.summary("rating_update_duration_seconds", "APOLLO rating update duration in seconds.", []string{"policy_version"}, [][]string{{"apollo_rating_policy_wrapper_v1"}})
 	r.gameIdentityProjectionDurationSeconds = r.summary("game_identity_projection_duration_seconds", "Game identity projection duration in seconds.", nil, nil)
 	return r
 }

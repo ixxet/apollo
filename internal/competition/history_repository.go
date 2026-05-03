@@ -90,16 +90,28 @@ func (r *Repository) ListMemberRatingsByUserID(ctx context.Context, userID uuid.
 			recordedAt := row.LastPlayed.Time.UTC()
 			lastPlayedAt = &recordedAt
 		}
+		var lastInactivityDecayAt *time.Time
+		if row.LastInactivityDecayAt.Valid {
+			decayedAt := row.LastInactivityDecayAt.Time.UTC()
+			lastInactivityDecayAt = &decayedAt
+		}
 
 		ratings = append(ratings, memberRatingRecord{
-			UserID:        row.UserID,
-			SportKey:      row.SportKey,
-			ModeKey:       row.ModeKey,
-			Mu:            mu,
-			Sigma:         sigma,
-			MatchesPlayed: int(row.MatchesPlayed),
-			LastPlayedAt:  lastPlayedAt,
-			UpdatedAt:     row.UpdatedAt.Time.UTC(),
+			UserID:                row.UserID,
+			SportKey:              row.SportKey,
+			ModeKey:               row.ModeKey,
+			Mu:                    mu,
+			Sigma:                 sigma,
+			MatchesPlayed:         int(row.MatchesPlayed),
+			LastPlayedAt:          lastPlayedAt,
+			UpdatedAt:             row.UpdatedAt.Time.UTC(),
+			RatingEngine:          row.RatingEngine,
+			EngineVersion:         row.EngineVersion,
+			PolicyVersion:         row.PolicyVersion,
+			CalibrationStatus:     row.CalibrationStatus,
+			LastInactivityDecayAt: lastInactivityDecayAt,
+			InactivityDecayCount:  int(row.InactivityDecayCount),
+			ClimbingCapApplied:    row.ClimbingCapApplied,
 		})
 	}
 
@@ -476,9 +488,10 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 	}
 
 	matches := buildRatingMatches(rows)
-	projection := rating.RebuildLegacy(matches)
-	comparison := rating.RebuildOpenSkillComparison(matches, projection)
-	telemetry.RecordRatingRebuild(measurement.ResultSideRows, rating.PolicyVersionLegacy, time.Since(startedAt), len(comparison.Facts))
+	legacyBaseline := rating.RebuildLegacy(matches)
+	projection := rating.RebuildActivePolicy(matches)
+	comparison := rating.RebuildOpenSkillComparison(matches, legacyBaseline)
+	telemetry.RecordRatingRebuild(measurement.ResultSideRows, projection.PolicyVersion, time.Since(startedAt), len(comparison.Facts))
 	if err := recordRatingPolicySelectedEventTx(ctx, queries, sportKey, projection.Watermark, updatedAt); err != nil {
 		return err
 	}
@@ -522,6 +535,10 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 		if state.LastPlayedAt != nil {
 			lastPlayed = timestamptz(*state.LastPlayedAt)
 		}
+		var lastInactivityDecayAt pgtype.Timestamptz
+		if state.LastInactivityDecayAt != nil {
+			lastInactivityDecayAt = timestamptz(*state.LastInactivityDecayAt)
+		}
 
 		eventID, exists := eventIDsByState[ratingEventStateKey{
 			modeKey:        state.ModeKey,
@@ -533,20 +550,24 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 		}
 
 		if _, err := queries.UpsertCompetitionMemberRating(ctx, store.UpsertCompetitionMemberRatingParams{
-			UserID:              state.UserID,
-			SportKey:            sportKey,
-			ModeKey:             state.ModeKey,
-			Mu:                  mu,
-			Sigma:               sigma,
-			MatchesPlayed:       int32(state.MatchesPlayed),
-			LastPlayed:          lastPlayed,
-			UpdatedAt:           timestamptz(updatedAt),
-			RatingEngine:        rating.EngineLegacyEloLike,
-			EngineVersion:       rating.EngineVersionLegacy,
-			PolicyVersion:       rating.PolicyVersionLegacy,
-			SourceResultID:      optionalUUID(&state.SourceResultID),
-			RatingEventID:       optionalUUID(&eventID),
-			ProjectionWatermark: projection.Watermark,
+			UserID:                state.UserID,
+			SportKey:              sportKey,
+			ModeKey:               state.ModeKey,
+			Mu:                    mu,
+			Sigma:                 sigma,
+			MatchesPlayed:         int32(state.MatchesPlayed),
+			LastPlayed:            lastPlayed,
+			UpdatedAt:             timestamptz(updatedAt),
+			RatingEngine:          rating.EngineLegacyEloLike,
+			EngineVersion:         rating.EngineVersionLegacy,
+			PolicyVersion:         projection.PolicyVersion,
+			SourceResultID:        optionalUUID(&state.SourceResultID),
+			RatingEventID:         optionalUUID(&eventID),
+			ProjectionWatermark:   projection.Watermark,
+			CalibrationStatus:     state.CalibrationStatus,
+			LastInactivityDecayAt: lastInactivityDecayAt,
+			InactivityDecayCount:  int32(state.InactivityDecayCount),
+			ClimbingCapApplied:    state.ClimbingCapApplied,
 		}); err != nil {
 			return err
 		}
@@ -604,7 +625,7 @@ func recordRatingPolicySelectedEventTx(ctx context.Context, queries *store.Queri
 		EventType:           rating.EventPolicySelected,
 		RatingEngine:        rating.EngineLegacyEloLike,
 		EngineVersion:       rating.EngineVersionLegacy,
-		PolicyVersion:       rating.PolicyVersionLegacy,
+		PolicyVersion:       rating.PolicyVersionActive,
 		SportKey:            sportKey,
 		ProjectionWatermark: projectionWatermark,
 		OccurredAt:          timestamptz(occurredAt),
@@ -617,7 +638,7 @@ func recordRatingProjectionRebuiltEventTx(ctx context.Context, queries *store.Qu
 		EventType:           rating.EventProjectionRebuilt,
 		RatingEngine:        rating.EngineLegacyEloLike,
 		EngineVersion:       rating.EngineVersionLegacy,
-		PolicyVersion:       rating.PolicyVersionLegacy,
+		PolicyVersion:       rating.PolicyVersionActive,
 		SportKey:            sportKey,
 		SourceResultID:      optionalUUID(sourceResultID),
 		ProjectionWatermark: projectionWatermark,
@@ -646,19 +667,22 @@ func recordLegacyRatingComputedEventTx(ctx context.Context, queries *store.Queri
 
 	modeKey := event.ModeKey
 	row, err := queries.UpsertCompetitionLegacyRatingEvent(ctx, store.UpsertCompetitionLegacyRatingEventParams{
-		RatingEngine:        rating.EngineLegacyEloLike,
-		EngineVersion:       rating.EngineVersionLegacy,
-		PolicyVersion:       rating.PolicyVersionLegacy,
-		SportKey:            sportKey,
-		ModeKey:             &modeKey,
-		UserID:              optionalUUID(&event.UserID),
-		SourceResultID:      optionalUUID(&event.SourceResultID),
-		Mu:                  mu,
-		Sigma:               sigma,
-		DeltaMu:             deltaMu,
-		DeltaSigma:          deltaSigma,
-		ProjectionWatermark: event.Watermark,
-		OccurredAt:          timestamptz(event.OccurredAt),
+		RatingEngine:           rating.EngineLegacyEloLike,
+		EngineVersion:          rating.EngineVersionLegacy,
+		PolicyVersion:          rating.PolicyVersionActive,
+		SportKey:               sportKey,
+		ModeKey:                &modeKey,
+		UserID:                 optionalUUID(&event.UserID),
+		SourceResultID:         optionalUUID(&event.SourceResultID),
+		Mu:                     mu,
+		Sigma:                  sigma,
+		DeltaMu:                deltaMu,
+		DeltaSigma:             deltaSigma,
+		CalibrationStatus:      &event.CalibrationStatus,
+		InactivityDecayApplied: event.InactivityDecayApplied,
+		ClimbingCapApplied:     event.ClimbingCapApplied,
+		ProjectionWatermark:    event.Watermark,
+		OccurredAt:             timestamptz(event.OccurredAt),
 	})
 	if err != nil {
 		return uuid.Nil, err

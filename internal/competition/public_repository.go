@@ -64,7 +64,7 @@ LEFT JOIN apollo.competition_member_ratings AS cmr
  AND cmr.mode_key = p.mode_key
  AND cmr.rating_engine = 'legacy_elo_like'
  AND cmr.engine_version = 'legacy_elo_like.v1'
-  AND cmr.policy_version = 'apollo_legacy_rating_v1'
+ AND cmr.policy_version = 'apollo_rating_policy_wrapper_v1'
 GROUP BY p.user_id,
          p.sport_key,
          p.mode_key,

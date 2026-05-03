@@ -278,16 +278,22 @@ type Standing struct {
 }
 
 type MemberStat struct {
-	UserID             uuid.UUID  `json:"user_id"`
-	SportKey           string     `json:"sport_key"`
-	ModeKey            string     `json:"mode_key"`
-	MatchesPlayed      int        `json:"matches_played"`
-	Wins               int        `json:"wins"`
-	Losses             int        `json:"losses"`
-	Draws              int        `json:"draws"`
-	LastPlayedAt       *time.Time `json:"last_played_at,omitempty"`
-	CurrentRatingMu    float64    `json:"current_rating_mu"`
-	CurrentRatingSigma float64    `json:"current_rating_sigma"`
+	UserID                uuid.UUID  `json:"user_id"`
+	SportKey              string     `json:"sport_key"`
+	ModeKey               string     `json:"mode_key"`
+	MatchesPlayed         int        `json:"matches_played"`
+	Wins                  int        `json:"wins"`
+	Losses                int        `json:"losses"`
+	Draws                 int        `json:"draws"`
+	LastPlayedAt          *time.Time `json:"last_played_at,omitempty"`
+	CurrentRatingMu       float64    `json:"current_rating_mu"`
+	CurrentRatingSigma    float64    `json:"current_rating_sigma"`
+	RatingEngine          string     `json:"rating_engine,omitempty"`
+	RatingPolicyVersion   string     `json:"rating_policy_version,omitempty"`
+	CalibrationStatus     string     `json:"calibration_status,omitempty"`
+	LastInactivityDecayAt *time.Time `json:"last_inactivity_decay_at,omitempty"`
+	InactivityDecayCount  int        `json:"inactivity_decay_count,omitempty"`
+	ClimbingCapApplied    bool       `json:"climbing_cap_applied,omitempty"`
 }
 
 type MemberHistoryEntry struct {
@@ -611,14 +617,21 @@ type matchResultSideRecord struct {
 }
 
 type memberRatingRecord struct {
-	UserID        uuid.UUID
-	SportKey      string
-	ModeKey       string
-	Mu            float64
-	Sigma         float64
-	MatchesPlayed int
-	LastPlayedAt  *time.Time
-	UpdatedAt     time.Time
+	UserID                uuid.UUID
+	SportKey              string
+	ModeKey               string
+	Mu                    float64
+	Sigma                 float64
+	MatchesPlayed         int
+	LastPlayedAt          *time.Time
+	UpdatedAt             time.Time
+	RatingEngine          string
+	EngineVersion         string
+	PolicyVersion         string
+	CalibrationStatus     string
+	LastInactivityDecayAt *time.Time
+	InactivityDecayCount  int
+	ClimbingCapApplied    bool
 }
 
 type memberStatRowRecord struct {

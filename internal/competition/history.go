@@ -353,6 +353,12 @@ func (s *Service) ListMemberStats(ctx context.Context, userID uuid.UUID) ([]Memb
 		}
 		stat.CurrentRatingMu = rating.Mu
 		stat.CurrentRatingSigma = rating.Sigma
+		stat.RatingEngine = rating.RatingEngine
+		stat.RatingPolicyVersion = rating.PolicyVersion
+		stat.CalibrationStatus = rating.CalibrationStatus
+		stat.LastInactivityDecayAt = rating.LastInactivityDecayAt
+		stat.InactivityDecayCount = rating.InactivityDecayCount
+		stat.ClimbingCapApplied = rating.ClimbingCapApplied
 		if rating.LastPlayedAt != nil && (stat.LastPlayedAt == nil || rating.LastPlayedAt.After(*stat.LastPlayedAt)) {
 			lastPlayedAt := rating.LastPlayedAt.UTC()
 			stat.LastPlayedAt = &lastPlayedAt

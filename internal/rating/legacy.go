@@ -12,6 +12,7 @@ const (
 	EngineLegacyEloLike = "legacy_elo_like"
 	EngineVersionLegacy = "legacy_elo_like.v1"
 	PolicyVersionLegacy = "apollo_legacy_rating_v1"
+	PolicyVersionActive = "apollo_rating_policy_wrapper_v1"
 
 	EventLegacyComputed    = "competition.rating.legacy_computed"
 	EventOpenSkillComputed = "competition.rating.openskill_computed"
@@ -44,31 +45,41 @@ type Side struct {
 }
 
 type State struct {
-	UserID         uuid.UUID
-	ModeKey        string
-	Mu             float64
-	Sigma          float64
-	MatchesPlayed  int
-	LastPlayedAt   *time.Time
-	SourceResultID uuid.UUID
+	UserID                uuid.UUID
+	ModeKey               string
+	Mu                    float64
+	Sigma                 float64
+	MatchesPlayed         int
+	LastPlayedAt          *time.Time
+	SourceResultID        uuid.UUID
+	CalibrationStatus     string
+	LastInactivityDecayAt *time.Time
+	InactivityDecayCount  int
+	ClimbingCapApplied    bool
 }
 
 type ComputedEvent struct {
-	UserID         uuid.UUID
-	ModeKey        string
-	SourceResultID uuid.UUID
-	Mu             float64
-	Sigma          float64
-	DeltaMu        float64
-	DeltaSigma     float64
-	Watermark      string
-	OccurredAt     time.Time
+	UserID                 uuid.UUID
+	ModeKey                string
+	SourceResultID         uuid.UUID
+	Mu                     float64
+	Sigma                  float64
+	DeltaMu                float64
+	DeltaSigma             float64
+	CalibrationStatus      string
+	InactivityDecayApplied bool
+	ClimbingCapApplied     bool
+	Watermark              string
+	OccurredAt             time.Time
 }
 
 type Projection struct {
-	States    []State
-	Events    []ComputedEvent
-	Watermark string
+	RatingEngine  string
+	EngineVersion string
+	PolicyVersion string
+	States        []State
+	Events        []ComputedEvent
+	Watermark     string
 }
 
 // RebuildLegacy projects the current APOLLO legacy rating behavior without
@@ -106,9 +117,12 @@ func RebuildLegacy(matches []Match) Projection {
 	}
 
 	return Projection{
-		States:    states,
-		Events:    events,
-		Watermark: ProjectionWatermark(matches),
+		RatingEngine:  EngineLegacyEloLike,
+		EngineVersion: EngineVersionLegacy,
+		PolicyVersion: PolicyVersionLegacy,
+		States:        states,
+		Events:        events,
+		Watermark:     ProjectionWatermark(matches),
 	}
 }
 

@@ -152,7 +152,7 @@ func BuildCompetitionMatchPreview(input CompetitionPreviewInput) CompetitionMatc
 		PreviewVersion:            CompetitionPreviewVersion,
 		PolicyVersion:             CompetitionPreviewPolicy,
 		RatingEngine:              rating.EngineLegacyEloLike,
-		RatingPolicyVersion:       rating.PolicyVersionLegacy,
+		RatingPolicyVersion:       rating.PolicyVersionActive,
 		FacilityKey:               input.FacilityKey,
 		SportKey:                  input.SportKey,
 		ModeKey:                   input.ModeKey,
@@ -165,7 +165,7 @@ func BuildCompetitionMatchPreview(input CompetitionPreviewInput) CompetitionMatc
 		CandidateCount:            len(candidates),
 		MissingRatingCount:        missingRatingCount,
 		AverageRatingDelta:        round4(delta),
-		ActiveRatingReadPath:      rating.PolicyVersionLegacy,
+		ActiveRatingReadPath:      rating.PolicyVersionActive,
 		OpenSkillComparisonPolicy: rating.PolicyVersionOpenSkill,
 	}
 }

@@ -594,10 +594,13 @@ INSERT INTO apollo.competition_rating_events (
   sigma,
   delta_mu,
   delta_sigma,
+  calibration_status,
+  inactivity_decay_applied,
+  climbing_cap_applied,
   projection_watermark,
   occurred_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 RETURNING id,
           event_type,
           rating_engine,
@@ -611,45 +614,54 @@ RETURNING id,
           sigma,
           delta_mu,
           delta_sigma,
+          calibration_status,
+          inactivity_decay_applied,
+          climbing_cap_applied,
           projection_watermark,
           occurred_at,
           created_at
 `
 
 type CreateCompetitionRatingEventParams struct {
-	EventType           string
-	RatingEngine        string
-	EngineVersion       string
-	PolicyVersion       string
-	SportKey            string
-	ModeKey             *string
-	UserID              pgtype.UUID
-	SourceResultID      pgtype.UUID
-	Mu                  pgtype.Numeric
-	Sigma               pgtype.Numeric
-	DeltaMu             pgtype.Numeric
-	DeltaSigma          pgtype.Numeric
-	ProjectionWatermark string
-	OccurredAt          pgtype.Timestamptz
+	EventType              string
+	RatingEngine           string
+	EngineVersion          string
+	PolicyVersion          string
+	SportKey               string
+	ModeKey                *string
+	UserID                 pgtype.UUID
+	SourceResultID         pgtype.UUID
+	Mu                     pgtype.Numeric
+	Sigma                  pgtype.Numeric
+	DeltaMu                pgtype.Numeric
+	DeltaSigma             pgtype.Numeric
+	CalibrationStatus      *string
+	InactivityDecayApplied bool
+	ClimbingCapApplied     bool
+	ProjectionWatermark    string
+	OccurredAt             pgtype.Timestamptz
 }
 
 type CreateCompetitionRatingEventRow struct {
-	ID                  uuid.UUID
-	EventType           string
-	RatingEngine        string
-	EngineVersion       string
-	PolicyVersion       string
-	SportKey            string
-	ModeKey             *string
-	UserID              pgtype.UUID
-	SourceResultID      pgtype.UUID
-	Mu                  pgtype.Numeric
-	Sigma               pgtype.Numeric
-	DeltaMu             pgtype.Numeric
-	DeltaSigma          pgtype.Numeric
-	ProjectionWatermark string
-	OccurredAt          pgtype.Timestamptz
-	CreatedAt           pgtype.Timestamptz
+	ID                     uuid.UUID
+	EventType              string
+	RatingEngine           string
+	EngineVersion          string
+	PolicyVersion          string
+	SportKey               string
+	ModeKey                *string
+	UserID                 pgtype.UUID
+	SourceResultID         pgtype.UUID
+	Mu                     pgtype.Numeric
+	Sigma                  pgtype.Numeric
+	DeltaMu                pgtype.Numeric
+	DeltaSigma             pgtype.Numeric
+	CalibrationStatus      *string
+	InactivityDecayApplied bool
+	ClimbingCapApplied     bool
+	ProjectionWatermark    string
+	OccurredAt             pgtype.Timestamptz
+	CreatedAt              pgtype.Timestamptz
 }
 
 func (q *Queries) CreateCompetitionRatingEvent(ctx context.Context, arg CreateCompetitionRatingEventParams) (CreateCompetitionRatingEventRow, error) {
@@ -666,6 +678,9 @@ func (q *Queries) CreateCompetitionRatingEvent(ctx context.Context, arg CreateCo
 		arg.Sigma,
 		arg.DeltaMu,
 		arg.DeltaSigma,
+		arg.CalibrationStatus,
+		arg.InactivityDecayApplied,
+		arg.ClimbingCapApplied,
 		arg.ProjectionWatermark,
 		arg.OccurredAt,
 	)
@@ -684,6 +699,9 @@ func (q *Queries) CreateCompetitionRatingEvent(ctx context.Context, arg CreateCo
 		&i.Sigma,
 		&i.DeltaMu,
 		&i.DeltaSigma,
+		&i.CalibrationStatus,
+		&i.InactivityDecayApplied,
+		&i.ClimbingCapApplied,
 		&i.ProjectionWatermark,
 		&i.OccurredAt,
 		&i.CreatedAt,
@@ -837,7 +855,7 @@ LEFT JOIN apollo.competition_rating_events AS re
   ON re.event_type = 'competition.rating.legacy_computed'
  AND re.rating_engine = 'legacy_elo_like'
  AND re.engine_version = 'legacy_elo_like.v1'
- AND re.policy_version = 'apollo_legacy_rating_v1'
+ AND re.policy_version = 'apollo_rating_policy_wrapper_v1'
  AND re.sport_key = s.sport_key
  AND re.mode_key = sp.competition_mode || ':s' || sp.sides_per_match::TEXT || '-p' || s.participants_per_side::TEXT
  AND re.source_result_id = r.id
@@ -1056,21 +1074,35 @@ SELECT user_id,
        sigma,
        matches_played,
        last_played,
-       updated_at
+       updated_at,
+       rating_engine,
+       engine_version,
+       policy_version,
+       calibration_status,
+       last_inactivity_decay_at,
+       inactivity_decay_count,
+       climbing_cap_applied
 FROM apollo.competition_member_ratings
 WHERE user_id = $1
 ORDER BY sport_key ASC, mode_key ASC
 `
 
 type ListCompetitionMemberRatingsByUserIDRow struct {
-	UserID        uuid.UUID
-	SportKey      string
-	ModeKey       string
-	Mu            pgtype.Numeric
-	Sigma         pgtype.Numeric
-	MatchesPlayed int32
-	LastPlayed    pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
+	UserID                uuid.UUID
+	SportKey              string
+	ModeKey               string
+	Mu                    pgtype.Numeric
+	Sigma                 pgtype.Numeric
+	MatchesPlayed         int32
+	LastPlayed            pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	RatingEngine          string
+	EngineVersion         string
+	PolicyVersion         string
+	CalibrationStatus     string
+	LastInactivityDecayAt pgtype.Timestamptz
+	InactivityDecayCount  int32
+	ClimbingCapApplied    bool
 }
 
 func (q *Queries) ListCompetitionMemberRatingsByUserID(ctx context.Context, userID uuid.UUID) ([]ListCompetitionMemberRatingsByUserIDRow, error) {
@@ -1091,6 +1123,13 @@ func (q *Queries) ListCompetitionMemberRatingsByUserID(ctx context.Context, user
 			&i.MatchesPlayed,
 			&i.LastPlayed,
 			&i.UpdatedAt,
+			&i.RatingEngine,
+			&i.EngineVersion,
+			&i.PolicyVersion,
+			&i.CalibrationStatus,
+			&i.LastInactivityDecayAt,
+			&i.InactivityDecayCount,
+			&i.ClimbingCapApplied,
 		); err != nil {
 			return nil, err
 		}
@@ -1514,6 +1553,9 @@ INSERT INTO apollo.competition_rating_events (
   sigma,
   delta_mu,
   delta_sigma,
+  calibration_status,
+  inactivity_decay_applied,
+  climbing_cap_applied,
   projection_watermark,
   occurred_at
 )
@@ -1531,7 +1573,10 @@ VALUES (
   $10,
   $11,
   $12,
-  $13
+  $13,
+  $14,
+  $15,
+  $16
 )
 ON CONFLICT (
   rating_engine,
@@ -1548,6 +1593,9 @@ DO UPDATE SET
   sigma = EXCLUDED.sigma,
   delta_mu = EXCLUDED.delta_mu,
   delta_sigma = EXCLUDED.delta_sigma,
+  calibration_status = EXCLUDED.calibration_status,
+  inactivity_decay_applied = EXCLUDED.inactivity_decay_applied,
+  climbing_cap_applied = EXCLUDED.climbing_cap_applied,
   projection_watermark = EXCLUDED.projection_watermark,
   occurred_at = EXCLUDED.occurred_at
 RETURNING id,
@@ -1563,44 +1611,53 @@ RETURNING id,
           sigma,
           delta_mu,
           delta_sigma,
+          calibration_status,
+          inactivity_decay_applied,
+          climbing_cap_applied,
           projection_watermark,
           occurred_at,
           created_at
 `
 
 type UpsertCompetitionLegacyRatingEventParams struct {
-	RatingEngine        string
-	EngineVersion       string
-	PolicyVersion       string
-	SportKey            string
-	ModeKey             *string
-	UserID              pgtype.UUID
-	SourceResultID      pgtype.UUID
-	Mu                  pgtype.Numeric
-	Sigma               pgtype.Numeric
-	DeltaMu             pgtype.Numeric
-	DeltaSigma          pgtype.Numeric
-	ProjectionWatermark string
-	OccurredAt          pgtype.Timestamptz
+	RatingEngine           string
+	EngineVersion          string
+	PolicyVersion          string
+	SportKey               string
+	ModeKey                *string
+	UserID                 pgtype.UUID
+	SourceResultID         pgtype.UUID
+	Mu                     pgtype.Numeric
+	Sigma                  pgtype.Numeric
+	DeltaMu                pgtype.Numeric
+	DeltaSigma             pgtype.Numeric
+	CalibrationStatus      *string
+	InactivityDecayApplied bool
+	ClimbingCapApplied     bool
+	ProjectionWatermark    string
+	OccurredAt             pgtype.Timestamptz
 }
 
 type UpsertCompetitionLegacyRatingEventRow struct {
-	ID                  uuid.UUID
-	EventType           string
-	RatingEngine        string
-	EngineVersion       string
-	PolicyVersion       string
-	SportKey            string
-	ModeKey             *string
-	UserID              pgtype.UUID
-	SourceResultID      pgtype.UUID
-	Mu                  pgtype.Numeric
-	Sigma               pgtype.Numeric
-	DeltaMu             pgtype.Numeric
-	DeltaSigma          pgtype.Numeric
-	ProjectionWatermark string
-	OccurredAt          pgtype.Timestamptz
-	CreatedAt           pgtype.Timestamptz
+	ID                     uuid.UUID
+	EventType              string
+	RatingEngine           string
+	EngineVersion          string
+	PolicyVersion          string
+	SportKey               string
+	ModeKey                *string
+	UserID                 pgtype.UUID
+	SourceResultID         pgtype.UUID
+	Mu                     pgtype.Numeric
+	Sigma                  pgtype.Numeric
+	DeltaMu                pgtype.Numeric
+	DeltaSigma             pgtype.Numeric
+	CalibrationStatus      *string
+	InactivityDecayApplied bool
+	ClimbingCapApplied     bool
+	ProjectionWatermark    string
+	OccurredAt             pgtype.Timestamptz
+	CreatedAt              pgtype.Timestamptz
 }
 
 func (q *Queries) UpsertCompetitionLegacyRatingEvent(ctx context.Context, arg UpsertCompetitionLegacyRatingEventParams) (UpsertCompetitionLegacyRatingEventRow, error) {
@@ -1616,6 +1673,9 @@ func (q *Queries) UpsertCompetitionLegacyRatingEvent(ctx context.Context, arg Up
 		arg.Sigma,
 		arg.DeltaMu,
 		arg.DeltaSigma,
+		arg.CalibrationStatus,
+		arg.InactivityDecayApplied,
+		arg.ClimbingCapApplied,
 		arg.ProjectionWatermark,
 		arg.OccurredAt,
 	)
@@ -1634,6 +1694,9 @@ func (q *Queries) UpsertCompetitionLegacyRatingEvent(ctx context.Context, arg Up
 		&i.Sigma,
 		&i.DeltaMu,
 		&i.DeltaSigma,
+		&i.CalibrationStatus,
+		&i.InactivityDecayApplied,
+		&i.ClimbingCapApplied,
 		&i.ProjectionWatermark,
 		&i.OccurredAt,
 		&i.CreatedAt,
@@ -1656,9 +1719,13 @@ INSERT INTO apollo.competition_member_ratings (
   policy_version,
   source_result_id,
   rating_event_id,
-  projection_watermark
+  projection_watermark,
+  calibration_status,
+  last_inactivity_decay_at,
+  inactivity_decay_count,
+  climbing_cap_applied
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (user_id, sport_key, mode_key)
 DO UPDATE SET
   mu = EXCLUDED.mu,
@@ -1671,7 +1738,11 @@ DO UPDATE SET
   policy_version = EXCLUDED.policy_version,
   source_result_id = EXCLUDED.source_result_id,
   rating_event_id = EXCLUDED.rating_event_id,
-  projection_watermark = EXCLUDED.projection_watermark
+  projection_watermark = EXCLUDED.projection_watermark,
+  calibration_status = EXCLUDED.calibration_status,
+  last_inactivity_decay_at = EXCLUDED.last_inactivity_decay_at,
+  inactivity_decay_count = EXCLUDED.inactivity_decay_count,
+  climbing_cap_applied = EXCLUDED.climbing_cap_applied
 RETURNING user_id,
           sport_key,
           mode_key,
@@ -1685,24 +1756,32 @@ RETURNING user_id,
           policy_version,
           source_result_id,
           rating_event_id,
-          projection_watermark
+          projection_watermark,
+          calibration_status,
+          last_inactivity_decay_at,
+          inactivity_decay_count,
+          climbing_cap_applied
 `
 
 type UpsertCompetitionMemberRatingParams struct {
-	UserID              uuid.UUID
-	SportKey            string
-	ModeKey             string
-	Mu                  pgtype.Numeric
-	Sigma               pgtype.Numeric
-	MatchesPlayed       int32
-	LastPlayed          pgtype.Timestamptz
-	UpdatedAt           pgtype.Timestamptz
-	RatingEngine        string
-	EngineVersion       string
-	PolicyVersion       string
-	SourceResultID      pgtype.UUID
-	RatingEventID       pgtype.UUID
-	ProjectionWatermark string
+	UserID                uuid.UUID
+	SportKey              string
+	ModeKey               string
+	Mu                    pgtype.Numeric
+	Sigma                 pgtype.Numeric
+	MatchesPlayed         int32
+	LastPlayed            pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	RatingEngine          string
+	EngineVersion         string
+	PolicyVersion         string
+	SourceResultID        pgtype.UUID
+	RatingEventID         pgtype.UUID
+	ProjectionWatermark   string
+	CalibrationStatus     string
+	LastInactivityDecayAt pgtype.Timestamptz
+	InactivityDecayCount  int32
+	ClimbingCapApplied    bool
 }
 
 func (q *Queries) UpsertCompetitionMemberRating(ctx context.Context, arg UpsertCompetitionMemberRatingParams) (ApolloCompetitionMemberRating, error) {
@@ -1721,6 +1800,10 @@ func (q *Queries) UpsertCompetitionMemberRating(ctx context.Context, arg UpsertC
 		arg.SourceResultID,
 		arg.RatingEventID,
 		arg.ProjectionWatermark,
+		arg.CalibrationStatus,
+		arg.LastInactivityDecayAt,
+		arg.InactivityDecayCount,
+		arg.ClimbingCapApplied,
 	)
 	var i ApolloCompetitionMemberRating
 	err := row.Scan(
@@ -1738,6 +1821,10 @@ func (q *Queries) UpsertCompetitionMemberRating(ctx context.Context, arg UpsertC
 		&i.SourceResultID,
 		&i.RatingEventID,
 		&i.ProjectionWatermark,
+		&i.CalibrationStatus,
+		&i.LastInactivityDecayAt,
+		&i.InactivityDecayCount,
+		&i.ClimbingCapApplied,
 	)
 	return i, err
 }

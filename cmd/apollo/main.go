@@ -2270,7 +2270,7 @@ func writeMemberStatsText(cmd *cobra.Command, stats []competition.MemberStat) er
 		}
 		if _, err := fmt.Fprintf(
 			cmd.OutOrStdout(),
-			"user_id=%s sport=%s mode=%s played=%d wins=%d losses=%d draws=%d rating_mu=%.4f rating_sigma=%.4f last_played_at=%s\n",
+			"user_id=%s sport=%s mode=%s played=%d wins=%d losses=%d draws=%d rating_mu=%.4f rating_sigma=%.4f rating_engine=%s rating_policy=%s calibration=%s inactivity_decay_count=%d climbing_cap_applied=%t last_played_at=%s\n",
 			stat.UserID,
 			stat.SportKey,
 			stat.ModeKey,
@@ -2280,6 +2280,11 @@ func writeMemberStatsText(cmd *cobra.Command, stats []competition.MemberStat) er
 			stat.Draws,
 			stat.CurrentRatingMu,
 			stat.CurrentRatingSigma,
+			stat.RatingEngine,
+			stat.RatingPolicyVersion,
+			stat.CalibrationStatus,
+			stat.InactivityDecayCount,
+			stat.ClimbingCapApplied,
 			lastPlayedAt,
 		); err != nil {
 			return err
