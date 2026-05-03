@@ -264,6 +264,16 @@ func TestCompetitionCommandCLIResultLifecycleSmoke(t *testing.T) {
 		t.Fatalf("mark match in progress error = %v", err)
 	}
 
+	smokeStartedAt := time.Now()
+	readinessOutput := runRootCommand(t, "competition", "command", "readiness", "--actor-role", "manager", "--format", "json")
+	var readiness competition.CompetitionCommandReadiness
+	if err := json.Unmarshal([]byte(readinessOutput), &readiness); err != nil {
+		t.Fatalf("json.Unmarshal(readinessOutput) error = %v output=%s", err, readinessOutput)
+	}
+	if readiness.Status != "ready" {
+		t.Fatalf("readiness.Status = %q, want ready", readiness.Status)
+	}
+
 	resultInput := fmt.Sprintf(`{"match_result":{"sides":[{"side_index":1,"competition_session_team_id":"%s","outcome":"win"},{"side_index":2,"competition_session_team_id":"%s","outcome":"loss"}]}}`, teamOne.ID, teamTwo.ID)
 	correctionInput := fmt.Sprintf(`{"match_result":{"sides":[{"side_index":1,"competition_session_team_id":"%s","outcome":"loss"},{"side_index":2,"competition_session_team_id":"%s","outcome":"win"}]}}`, teamOne.ID, teamTwo.ID)
 	dryRun := runCompetitionResultCLICommand(t, "record_match_result", session.ID, match.ID, 0, resultInput, true, actorUserID, actorSessionID)
@@ -291,6 +301,11 @@ func TestCompetitionCommandCLIResultLifecycleSmoke(t *testing.T) {
 			t.Fatalf("%s ActualVersion = %v, want %d", step.name, outcome.ActualVersion, step.actual)
 		}
 	}
+	smokeDuration := time.Since(smokeStartedAt)
+	if smokeDuration > 30*time.Second {
+		t.Fatalf("CLI smoke duration = %s, ceiling 30s", smokeDuration)
+	}
+	t.Logf("scale_ceiling path=cli_smoke sequence_duration=%s hard_ceiling=%s", smokeDuration, 30*time.Second)
 }
 
 func TestScheduleCommandsRoundTripResourcesBlocksAndCalendar(t *testing.T) {
