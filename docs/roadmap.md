@@ -211,6 +211,11 @@ schedule-control lines
   active wrapper scenarios, legacy baseline deltas, OpenSkill sidecar deltas,
   accepted/rejected classification, cutover blockers, and policy risks while
   OpenSkill remains comparison-only
+- Frontend Route/API Contract Matrix is now real as docs truth only: the
+  platform matrix enumerates current Hestia/Themis routes, APOLLO contract
+  consumption, same-origin proxy boundaries, auth/role/state behavior,
+  production-backed versus mock/stub status, test coverage, and blocked
+  adjacent scope while runtime and deployed truth remain unchanged
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -256,6 +261,11 @@ tournament ideas into one gated plan. Current scan state:
   simulation --format json`, accepted/rejected scenario classification, legacy
   baseline deltas, OpenSkill sidecar deltas, cutover blockers, and policy risk
   output. This does not change deployed truth.
+- closed as docs truth only: Frontend Route/API Contract Matrix. Hestia/Themis
+  route/API consumption, proxy boundaries, `/api/v1/public/*` denial, auth/role
+  states, empty/error/denied states, production/mock status, current tests, and
+  APOLLO source-truth ownership are documented in the platform matrix. This
+  does not change runtime or deployed truth.
 - still deferred: OpenSkill active read path, public tournaments, public/member
   safety UI details, messaging/chat, broad public social graph, public profiles
   and scouting, production historical rating backtesting, recurring schedule
@@ -373,6 +383,7 @@ and staff-side edit/replacement plus bounded staff schedule-control lines.
 | `Phase 3B.20` | game identity layer on `main`: public/member-safe CP, badge award, rivalry state, and squad identity projection contracts over public-safe competition projection rows | keep APOLLO as game identity owner, keep policies explicit/versioned, keep Hestia as consumer only, and keep outputs redacted or self-scoped | do not widen into messaging/chat, broad public social graph, public safety detail exposure, OpenSkill read-path switch, public tournaments, booking/commercial/proposal workflow, project-wide SemVer governance, fake UI data, or deployment claims |
 | Rating Policy Wrapper | post-CLI Demo APOLLO rating policy wrapper on `main`: active legacy-engine projection records `apollo_rating_policy_wrapper_v1`, calibration status, fifth-match ranked transition, inactivity sigma inflation, and climbing-cap metadata | keep legacy engine active, keep OpenSkill comparison-only, keep public outputs redacted, and keep deployed truth separate | closed by Rating Policy Simulation; do not claim OpenSkill cutover, production backtesting, public tournaments, frontend completion, or deployed truth |
 | Rating Policy Simulation / Golden Expansion | post-wrapper APOLLO rating proof on `main`: deterministic fixtures, CLI JSON output, accepted/rejected scenarios, legacy baseline deltas, OpenSkill sidecar deltas, cutover blockers, and policy risks | keep proof local/CLI, keep OpenSkill sidecar-only, keep public/member reads allowlisted, and keep deployed truth separate | do not claim OpenSkill cutover, production backtesting, public ratings, public tournaments, frontend completion, or deployed truth |
+| Frontend Route/API Contract Matrix | post-rating-proof docs truth: Hestia/Themis route/API consumption, proxy denials, auth/role/state behavior, production/mock status, tests, and APOLLO ownership are frozen in the platform matrix | keep this docs-only, keep APOLLO source truth, keep Hestia/Themis as consumers, and require future frontend packets to update the matrix | do not claim runtime changes, generated contract enforcement, deployed frontend proof, public tournaments, OpenSkill active reads, frontend-owned formulas, public/member safety UI, or new product surface |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, public safety UI, public profiles/scouting, broad social graph behavior, or broader public leaderboard/game-identity expansion |
 
 ## Current Phase 3B Line
@@ -390,7 +401,9 @@ rating projection records `apollo_rating_policy_wrapper_v1`, calibration
 status, inactivity sigma inflation, and climbing-cap metadata, and deterministic
 simulation/CLI proof records active wrapper scenarios, legacy deltas, OpenSkill
 sidecar deltas, accepted/rejected classification, blockers, and risks while
-OpenSkill remains comparison-only.
+OpenSkill remains comparison-only. Frontend Route/API Contract Matrix is closed
+as docs truth only in the platform matrix; it records current Hestia/Themis
+route/API consumption and does not change APOLLO runtime or deployed truth.
 The contracts redact public participant identity, scope member
 output to the caller, keep rivalry and labels scoped to their projection
 row/context, and exclude private/internal safety, manager, command, OpenSkill

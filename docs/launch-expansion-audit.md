@@ -3,7 +3,7 @@
 Status: consolidated read-only audit artifact
 Scope: APOLLO-centered, with ATHENA, Hestia, Themis, gateway, and platform compatibility noted where they affect launch safety
 Original audit date: 2026-04-26
-Current through: 2026-04-29 (post-Milestone 3.0 closeout)
+Current through: 2026-05-03 (post-Frontend Route/API Contract Matrix docs closeout)
 Cross-references:
 
 - [Competition system audit](../../ashton-platform/planning/audits/2026-04-29-competition-system-audit.md) — cross-repo competition truth snapshot
@@ -29,6 +29,7 @@ Fast scan for agents before reading the full audit:
 | CLI/API demo spine | Closed locally in repo/runtime: APOLLO CLI now exposes service-backed public readiness, public leaderboard, public game identity, member stats/history/game identity, safety readiness/review, session/tournament reads, command dry-runs/apply, result lifecycle, and ARES preview generation without frontend dependency. | Deployment readiness, public tournament readiness, OpenSkill active read-path readiness, frontend completion, or CLI-owned formulas. |
 | Rating policy wrapper | Closed locally in repo/runtime: APOLLO active rating projection uses the legacy engine under `apollo_rating_policy_wrapper_v1`, with calibration status, fifth-match ranked transition, inactivity sigma inflation, bounded upward movement, and member-safe additive metadata. | OpenSkill cutover, public OpenSkill values, production historical backtesting, public tournaments, or deployed truth. |
 | Rating policy simulation | Closed locally in repo/runtime: deterministic fixtures and CLI output now cover active policy behavior, legacy baseline deltas, OpenSkill sidecar deltas, accepted/rejected scenarios, blockers, and risk classification. | OpenSkill cutover, public rating launch readiness, production data backtesting, public tournaments, or deployed truth. |
+| Frontend route/API contract matrix | Closed as docs truth: Hestia and Themis route/API consumption, proxy denials, auth/role states, empty/error/denied states, production/mock status, and test coverage are enumerated in the platform matrix. | New frontend behavior, generated contract enforcement, deployed Hestia/Themis proof, public tournaments, OpenSkill read-path switch, or frontend-owned formulas. |
 | Historical evidence | Closeout addenda and hardening docs preserve what was true at the time of each tracer. | Current deferred truth unless a current section says it still applies. |
 
 The strategic pattern that held through 3B.20 is:
@@ -259,7 +260,8 @@ APOLLO does not yet have:
   profiles/scouting, or public tournament presentation.
 - Broader social rivalry, badge, CP, or squad behavior beyond the shipped 3B.20
   public/member-safe game identity projection layer.
-- Frontend contract matrix for Hestia/Themis route/API completeness as a standalone enumerated artifact (touchpoint inventory in the 2026-04-29 audit and Milestone 3.0 trust-spine smoke cover most of it).
+- Generated OpenAPI/client/route contract enforcement for the Hestia/Themis
+  route/API matrix.
 - Hestia, Themis, and ashton-mcp-gateway live cluster deployment proof (Milestone 3.0 inspected and found none).
 - Production-destructive mutation probes against live APOLLO data (Milestone 3.0 explicitly did not run these; mutation contracts remain repo-test-proved).
 - Full production load validation beyond the locally/runtime-proved Scale Gate numeric ceilings.
@@ -467,7 +469,7 @@ No tracer should ship without passing the gates relevant to it.
 | 6 | Telemetry Gate | Counters, latencies, rejects, and failure modes are measured before launch. | Pass (Milestone 3.0). APOLLO `/metrics` exports the required competition/rating/ARES/booking/safety/reliability/game-identity counters; Prometheus ServiceMonitor and PrometheusRule applied; `up{job="apollo"} == 1` confirmed. Pending: runtime alert thresholds tuned against real load. | Scale/public launch |
 | 7 | Privacy Gate | Reporting, moderation audit, rate limits, leak tests, and role checks exist. | Pass for shipped public surfaces (3B.19 readiness/leaderboards, 3B.20 game identity). Public output contract is explicit, allowlisted, redacted; trusted-surface proof stays server-side. Live readiness leak corpus passed in Milestone 3.0. | Social/public surfaces |
 | 8 | Scale Gate | Row-count and latency ceilings are known; rebuild patterns have limits/runbooks. | Pass for repo/local runtime numeric ceilings (2026-05-03). APOLLO now has explicit row-count, latency, recompute-duration, projection, and CLI/API smoke ceilings with focused proof. This is not full production load validation, and Milestone 3.0 deployed truth is unchanged. | Public leaderboards |
-| 9 | Frontend Contract Gate | Hestia/Themis production routes call real APIs only; no silent stubs. | Pass. Themis and Hestia touchpoints inventoried with explicit must-not-touch rules in the 2026-04-29 audit; Milestone 3.0 confirmed Hestia/Themis trust-spine smoke against APOLLO contracts. Enumerated route/API matrix as standalone artifact still pending. | Frontend release |
+| 9 | Frontend Contract Gate | Hestia/Themis production routes call real APIs only; no silent stubs. | Pass as docs truth (2026-05-03). The standalone platform matrix enumerates Hestia/Themis routes, APOLLO contract usage, same-origin proxy boundaries, `/api/v1/public/*` denial, auth/role/state behavior, mock-vs-production status, and current tests. This is not generated contract enforcement or deployed Hestia/Themis proof. | Frontend release |
 | 10 | Cross-Repo Compatibility Gate | Compatibility matrix exists for APOLLO, ATHENA, Hestia, Themis, gateway, proto/platform. | Pass (Milestone 3.0). Compatibility matrix published at `ashton-platform/planning/compatibility-matrix.md` with deployed and HEAD versions per repo. Caveat: Hestia, Themis, and ashton-mcp-gateway are recorded as repo-only (no cluster deployment in inspected environment). | Coordinated launch |
 
 Net status: ten gates have repo/deploy evidence for their current scope. Gate 8 is closed only for explicit local/runtime numeric ceilings; it is not a claim of full production load validation.
@@ -1525,10 +1527,9 @@ Current next launch-expansion packets in priority order:
 
 | Priority | Packet | Why now |
 | --- | --- | --- |
-| 1 | Frontend route/API contract matrix | Milestone 3.0 smoke proved trust-spine touchpoints, but the standalone Hestia/Themis route/API matrix is still useful before broader surface work. |
+| 1 | Game identity policy hardening | First-version CP/badge/rivalry/squad policies need usage-driven tuning. Define the tuning loop before population data accumulates. |
 | 2 | ATHENA real ingress (cross-repo) | Sediment teams, daily check-in XP, reliability presence verification all depend on stronger physical-truth ingress than current bounded proof. |
-| 3 | Game identity policy hardening | First-version policies need usage-driven tuning. Define the tuning loop before population data accumulates. |
-| 4 | Live destructive-probe and SIGTERM proof plan | Milestone 3.0 intentionally avoided production-destructive mutation probes and in-flight production SIGTERM proof. Plan these before higher-stakes live operation. |
+| 3 | Live destructive-probe and SIGTERM proof plan | Milestone 3.0 intentionally avoided production-destructive mutation probes and in-flight production SIGTERM proof. Plan these before higher-stakes live operation. |
 
 What to avoid as a next packet:
 
@@ -1581,8 +1582,12 @@ These priorities and avoidances are forward-looking guidance. The Immediate Acti
     deterministic local simulation proof, CLI JSON output, accepted/rejected
     scenario classification, legacy baseline deltas, OpenSkill sidecar deltas,
     cutover blockers, and policy risks while OpenSkill remains comparison-only.
-15. Next: Frontend Route/API Contract Matrix before broader frontend surface
-    widening.
+15. Closed by Frontend Route/API Contract Matrix: Hestia/Themis route/API
+    contract truth is enumerated as docs truth only, including proxy boundaries,
+    public proxy denials, auth/role/state behavior, stub/mock status, and test
+    coverage. Runtime and deployed truth are unchanged.
+16. Next: Game Identity Policy Tuning Loop before broader identity or public
+    surface widening.
 
 ## Proof Commands
 
@@ -2457,8 +2462,8 @@ Confirmed boundaries:
 - Deterministic simulation/golden expansion was still deferred at this close.
 - Production historical backtesting remains deferred.
 
-Rating Policy Simulation / Golden Expansion closed next. The current next
-launch-expansion packet is Frontend Route/API Contract Matrix.
+Rating Policy Simulation / Golden Expansion closed next. Frontend Route/API
+Contract Matrix later closed as docs truth only.
 
 ## Rating Policy Simulation / Golden Expansion Addendum
 
@@ -2540,4 +2545,73 @@ Confirmed boundaries:
 - OpenSkill active read-path switch remains deferred.
 - Production historical backtesting remains deferred.
 
-Next launch-expansion packet: Frontend Route/API Contract Matrix.
+## Frontend Route/API Contract Matrix Addendum
+
+Date: 2026-05-03
+
+Frontend Route/API Contract Matrix is closed as docs truth only. Runtime truth
+and deployed truth remain unchanged.
+
+Implemented docs truth:
+
+- Platform now owns the standalone matrix at
+  `ashton-platform/planning/FRONTEND-ROUTE-API-CONTRACT-MATRIX.md`.
+- The matrix enumerates current Hestia routes, current Themis routes, APOLLO
+  endpoints consumed by each route, HTTP methods, server-mediated versus
+  same-origin proxy calls, auth/session and role behavior, empty/loading/error/
+  denied states, production-backed versus mock/stub status, current test
+  coverage, APOLLO source-truth ownership, and blocked adjacent scope.
+- Hestia remains the customer-facing shell and consumes APOLLO contracts only.
+- Themis remains the privileged internal ops shell and consumes APOLLO
+  contracts only.
+- Both browser-visible proxies deny `/api/v1/public/*`; APOLLO still owns all
+  proxied contract authority.
+
+Documented drift risks:
+
+- The matrix is docs-backed, not generated from OpenAPI, route code, or typed
+  client contracts.
+- Themis proxy allowlisting is path-prefix based for some internal surfaces.
+- Hestia proxy/client allow some member-safe APOLLO contracts that current
+  visible routes do not use.
+- Existing frontend tests are mock-APOLLO repo tests, not deployed Hestia/
+  Themis proof.
+
+Confirmed boundaries:
+
+- No APOLLO schema, API route, migration, handler, or runtime behavior changed.
+- No Hestia or Themis runtime code changed.
+- Deployed truth is unchanged.
+- APOLLO remains source truth for competition, rating, public projection, game
+  identity, booking, schedule, auth/session, safety, and reliability.
+- Public tournaments remain blocked.
+- OpenSkill active read path and public OpenSkill values remain blocked.
+- Frontend-owned formulas remain blocked.
+- Public/member safety detail surfaces remain blocked.
+- Messaging/chat, broad public social graph, public profiles/scouting, public
+  self-service booking expansion, booking/commercial/proposal workflows, and
+  gateway/deploy work remain deferred.
+
+Verification:
+
+```sh
+cd /Users/zizo/Personal-Projects/ASHTON/hestia
+git diff --check
+npm run check
+npm test
+npm run build
+
+cd /Users/zizo/Personal-Projects/ASHTON/themis
+git diff --check
+npm run check
+npm test
+npm run build
+
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+git diff --check
+
+cd /Users/zizo/Personal-Projects/ASHTON/ashton-platform
+git diff --check
+```
+
+Next launch-expansion packet: Game Identity Policy Tuning Loop.
