@@ -25,6 +25,27 @@ SELECT
 
 func (r *Repository) ListPublicCompetitionLeaderboard(ctx context.Context, input PublicCompetitionLeaderboardInput) ([]publicCompetitionLeaderboardRowRecord, error) {
 	rows, err := r.db.Query(ctx, `
+WITH leaderboard_candidates AS (
+  SELECT
+    p.user_id,
+    p.sport_key,
+    p.mode_key,
+    p.facility_key,
+    p.team_scope,
+    p.stat_type,
+    p.stat_value,
+    p.sample_size,
+    p.confidence,
+    p.computed_at
+  FROM apollo.competition_analytics_projections AS p
+  WHERE p.projection_version = $1
+    AND p.stat_type = $2
+    AND p.team_scope = $3
+    AND ($4 = '' OR p.sport_key = $4)
+    AND ($5 = '' OR p.mode_key = $5)
+  ORDER BY p.stat_value DESC, p.sample_size DESC, p.computed_at DESC, p.user_id ASC
+  LIMIT $7
+)
 SELECT
   p.sport_key,
   p.mode_key,
@@ -36,19 +57,14 @@ SELECT
   p.confidence::double precision,
   MAX(cmr.last_played) AS last_result_at,
   p.computed_at
-FROM apollo.competition_analytics_projections AS p
+FROM leaderboard_candidates AS p
 LEFT JOIN apollo.competition_member_ratings AS cmr
   ON cmr.user_id = p.user_id
  AND cmr.sport_key = p.sport_key
  AND cmr.mode_key = p.mode_key
  AND cmr.rating_engine = 'legacy_elo_like'
  AND cmr.engine_version = 'legacy_elo_like.v1'
- AND cmr.policy_version = 'apollo_legacy_rating_v1'
-WHERE p.projection_version = $1
-  AND p.stat_type = $2
-  AND p.team_scope = $3
-  AND ($4 = '' OR p.sport_key = $4)
-  AND ($5 = '' OR p.mode_key = $5)
+  AND cmr.policy_version = 'apollo_legacy_rating_v1'
 GROUP BY p.user_id,
          p.sport_key,
          p.mode_key,
@@ -61,7 +77,7 @@ GROUP BY p.user_id,
          p.computed_at
 ORDER BY p.stat_value DESC, p.sample_size DESC, p.computed_at DESC, p.user_id ASC
 LIMIT $6
-`, competitionAnalyticsProjectionVersion, input.StatType, input.TeamScope, input.SportKey, input.ModeKey, int32(input.Limit))
+`, competitionAnalyticsProjectionVersion, input.StatType, input.TeamScope, input.SportKey, input.ModeKey, int32(input.Limit), int32(maxPublicLeaderboardRowsScanned))
 	if err != nil {
 		return nil, err
 	}

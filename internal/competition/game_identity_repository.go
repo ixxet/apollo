@@ -12,7 +12,28 @@ func (r *Repository) ListGameIdentityProjectionRows(ctx context.Context, input G
 	}
 
 	rows, err := r.db.Query(ctx, `
-WITH identity_rows AS (
+WITH projection_candidates AS (
+  SELECT
+    p.user_id,
+    p.sport_key,
+    p.mode_key,
+    p.facility_key,
+    p.team_scope,
+    p.stat_type,
+    p.stat_value,
+    p.computed_at
+  FROM apollo.competition_analytics_projections AS p
+  WHERE p.projection_version = $1
+    AND p.stat_type = ANY($2::text[])
+    AND ($3::uuid IS NULL OR p.user_id = $3::uuid)
+    AND ($4 = '' OR p.sport_key = $4)
+    AND ($5 = '' OR p.mode_key = $5)
+    AND ($6 = '' OR p.facility_key = $6)
+    AND p.team_scope = $7
+  ORDER BY p.computed_at DESC, p.user_id ASC, p.stat_type ASC
+  LIMIT $13
+),
+identity_rows AS (
   SELECT
     p.user_id,
     p.sport_key,
@@ -25,7 +46,7 @@ WITH identity_rows AS (
     COALESCE(MAX(p.stat_value::double precision) FILTER (WHERE p.stat_type = 'draws'), 0) AS draws,
     MAX(cmr.last_played) AS last_result_at,
     MAX(p.computed_at) AS computed_at
-  FROM apollo.competition_analytics_projections AS p
+  FROM projection_candidates AS p
   LEFT JOIN apollo.competition_member_ratings AS cmr
     ON cmr.user_id = p.user_id
    AND cmr.sport_key = p.sport_key
@@ -33,18 +54,21 @@ WITH identity_rows AS (
    AND cmr.rating_engine = 'legacy_elo_like'
    AND cmr.engine_version = 'legacy_elo_like.v1'
    AND cmr.policy_version = 'apollo_legacy_rating_v1'
-  WHERE p.projection_version = $1
-    AND p.stat_type = ANY($2::text[])
-    AND ($3::uuid IS NULL OR p.user_id = $3::uuid)
-    AND ($4 = '' OR p.sport_key = $4)
-    AND ($5 = '' OR p.mode_key = $5)
-    AND ($6 = '' OR p.facility_key = $6)
-    AND p.team_scope = $7
   GROUP BY p.user_id,
            p.sport_key,
            p.mode_key,
            p.facility_key,
            p.team_scope
+),
+participant_contexts AS (
+  SELECT *
+  FROM identity_rows
+  WHERE matches_played > 0
+  ORDER BY
+    ((matches_played * $9) + (wins * $10) + (draws * $11) + (losses * $12)) DESC,
+    computed_at DESC,
+    user_id ASC
+  LIMIT $14
 )
 SELECT
   user_id,
@@ -58,14 +82,13 @@ SELECT
   draws,
   last_result_at,
   computed_at
-FROM identity_rows
-WHERE matches_played > 0
+FROM participant_contexts
 ORDER BY
   ((matches_played * $9) + (wins * $10) + (draws * $11) + (losses * $12)) DESC,
   computed_at DESC,
   user_id ASC
 LIMIT $8
-`, competitionAnalyticsProjectionVersion, gameIdentityStatTypes, userID, input.SportKey, input.ModeKey, input.FacilityKey, input.TeamScope, int32(input.Limit), gameIdentityCPMatchesPlayedPoints, gameIdentityCPWinPoints, gameIdentityCPDrawPoints, gameIdentityCPLossPoints)
+`, competitionAnalyticsProjectionVersion, gameIdentityStatTypes, userID, input.SportKey, input.ModeKey, input.FacilityKey, input.TeamScope, int32(input.Limit), gameIdentityCPMatchesPlayedPoints, gameIdentityCPWinPoints, gameIdentityCPDrawPoints, gameIdentityCPLossPoints, int32(maxGameIdentityPublicProjectionRows), int32(maxGameIdentityParticipantContextRows))
 	if err != nil {
 		return nil, err
 	}

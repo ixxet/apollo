@@ -470,44 +470,15 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 	if err != nil {
 		return err
 	}
-
-	matches := make([]rating.Match, 0, len(rows))
-	matchIndex := make(map[uuid.UUID]int, len(rows))
-	sideIndexByMatch := make(map[uuid.UUID]map[uuid.UUID]int, len(rows))
-	for _, row := range rows {
-		index, exists := matchIndex[row.CompetitionMatchID]
-		if !exists {
-			index = len(matches)
-			matchIndex[row.CompetitionMatchID] = index
-			matches = append(matches, rating.Match{
-				CompetitionMatchID: row.CompetitionMatchID,
-				SourceResultID:     row.CompetitionMatchResultID,
-				ModeKey:            buildModeKey(row.CompetitionMode, int(row.SidesPerMatch), int(row.ParticipantsPerSide)),
-				RecordedAt:         row.RecordedAt.Time.UTC(),
-				Sides:              nil,
-			})
-			sideIndexByMatch[row.CompetitionMatchID] = make(map[uuid.UUID]int)
-		}
-
-		sideMap := sideIndexByMatch[row.CompetitionMatchID]
-		sidePosition, sideExists := sideMap[row.CompetitionSessionTeamID]
-		if !sideExists {
-			sidePosition = len(matches[index].Sides)
-			sideMap[row.CompetitionSessionTeamID] = sidePosition
-			matches[index].Sides = append(matches[index].Sides, rating.Side{
-				CompetitionSessionTeamID: row.CompetitionSessionTeamID,
-				SideIndex:                int(row.SideIndex),
-				Outcome:                  row.Outcome,
-				UserIDs:                  make([]uuid.UUID, 0, 2),
-			})
-		}
-
-		matches[index].Sides[sidePosition].UserIDs = append(matches[index].Sides[sidePosition].UserIDs, row.UserID)
+	measurement, err := measureRatingRebuildScale(rows)
+	if err != nil {
+		return err
 	}
 
+	matches := buildRatingMatches(rows)
 	projection := rating.RebuildLegacy(matches)
 	comparison := rating.RebuildOpenSkillComparison(matches, projection)
-	telemetry.RecordRatingRebuild(len(rows), rating.PolicyVersionLegacy, time.Since(startedAt), len(comparison.Facts))
+	telemetry.RecordRatingRebuild(measurement.ResultSideRows, rating.PolicyVersionLegacy, time.Since(startedAt), len(comparison.Facts))
 	if err := recordRatingPolicySelectedEventTx(ctx, queries, sportKey, projection.Watermark, updatedAt); err != nil {
 		return err
 	}
@@ -582,6 +553,44 @@ func recomputeCompetitionRatingsTx(ctx context.Context, queries *store.Queries, 
 	}
 
 	return recordRatingProjectionRebuiltEventTx(ctx, queries, sportKey, projection.Watermark, projectionSourceResultID(matches), updatedAt)
+}
+
+func buildRatingMatches(rows []store.ListCompetitionRatingParticipantsBySportRow) []rating.Match {
+	matches := make([]rating.Match, 0, len(rows))
+	matchIndex := make(map[uuid.UUID]int, len(rows))
+	sideIndexByMatch := make(map[uuid.UUID]map[uuid.UUID]int, len(rows))
+	for _, row := range rows {
+		index, exists := matchIndex[row.CompetitionMatchID]
+		if !exists {
+			index = len(matches)
+			matchIndex[row.CompetitionMatchID] = index
+			matches = append(matches, rating.Match{
+				CompetitionMatchID: row.CompetitionMatchID,
+				SourceResultID:     row.CompetitionMatchResultID,
+				ModeKey:            buildModeKey(row.CompetitionMode, int(row.SidesPerMatch), int(row.ParticipantsPerSide)),
+				RecordedAt:         row.RecordedAt.Time.UTC(),
+				Sides:              nil,
+			})
+			sideIndexByMatch[row.CompetitionMatchID] = make(map[uuid.UUID]int)
+		}
+
+		sideMap := sideIndexByMatch[row.CompetitionMatchID]
+		sidePosition, sideExists := sideMap[row.CompetitionSessionTeamID]
+		if !sideExists {
+			sidePosition = len(matches[index].Sides)
+			sideMap[row.CompetitionSessionTeamID] = sidePosition
+			matches[index].Sides = append(matches[index].Sides, rating.Side{
+				CompetitionSessionTeamID: row.CompetitionSessionTeamID,
+				SideIndex:                int(row.SideIndex),
+				Outcome:                  row.Outcome,
+				UserIDs:                  make([]uuid.UUID, 0, 2),
+			})
+		}
+
+		matches[index].Sides[sidePosition].UserIDs = append(matches[index].Sides[sidePosition].UserIDs, row.UserID)
+	}
+
+	return matches
 }
 
 type ratingEventStateKey struct {

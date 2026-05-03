@@ -67,6 +67,9 @@ func (s *Service) ListPublicCompetitionLeaderboard(ctx context.Context, input Pu
 	if err != nil {
 		return PublicCompetitionLeaderboard{}, err
 	}
+	if len(rows) > normalized.Limit {
+		rows = rows[:normalized.Limit]
+	}
 
 	leaderboard := make([]PublicCompetitionLeaderboardRow, 0, len(rows))
 	for index, row := range rows {
