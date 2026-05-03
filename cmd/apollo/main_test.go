@@ -479,6 +479,12 @@ func TestCompetitionCLIDemoProjectionSafetyAndPreviewReads(t *testing.T) {
 	if len(memberStats) == 0 || memberStats[0].UserID != memberOneID || memberStats[0].CurrentRatingMu <= 0 {
 		t.Fatalf("memberStats = %#v, want self-scoped rating projection", memberStats)
 	}
+	if memberStats[0].RatingPolicyVersion != "apollo_rating_policy_wrapper_v1" || memberStats[0].CalibrationStatus != "provisional" {
+		t.Fatalf("memberStats[0] policy metadata = %#v, want active wrapper provisional truth", memberStats[0])
+	}
+	if strings.Contains(strings.ToLower(memberStatsJSON), "openskill") {
+		t.Fatalf("memberStatsJSON leaked OpenSkill comparison truth: %s", memberStatsJSON)
+	}
 
 	memberHistoryText := runRootCommand(t, "competition", "member", "history", "--user-id", memberOneID.String(), "--format", "text")
 	if !strings.Contains(memberHistoryText, "CLI Demo Spine Result") || !strings.Contains(memberHistoryText, "outcome=win") {
@@ -590,7 +596,7 @@ func TestCompetitionCLIDemoProjectionSafetyAndPreviewReads(t *testing.T) {
 	if previewOutcome.Status != competition.CommandStatusSucceeded || previewOutcome.ActualVersion == nil || *previewOutcome.ActualVersion != previewSession.QueueVersion {
 		t.Fatalf("previewOutcome = %#v, want succeeded ARES preview generation at current queue version", previewOutcome)
 	}
-	if !strings.Contains(previewOutput, `"preview_version": "v2"`) || !strings.Contains(previewOutput, `"active_rating_read_path": "apollo_legacy_rating_v1"`) {
+	if !strings.Contains(previewOutput, `"preview_version": "v2"`) || !strings.Contains(previewOutput, `"active_rating_read_path": "apollo_rating_policy_wrapper_v1"`) {
 		t.Fatalf("previewOutput = %s, want APOLLO ARES preview result", previewOutput)
 	}
 }

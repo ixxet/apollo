@@ -86,6 +86,12 @@ func TestCompetitionHistoryRuntimeRecordsResultsCompletesSessionsAndExposesDeriv
 	if ownerStats[0].CurrentRatingMu <= 0 || ownerStats[0].CurrentRatingSigma <= 0 {
 		t.Fatalf("ownerStats[0] = %+v, want positive rating values", ownerStats[0])
 	}
+	if ownerStats[0].RatingEngine != rating.EngineLegacyEloLike || ownerStats[0].RatingPolicyVersion != rating.PolicyVersionActive || ownerStats[0].CalibrationStatus != rating.CalibrationStatusProvisional {
+		t.Fatalf("ownerStats[0] policy metadata = %+v, want active wrapper provisional truth", ownerStats[0])
+	}
+	if strings.Contains(strings.ToLower(ownerStatsResponse.Body.String()), "openskill") {
+		t.Fatalf("member stats leaked OpenSkill comparison truth: %s", ownerStatsResponse.Body.String())
+	}
 	assertLegacyRatingProjection(t, env, owner.ID, "badminton", "head_to_head:s2-p1", completedSession.Matches[0].Result.ID)
 	assertOpenSkillComparison(t, env, owner.ID, "badminton", "head_to_head:s2-p1", completedSession.Matches[0].Result.ID, false)
 	assertRatingEventCount(t, env, rating.EventLegacyComputed, completedSession.Matches[0].Result.ID, 2)
@@ -781,6 +787,9 @@ func assertLegacyRatingProjection(t *testing.T, env *authProfileServerEnv, userI
 	var projectedSourceResultID uuid.UUID
 	var ratingEventID uuid.UUID
 	var projectionWatermark string
+	var calibrationStatus string
+	var inactivityDecayCount int
+	var climbingCapApplied bool
 	var mu float64
 	var sigma float64
 	if err := env.db.DB.QueryRow(context.Background(), `
@@ -790,18 +799,30 @@ SELECT rating_engine,
        source_result_id,
        rating_event_id,
        projection_watermark,
+       calibration_status,
+       inactivity_decay_count,
+       climbing_cap_applied,
        mu::double precision,
        sigma::double precision
 FROM apollo.competition_member_ratings
 WHERE user_id = $1
   AND sport_key = $2
   AND mode_key = $3
-`, userID, sportKey, modeKey).Scan(&ratingEngine, &engineVersion, &policyVersion, &projectedSourceResultID, &ratingEventID, &projectionWatermark, &mu, &sigma); err != nil {
+`, userID, sportKey, modeKey).Scan(&ratingEngine, &engineVersion, &policyVersion, &projectedSourceResultID, &ratingEventID, &projectionWatermark, &calibrationStatus, &inactivityDecayCount, &climbingCapApplied, &mu, &sigma); err != nil {
 		t.Fatalf("read legacy rating projection error = %v", err)
 	}
 
-	if ratingEngine != rating.EngineLegacyEloLike || engineVersion != rating.EngineVersionLegacy || policyVersion != rating.PolicyVersionLegacy {
-		t.Fatalf("rating policy = %s/%s/%s, want %s/%s/%s", ratingEngine, engineVersion, policyVersion, rating.EngineLegacyEloLike, rating.EngineVersionLegacy, rating.PolicyVersionLegacy)
+	if ratingEngine != rating.EngineLegacyEloLike || engineVersion != rating.EngineVersionLegacy || policyVersion != rating.PolicyVersionActive {
+		t.Fatalf("rating policy = %s/%s/%s, want %s/%s/%s", ratingEngine, engineVersion, policyVersion, rating.EngineLegacyEloLike, rating.EngineVersionLegacy, rating.PolicyVersionActive)
+	}
+	if calibrationStatus != rating.CalibrationStatusProvisional && calibrationStatus != rating.CalibrationStatusRanked {
+		t.Fatalf("calibration_status = %q, want policy status", calibrationStatus)
+	}
+	if inactivityDecayCount < 0 {
+		t.Fatalf("inactivity_decay_count = %d, want nonnegative", inactivityDecayCount)
+	}
+	if !climbingCapApplied && mu <= 0 {
+		t.Fatalf("climbing_cap_applied = %t and mu = %.4f, want active policy metadata with positive mu", climbingCapApplied, mu)
 	}
 	if projectedSourceResultID != sourceResultID {
 		t.Fatalf("projection source_result_id = %s, want %s", projectedSourceResultID, sourceResultID)
@@ -820,6 +841,8 @@ WHERE user_id = $1
 	var eventEngine string
 	var eventPolicy string
 	var eventSourceResultID uuid.UUID
+	var eventCalibrationStatus string
+	var eventClimbingCapApplied bool
 	var deltaMu float64
 	var deltaSigma float64
 	if err := env.db.DB.QueryRow(context.Background(), `
@@ -827,15 +850,23 @@ SELECT event_type,
        rating_engine,
        policy_version,
        source_result_id,
+       calibration_status,
+       climbing_cap_applied,
        delta_mu::double precision,
        delta_sigma::double precision
 FROM apollo.competition_rating_events
 WHERE id = $1
-`, ratingEventID).Scan(&eventType, &eventEngine, &eventPolicy, &eventSourceResultID, &deltaMu, &deltaSigma); err != nil {
+`, ratingEventID).Scan(&eventType, &eventEngine, &eventPolicy, &eventSourceResultID, &eventCalibrationStatus, &eventClimbingCapApplied, &deltaMu, &deltaSigma); err != nil {
 		t.Fatalf("read rating event error = %v", err)
 	}
-	if eventType != rating.EventLegacyComputed || eventEngine != rating.EngineLegacyEloLike || eventPolicy != rating.PolicyVersionLegacy {
+	if eventType != rating.EventLegacyComputed || eventEngine != rating.EngineLegacyEloLike || eventPolicy != rating.PolicyVersionActive {
 		t.Fatalf("rating event = %s/%s/%s, want legacy computed policy", eventType, eventEngine, eventPolicy)
+	}
+	if eventCalibrationStatus == "" {
+		t.Fatal("rating event calibration_status is empty")
+	}
+	if !eventClimbingCapApplied && deltaMu > rating.MaxPositiveMuDeltaPerResult {
+		t.Fatalf("rating event climbing cap metadata missing for delta %.4f", deltaMu)
 	}
 	if eventSourceResultID != sourceResultID {
 		t.Fatalf("event source_result_id = %s, want %s", eventSourceResultID, sourceResultID)
@@ -945,7 +976,7 @@ WHERE event_type = $1
   AND rating_engine = $3
   AND engine_version = $4
   AND policy_version = $5
-`, rating.EventPolicySelected, sportKey, rating.EngineLegacyEloLike, rating.EngineVersionLegacy, rating.PolicyVersionLegacy).Scan(&count); err != nil {
+`, rating.EventPolicySelected, sportKey, rating.EngineLegacyEloLike, rating.EngineVersionLegacy, rating.PolicyVersionActive).Scan(&count); err != nil {
 		t.Fatalf("count policy selected events error = %v", err)
 	}
 	if count != want {

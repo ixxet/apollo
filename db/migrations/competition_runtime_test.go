@@ -180,6 +180,7 @@ func TestCompetitionContainerDownMigrationExecutesCleanly(t *testing.T) {
 	if err := testutil.ApplySQLFiles(
 		ctx,
 		postgresEnv.DB,
+		testutil.RepoFilePath("db", "migrations", "033_competition_rating_policy_wrapper.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "032_competition_safety_reliability_delete_guard.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "031_competition_safety_reliability.down.sql"),
 		testutil.RepoFilePath("db", "migrations", "030_internal_tournament_cohesion.down.sql"),
@@ -982,7 +983,7 @@ VALUES (
     $2,
     'legacy_elo_like',
     'legacy_elo_like.v1',
-    'apollo_legacy_rating_v1',
+    'apollo_rating_policy_wrapper_v1',
     'openskill',
     'openskill_weng_lin_bradley_terry_full.v1',
     'apollo_openskill_dual_run_v1',

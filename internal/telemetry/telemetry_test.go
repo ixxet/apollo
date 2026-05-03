@@ -10,7 +10,7 @@ func TestRenderPrometheusExportsMilestoneMetrics(t *testing.T) {
 	RecordResultWriteAttempt("record")
 	RecordResultWriteReject("stale version")
 	RecordTrustedSurfaceFailure("missing trusted surface")
-	RecordRatingRebuild(3, "apollo_legacy_rating_v1", 25*time.Millisecond, 2)
+	RecordRatingRebuild(3, "apollo_rating_policy_wrapper_v1", 25*time.Millisecond, 2)
 	ObserveGameIdentityProjection(10 * time.Millisecond)
 
 	body := RenderPrometheus()

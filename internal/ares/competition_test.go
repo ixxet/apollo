@@ -41,8 +41,8 @@ func TestBuildCompetitionMatchPreviewIsDeterministicAndExplainable(t *testing.T)
 	if first.PolicyVersion != CompetitionPreviewPolicy || first.PreviewVersion != CompetitionPreviewVersion {
 		t.Fatalf("preview policy/version = %q/%q", first.PolicyVersion, first.PreviewVersion)
 	}
-	if first.ActiveRatingReadPath != "apollo_legacy_rating_v1" {
-		t.Fatalf("ActiveRatingReadPath = %q, want legacy policy", first.ActiveRatingReadPath)
+	if first.ActiveRatingReadPath != "apollo_rating_policy_wrapper_v1" {
+		t.Fatalf("ActiveRatingReadPath = %q, want active policy wrapper", first.ActiveRatingReadPath)
 	}
 	if first.Sides[0].Members[0].UserID != uuid.MustParse("22222222-2222-2222-2222-222222222222") {
 		t.Fatalf("side one user = %s, want higher rated candidate", first.Sides[0].Members[0].UserID)

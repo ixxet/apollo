@@ -289,11 +289,11 @@ func assertARESPreviewResult(t *testing.T, preview map[string]any, sessionID uui
 	if got := stringField(t, preview, "rating_engine"); got != rating.EngineLegacyEloLike {
 		t.Fatalf("rating_engine = %q, want %q", got, rating.EngineLegacyEloLike)
 	}
-	if got := stringField(t, preview, "rating_policy_version"); got != rating.PolicyVersionLegacy {
-		t.Fatalf("rating_policy_version = %q, want %q", got, rating.PolicyVersionLegacy)
+	if got := stringField(t, preview, "rating_policy_version"); got != rating.PolicyVersionActive {
+		t.Fatalf("rating_policy_version = %q, want %q", got, rating.PolicyVersionActive)
 	}
-	if got := stringField(t, preview, "active_rating_read_path"); got != rating.PolicyVersionLegacy {
-		t.Fatalf("active_rating_read_path = %q, want %q", got, rating.PolicyVersionLegacy)
+	if got := stringField(t, preview, "active_rating_read_path"); got != rating.PolicyVersionActive {
+		t.Fatalf("active_rating_read_path = %q, want %q", got, rating.PolicyVersionActive)
 	}
 	if got := stringField(t, preview, "openskill_comparison_policy"); got != rating.PolicyVersionOpenSkill {
 		t.Fatalf("openskill_comparison_policy = %q, want %q", got, rating.PolicyVersionOpenSkill)
@@ -412,8 +412,8 @@ WHERE p.competition_session_id = $1
 	if previewVersion != ares.CompetitionPreviewVersion || policyVersion != ares.CompetitionPreviewPolicy {
 		t.Fatalf("stored preview version/policy = %s/%s", previewVersion, policyVersion)
 	}
-	if ratingEngine != rating.EngineLegacyEloLike || ratingPolicyVersion != rating.PolicyVersionLegacy {
-		t.Fatalf("stored rating policy = %s/%s, want legacy", ratingEngine, ratingPolicyVersion)
+	if ratingEngine != rating.EngineLegacyEloLike || ratingPolicyVersion != rating.PolicyVersionActive {
+		t.Fatalf("stored rating policy = %s/%s, want active wrapper", ratingEngine, ratingPolicyVersion)
 	}
 	if explanationCode == "" {
 		t.Fatal("stored explanation_code is empty")
