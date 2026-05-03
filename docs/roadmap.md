@@ -226,6 +226,12 @@ tournament ideas into one gated plan. Current scan state:
   recompute, public readiness, public leaderboard projections, game identity
   projections, and CLI/API smoke. This is not full production load validation,
   and deployed truth is unchanged.
+- closed locally in repo/runtime: CLI Demo Spine. APOLLO CLI now exposes
+  service-backed public readiness, public leaderboards, public/member game
+  identity, member stats/history, safety readiness/review, session/tournament
+  reads, command dry-run/apply, result lifecycle, and ARES preview generation
+  without frontend dependency or CLI-owned formulas. This does not change
+  deployed truth.
 - still deferred: OpenSkill active read path, public tournaments, public/member
   safety UI details, messaging/chat, broad public social graph, public profiles
   and scouting, recurring schedule policy, court/resource splitting, booking/
@@ -233,6 +239,35 @@ tournament ideas into one gated plan. Current scan state:
 
 Historical tracer entries in this roadmap remain evidence of what shipped.
 They should not be used as permission to skip the launch-expansion gates.
+
+## Competition CLI Demo Spine
+
+Repo/local runtime truth: agents can prove the competition spine without a
+frontend by running the focused APOLLO CLI smoke:
+
+```sh
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+go test -count=1 ./cmd/apollo -run TestCompetitionCLIDemoProjectionSafetyAndPreviewReads
+```
+
+Manual CLI demos require `APOLLO_DATABASE_URL` to point at a migrated local
+APOLLO database with real session/member/actor rows. The supported read map is:
+
+- `apollo competition public readiness`
+- `apollo competition public leaderboard`
+- `apollo competition public game-identity`
+- `apollo competition member stats --user-id <member-user-id>`
+- `apollo competition member history --user-id <member-user-id>`
+- `apollo competition member game-identity --user-id <member-user-id>`
+- `apollo competition command readiness`
+- `apollo competition command run`
+- `apollo competition session list/show`
+- `apollo competition tournament list/show`
+- `apollo competition safety readiness/review`
+
+The CLI path routes through APOLLO services and command handlers. It does not
+own rating, analytics, ARES, safety, public projection, or game-identity
+formulas.
 
 ## Release Lines
 

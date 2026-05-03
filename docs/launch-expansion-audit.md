@@ -26,6 +26,7 @@ Fast scan for agents before reading the full audit:
 | Public surfaces | Public-safe readiness, leaderboard, and game identity contracts are real projection surfaces. They are redacted, allowlisted, and derived from canonical APOLLO truth. | Public profiles, public tournament stakes, public safety details, public scouting, chat, or broad social graph. |
 | Milestone 3.0 | Bounded APOLLO/ATHENA deploy smoke, APOLLO `/metrics`, Prometheus scrape, telemetry export, and cross-repo compatibility matrix are closed. | Full population-scale validation, tuned alert thresholds, full Hestia/Themis/gateway deployment proof, or destructive live mutation probes. |
 | Remaining gate | Scale Gate numeric ceilings are declared and locally/runtime-proved for APOLLO rating recompute, public readiness, public leaderboard, game identity, and CLI/API smoke paths. | Full production load validation, tuned alert thresholds under real traffic, or permission to ship public tournaments/OpenSkill read-path switch. |
+| CLI/API demo spine | Closed locally in repo/runtime: APOLLO CLI now exposes service-backed public readiness, public leaderboard, public game identity, member stats/history/game identity, safety readiness/review, session/tournament reads, command dry-runs/apply, result lifecycle, and ARES preview generation without frontend dependency. | Deployment readiness, public tournament readiness, OpenSkill active read-path readiness, frontend completion, or CLI-owned formulas. |
 | Historical evidence | Closeout addenda and hardening docs preserve what was true at the time of each tracer. | Current deferred truth unless a current section says it still applies. |
 
 The strategic pattern that held through 3B.20 is:
@@ -368,6 +369,76 @@ command/outcome path. Do not build an independent CLI domain model. Durable
 command idempotency remains deferred until a storage substrate is deliberately
 chosen.
 
+## CLI Demo Spine
+
+Status: closed locally in repo/runtime on 2026-05-03. Deployed truth is
+unchanged.
+
+The APOLLO CLI demo path now exposes existing APOLLO service/API truth without a
+frontend dependency:
+
+| Demo area | CLI path | Source truth |
+| --- | --- | --- |
+| Public readiness | `apollo competition public readiness` | `Service.PublicCompetitionReadiness` |
+| Public leaderboard | `apollo competition public leaderboard` | `Service.ListPublicCompetitionLeaderboard` |
+| Public game identity | `apollo competition public game-identity` | `Service.PublicGameIdentity` |
+| Member rating/stat projection | `apollo competition member stats --user-id <uuid>` | `Service.ListMemberStats` over legacy active rating projection |
+| Member history | `apollo competition member history --user-id <uuid>` | `Service.ListMemberHistory` |
+| Member game identity | `apollo competition member game-identity --user-id <uuid>` | `Service.MemberGameIdentity` |
+| Command readiness and dry-run/apply | `apollo competition command readiness` / `apollo competition command run` | shared competition command/outcome handler |
+| Session state inspection | `apollo competition session list/show` | `Service.ListSessions` / `Service.GetSession` |
+| Tournament state inspection | `apollo competition tournament list/show` | `Service.ListTournaments` / `Service.GetTournament` |
+| Safety readiness/review | `apollo competition safety readiness/review` | manager/internal `Service.CompetitionSafetyReadiness` and `Service.GetCompetitionSafetyReview` |
+| ARES preview generation | `apollo competition command run --name generate_match_preview` | shared command handler -> `Service.GenerateMatchPreview` |
+
+No CLI path owns formulas for ratings, analytics, public projections, ARES, or
+game identity. Rating recompute remains the existing result-finalize/correction
+side effect over APOLLO repository truth; there is no independent CLI recompute
+domain model. Internal analytics are read through existing public-safe
+leaderboard and game-identity projections unless a future packet creates a
+separate authorized internal read contract.
+
+Deterministic local smoke:
+
+```sh
+cd /Users/zizo/Personal-Projects/ASHTON/apollo
+go test -count=1 ./cmd/apollo -run TestCompetitionCLIDemoProjectionSafetyAndPreviewReads
+```
+
+Manual CLI/API demo assumptions:
+
+- `APOLLO_DATABASE_URL` points at a migrated local APOLLO database.
+- Commands use real local DB rows; placeholder IDs below must come from that
+  database or from a dedicated test fixture.
+- Safety reads require manager/owner actor attribution plus trusted-surface
+  proof.
+
+Representative local sequence:
+
+```sh
+apollo competition command readiness --actor-role manager --format json
+apollo competition command run --name record_match_result --session-id <competition-session-id> --match-id <match-id> --expected-version 0 --actor-user-id <manager-user-id> --actor-session-id <actor-session-id> --actor-role manager --trusted-surface-key staff-console --input-json '<result-json>' --format json
+apollo competition command run --name finalize_match_result --session-id <competition-session-id> --match-id <match-id> --expected-version 1 --actor-user-id <manager-user-id> --actor-session-id <actor-session-id> --actor-role manager --trusted-surface-key staff-console --format json
+apollo competition session show --session-id <competition-session-id> --format json
+apollo competition public readiness --format json
+apollo competition public leaderboard --sport-key badminton --mode-key head_to_head:s2-p1 --stat-type wins --team-scope all --limit 10 --format json
+apollo competition public game-identity --sport-key badminton --mode-key head_to_head:s2-p1 --facility-key ashtonbee --team-scope all --format json
+apollo competition member stats --user-id <member-user-id> --format json
+apollo competition member history --user-id <member-user-id> --format json
+apollo competition member game-identity --user-id <member-user-id> --sport-key badminton --mode-key head_to_head:s2-p1 --facility-key ashtonbee --team-scope all --format json
+apollo competition command run --name generate_match_preview --session-id <queue-session-id> --expected-version <queue-version> --actor-user-id <manager-user-id> --actor-session-id <actor-session-id> --actor-role manager --trusted-surface-key staff-console --format json
+apollo competition safety readiness --actor-user-id <manager-user-id> --actor-session-id <actor-session-id> --actor-role manager --trusted-surface-key staff-console --format json
+apollo competition safety review --actor-user-id <manager-user-id> --actor-session-id <actor-session-id> --actor-role manager --trusted-surface-key staff-console --limit 5 --format json
+```
+
+Public API reads for server-based demos remain:
+
+```sh
+curl -s "$APOLLO_BASE_URL/api/v1/public/competition/readiness"
+curl -s "$APOLLO_BASE_URL/api/v1/public/competition/leaderboards?sport_key=badminton&mode_key=head_to_head:s2-p1&stat_type=wins&team_scope=all&limit=10"
+curl -s "$APOLLO_BASE_URL/api/v1/public/competition/game-identity?sport_key=badminton&mode_key=head_to_head:s2-p1&facility_key=ashtonbee&team_scope=all&limit=10"
+```
+
 ## Ten Gates
 
 No tracer should ship without passing the gates relevant to it.
@@ -590,7 +661,7 @@ projection is already shipped.
 | Feature | Current fit | Success likelihood if sequenced | Failure likelihood if rushed | Durability | Best approach |
 | --- | --- | ---: | ---: | --- | --- |
 | Docs truth cleanup | Direct docs fix | Very high | Medium | High | Do first; no product widening |
-| Competition CLI parity | Shipped for supported existing competition commands in 3B.11 | High | Medium | High | Shared command/outcome path; no independent CLI domain model |
+| Competition CLI parity | Shipped for supported existing competition commands in 3B.11; CLI Demo Spine now adds service-backed public/member/safety projection reads without new product behavior | High | Medium | High | Shared command/outcome/service paths; no independent CLI domain model |
 | Capability discovery | Shipped as competition command readiness in 3B.11; broader capability discovery remains later | High | Medium | High | Keep role/capability read model explicit |
 | Universal dry-run | Shipped only for the supported 3B.11 competition command surface | Medium-high | High | High | Add command planning layer per surface; do not fake write success |
 | Internal Themis competition ops shell | First APOLLO-backed shell shipped in 3B.11 | High if tightly scoped | High if it becomes public tournaments/social | High | Staff-only ops shell; no public surface, no browser trusted token |
@@ -1362,6 +1433,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-04-29 | Phase 3B.20 shipped public/member-safe game identity projections only: CP, badge awards, rivalry state, and squad identity are APOLLO-derived from public-safe competition projection rows. Broader social rivalry, persistent guilds, messaging/chat, public tournaments, and OpenSkill cutover remain deferred. | 3B.20 closeout and 3B.20.1 hardening closeout. |
 | 2026-04-29 | Milestone 3.0 closed bounded deploy smoke, telemetry export, Prometheus scrape proof, and cross-repo compatibility matrix truth for APOLLO/ATHENA scope while recording Hestia, Themis, and gateway as repo-only in the inspected environment. Scale Gate remains partial. | Milestone 3.0 evidence pack and compatibility matrix. |
 | 2026-05-03 | Scale Gate numeric ceilings are declared and locally/runtime-proved for APOLLO rating recompute, public readiness, public leaderboard, game identity, and CLI/API smoke paths. This does not change deployed truth and is not full production load validation. | `go test -count=1 -v ./internal/competition -run 'TestCompetitionScaleCeiling'`; `go test -count=1 -v ./internal/server -run 'TestCompetitionScaleCeilingAPIReadSmoke'`; `go test -count=1 -v ./cmd/apollo -run 'TestCompetitionCommandCLIResultLifecycleSmoke'`; focused package test run. |
+| 2026-05-03 | CLI Demo Spine is closed locally in repo/runtime: APOLLO CLI exposes the competition spine through existing service/command truth for public/member projections, command dry-run/apply, result lifecycle, ARES preview generation, analytics-backed projection reads, sessions, tournaments, and manager/internal safety reads without frontend dependency or CLI-owned formulas. Deployed truth is unchanged. | `go test -count=1 ./cmd/apollo`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server`; `go vet ./...`; `go build ./cmd/apollo`; `go test -count=1 ./...`; `go test -race ./internal/...`. |
 
 ## Hard Non-Touches
 
@@ -1404,25 +1476,26 @@ Kill or defer a tracer if any of these are true:
 
 ## Recommended Next Packet Stack
 
-After 3B.20.1 cohesion hardening and Milestone 3.0, the previous top three
-packets are closed for the bounded APOLLO/ATHENA scope:
+After 3B.20.1 cohesion hardening, Milestone 3.0, Scale Gate numeric ceilings,
+and CLI Demo Spine, the following packets are closed for their bounded scope:
 
 | Closed packet | Current status |
 | --- | --- |
 | Deploy-level smoke proof | Closed by Milestone 3.0 for APOLLO/ATHENA trust-spine proof; Hestia/Themis/gateway remain repo-only in the inspected environment. |
 | Telemetry counter export | Closed by Milestone 3.0 baseline `/metrics` export and Prometheus scrape proof; alert thresholds still need tuning. |
 | Cross-repo compatibility matrix | Closed by Milestone 3.0 compatibility matrix; keep it updated when any repo contract or deploy truth changes. |
+| Scale Gate Numeric Ceilings | Closed locally in repo/runtime; not full production load validation. |
+| CLI Demo Spine | Closed locally in repo/runtime; APOLLO CLI/API demo path is agent-operable without frontend dependency. |
 
 Current next launch-expansion packets in priority order:
 
 | Priority | Packet | Why now |
 | --- | --- | --- |
-| 1 | CLI Demo Spine | Scale Gate numeric ceilings are now locally/runtime-proved; the next bounded packet should make the competition spine agent-operable from CLI/API end to end without widening product scope. |
-| 2 | Rating policy wrapper expansion | Calibration + decay + climbing caps. Required before OpenSkill can ever switch to active read path. |
-| 3 | Frontend route/API contract matrix | Milestone 3.0 smoke proved trust-spine touchpoints, but the standalone Hestia/Themis route/API matrix is still useful before broader surface work. |
-| 4 | ATHENA real ingress (cross-repo) | Sediment teams, daily check-in XP, reliability presence verification all depend on stronger physical-truth ingress than current bounded proof. |
-| 5 | Game identity policy hardening | First-version policies need usage-driven tuning. Define the tuning loop before population data accumulates. |
-| 6 | Live destructive-probe and SIGTERM proof plan | Milestone 3.0 intentionally avoided production-destructive mutation probes and in-flight production SIGTERM proof. Plan these before higher-stakes live operation. |
+| 1 | Rating policy wrapper expansion | Calibration + decay + climbing caps. Required before OpenSkill can ever switch to active read path. |
+| 2 | Frontend route/API contract matrix | Milestone 3.0 smoke proved trust-spine touchpoints, but the standalone Hestia/Themis route/API matrix is still useful before broader surface work. |
+| 3 | ATHENA real ingress (cross-repo) | Sediment teams, daily check-in XP, reliability presence verification all depend on stronger physical-truth ingress than current bounded proof. |
+| 4 | Game identity policy hardening | First-version policies need usage-driven tuning. Define the tuning loop before population data accumulates. |
+| 5 | Live destructive-probe and SIGTERM proof plan | Milestone 3.0 intentionally avoided production-destructive mutation probes and in-flight production SIGTERM proof. Plan these before higher-stakes live operation. |
 
 What to avoid as a next packet:
 
@@ -1461,8 +1534,12 @@ These priorities and avoidances are forward-looking guidance. The Immediate Acti
    projections for CP, badge awards, rivalry state, and squad identity.
 10. Closed by Milestone 3.0: bounded APOLLO/ATHENA deploy smoke, APOLLO metrics
    export, Prometheus scrape proof, and compatibility matrix truth.
-11. Next: CLI/API demo spine, then rating policy wrapper work before any
-   OpenSkill read-path switch or broader public/social/tournament widening.
+11. Closed by Scale Gate: repo/local numeric ceilings for rating recompute,
+   public readiness, public leaderboard, game identity, and CLI/API smoke.
+12. Closed by CLI Demo Spine: service-backed local CLI/API demo route over
+   existing APOLLO competition truth without frontend dependency.
+13. Next: rating policy wrapper work before any OpenSkill read-path switch or
+   broader public/social/tournament widening.
 
 ## Proof Commands
 
