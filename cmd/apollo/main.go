@@ -398,6 +398,22 @@ func newCompetitionCmd() *cobra.Command {
 		Short: "Read and command APOLLO competition runtime truth.",
 	}
 
+	publicCmd := &cobra.Command{
+		Use:   "public",
+		Short: "Read APOLLO public-safe competition projections.",
+	}
+	publicCmd.AddCommand(newCompetitionPublicReadinessCmd())
+	publicCmd.AddCommand(newCompetitionPublicLeaderboardCmd())
+	publicCmd.AddCommand(newCompetitionPublicGameIdentityCmd())
+
+	memberCmd := &cobra.Command{
+		Use:   "member",
+		Short: "Read APOLLO member-safe competition projections for a supplied member id.",
+	}
+	memberCmd.AddCommand(newCompetitionMemberStatsCmd())
+	memberCmd.AddCommand(newCompetitionMemberHistoryCmd())
+	memberCmd.AddCommand(newCompetitionMemberGameIdentityCmd())
+
 	sessionCmd := &cobra.Command{
 		Use:   "session",
 		Short: "Read APOLLO competition sessions.",
@@ -419,10 +435,251 @@ func newCompetitionCmd() *cobra.Command {
 	commandCmd.AddCommand(newCompetitionCommandReadinessCmd())
 	commandCmd.AddCommand(newCompetitionCommandRunCmd())
 
+	safetyCmd := &cobra.Command{
+		Use:   "safety",
+		Short: "Read APOLLO manager/internal safety and reliability readiness.",
+	}
+	safetyCmd.AddCommand(newCompetitionSafetyReadinessCmd())
+	safetyCmd.AddCommand(newCompetitionSafetyReviewCmd())
+
+	competitionCmd.AddCommand(publicCmd)
+	competitionCmd.AddCommand(memberCmd)
 	competitionCmd.AddCommand(sessionCmd)
 	competitionCmd.AddCommand(tournamentCmd)
 	competitionCmd.AddCommand(commandCmd)
+	competitionCmd.AddCommand(safetyCmd)
 	return competitionCmd
+}
+
+func newCompetitionPublicReadinessCmd() *cobra.Command {
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "readiness",
+		Short: "Show APOLLO public-safe competition readiness.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			readiness, err := service.PublicCompetitionReadiness(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, readiness)
+			case "text":
+				return writePublicCompetitionReadinessText(cmd, readiness)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	return cmd
+}
+
+func newCompetitionPublicLeaderboardCmd() *cobra.Command {
+	var sportKey string
+	var modeKey string
+	var statType string
+	var teamScope string
+	var limit int
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "leaderboard",
+		Short: "Show APOLLO public-safe competition leaderboard projection.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			leaderboard, err := service.ListPublicCompetitionLeaderboard(cmd.Context(), competition.PublicCompetitionLeaderboardInput{
+				SportKey:  sportKey,
+				ModeKey:   modeKey,
+				StatType:  statType,
+				TeamScope: teamScope,
+				Limit:     limit,
+			})
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, leaderboard)
+			case "text":
+				return writePublicCompetitionLeaderboardText(cmd, leaderboard)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&sportKey, "sport-key", "", "filter by sport key")
+	cmd.Flags().StringVar(&modeKey, "mode-key", "", "filter by mode key")
+	cmd.Flags().StringVar(&statType, "stat-type", "wins", "leaderboard stat type")
+	cmd.Flags().StringVar(&teamScope, "team-scope", "all", "team scope: all, solo, or team")
+	cmd.Flags().IntVar(&limit, "limit", 25, "maximum rows to return")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	return cmd
+}
+
+func newCompetitionPublicGameIdentityCmd() *cobra.Command {
+	var input competition.PublicGameIdentityInput
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "game-identity",
+		Short: "Show APOLLO public-safe game identity projection.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			identity, err := service.PublicGameIdentity(cmd.Context(), input)
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, identity)
+			case "text":
+				return writeGameIdentityText(cmd, identity)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	addGameIdentityFlags(cmd, &input, &format)
+	return cmd
+}
+
+func newCompetitionMemberStatsCmd() *cobra.Command {
+	var userID string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show APOLLO member-safe competition stats and active legacy rating projection.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			parsedUserID, err := parseUUIDFlag(userID, "user-id")
+			if err != nil {
+				return err
+			}
+			stats, err := service.ListMemberStats(cmd.Context(), parsedUserID)
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, stats)
+			case "text":
+				return writeMemberStatsText(cmd, stats)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&userID, "user-id", "", "member user id")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("user-id")
+	return cmd
+}
+
+func newCompetitionMemberHistoryCmd() *cobra.Command {
+	var userID string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "history",
+		Short: "Show APOLLO member-safe competition history.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			parsedUserID, err := parseUUIDFlag(userID, "user-id")
+			if err != nil {
+				return err
+			}
+			history, err := service.ListMemberHistory(cmd.Context(), parsedUserID)
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, history)
+			case "text":
+				return writeMemberHistoryText(cmd, history)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&userID, "user-id", "", "member user id")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("user-id")
+	return cmd
+}
+
+func newCompetitionMemberGameIdentityCmd() *cobra.Command {
+	var userID string
+	var input competition.PublicGameIdentityInput
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "game-identity",
+		Short: "Show APOLLO member-safe game identity projection for a supplied member id.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			parsedUserID, err := parseUUIDFlag(userID, "user-id")
+			if err != nil {
+				return err
+			}
+			identity, err := service.MemberGameIdentity(cmd.Context(), parsedUserID, input)
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, identity)
+			case "text":
+				return writeGameIdentityText(cmd, identity)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&userID, "user-id", "", "member user id")
+	addGameIdentityFlags(cmd, &input, &format)
+	_ = cmd.MarkFlagRequired("user-id")
+	return cmd
 }
 
 func newCompetitionSessionListCmd() *cobra.Command {
@@ -703,6 +960,92 @@ func newCompetitionCommandRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "json", "output format: text or json")
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("actor-role")
+	return cmd
+}
+
+func newCompetitionSafetyReadinessCmd() *cobra.Command {
+	var actorUserID string
+	var actorSessionID string
+	var actorRole string
+	var trustedSurfaceKey string
+	var trustedSurfaceLabel string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "readiness",
+		Short: "Show APOLLO manager/internal safety and reliability readiness.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			actor, err := parseRequiredCompetitionActor(actorUserID, actorSessionID, actorRole, authz.CapabilityCompetitionSafetyReview, trustedSurfaceKey, trustedSurfaceLabel)
+			if err != nil {
+				return err
+			}
+			readiness, err := service.CompetitionSafetyReadiness(cmd.Context(), actor)
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, readiness)
+			case "text":
+				return writeCompetitionSafetyReadinessText(cmd, readiness)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	addCompetitionSafetyActorFlags(cmd, &actorUserID, &actorSessionID, &actorRole, &trustedSurfaceKey, &trustedSurfaceLabel)
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	return cmd
+}
+
+func newCompetitionSafetyReviewCmd() *cobra.Command {
+	var actorUserID string
+	var actorSessionID string
+	var actorRole string
+	var trustedSurfaceKey string
+	var trustedSurfaceLabel string
+	var limit int
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "review",
+		Short: "Show APOLLO manager/internal safety and reliability review facts.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			service, pool, err := openCompetitionService(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			actor, err := parseRequiredCompetitionActor(actorUserID, actorSessionID, actorRole, authz.CapabilityCompetitionSafetyReview, trustedSurfaceKey, trustedSurfaceLabel)
+			if err != nil {
+				return err
+			}
+			review, err := service.GetCompetitionSafetyReview(cmd.Context(), actor, limit)
+			if err != nil {
+				return err
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, review)
+			case "text":
+				return writeCompetitionSafetyReviewText(cmd, review)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	addCompetitionSafetyActorFlags(cmd, &actorUserID, &actorSessionID, &actorRole, &trustedSurfaceKey, &trustedSurfaceLabel)
+	cmd.Flags().IntVar(&limit, "limit", 25, "maximum rows per safety review section")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	return cmd
 }
 
@@ -1328,6 +1671,49 @@ func parseCompetitionActor(actorUserID string, actorSessionID string, actorRole 
 	}, nil
 }
 
+func parseRequiredCompetitionActor(actorUserID string, actorSessionID string, actorRole string, capability authz.Capability, trustedSurfaceKey string, trustedSurfaceLabel string) (competition.StaffActor, error) {
+	actor, err := parseCompetitionActor(actorUserID, actorSessionID, actorRole, capability, trustedSurfaceKey, trustedSurfaceLabel)
+	if err != nil {
+		return competition.StaffActor{}, err
+	}
+	if actor.UserID == uuid.Nil || actor.SessionID == uuid.Nil {
+		return competition.StaffActor{}, fmt.Errorf("actor attribution is required")
+	}
+	if strings.TrimSpace(actor.TrustedSurfaceKey) == "" {
+		return competition.StaffActor{}, fmt.Errorf("trusted surface key is required")
+	}
+	return actor, nil
+}
+
+func parseUUIDFlag(value string, flagName string) (uuid.UUID, error) {
+	parsed, err := uuid.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%s must be a UUID: %w", flagName, err)
+	}
+	return parsed, nil
+}
+
+func addGameIdentityFlags(cmd *cobra.Command, input *competition.PublicGameIdentityInput, format *string) {
+	cmd.Flags().StringVar(&input.SportKey, "sport-key", "", "filter by sport key")
+	cmd.Flags().StringVar(&input.ModeKey, "mode-key", "", "filter by mode key")
+	cmd.Flags().StringVar(&input.FacilityKey, "facility-key", "", "filter by facility key")
+	cmd.Flags().StringVar(&input.TeamScope, "team-scope", "all", "team scope: all, solo, or team")
+	cmd.Flags().IntVar(&input.Limit, "limit", 10, "maximum rows to return")
+	cmd.Flags().StringVar(format, "format", "text", "output format: text or json")
+}
+
+func addCompetitionSafetyActorFlags(cmd *cobra.Command, actorUserID *string, actorSessionID *string, actorRole *string, trustedSurfaceKey *string, trustedSurfaceLabel *string) {
+	cmd.Flags().StringVar(actorUserID, "actor-user-id", "", "actor user id for attribution")
+	cmd.Flags().StringVar(actorSessionID, "actor-session-id", "", "actor session id for attribution")
+	cmd.Flags().StringVar(actorRole, "actor-role", "", "actor role")
+	cmd.Flags().StringVar(trustedSurfaceKey, "trusted-surface-key", "", "trusted surface key")
+	cmd.Flags().StringVar(trustedSurfaceLabel, "trusted-surface-label", "", "trusted surface label")
+	_ = cmd.MarkFlagRequired("actor-user-id")
+	_ = cmd.MarkFlagRequired("actor-session-id")
+	_ = cmd.MarkFlagRequired("actor-role")
+	_ = cmd.MarkFlagRequired("trusted-surface-key")
+}
+
 func applyCompetitionCommandIDFlags(command *competition.CompetitionCommand, sessionID string, teamID string, matchID string, tournamentID string, bracketID string, teamSnapshotID string, matchBindingID string, userID string) error {
 	if strings.TrimSpace(sessionID) != "" {
 		parsed, err := uuid.Parse(strings.TrimSpace(sessionID))
@@ -1762,6 +2148,236 @@ func writeCompetitionCommandOutcomeText(cmd *cobra.Command, outcome competition.
 	return nil
 }
 
+func writePublicCompetitionReadinessText(cmd *cobra.Command, readiness competition.PublicCompetitionReadiness) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"status=%s contract=%s projection=%s result_source=%s rating_source=%s leaderboards=%d canonical_results=%d\n",
+		readiness.Status,
+		readiness.ContractVersion,
+		readiness.ProjectionVersion,
+		readiness.ResultSource,
+		readiness.RatingSource,
+		readiness.AvailableLeaderboards,
+		readiness.AvailableCanonicalResults,
+	); err != nil {
+		return err
+	}
+	if len(readiness.Deferred) > 0 {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "deferred=%s\n", strings.Join(readiness.Deferred, ",")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writePublicCompetitionLeaderboardText(cmd *cobra.Command, leaderboard competition.PublicCompetitionLeaderboard) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"contract=%s projection=%s result_source=%s rating_source=%s rows=%d\n",
+		leaderboard.ContractVersion,
+		leaderboard.ProjectionVersion,
+		leaderboard.ResultSource,
+		leaderboard.RatingSource,
+		len(leaderboard.Leaderboard),
+	); err != nil {
+		return err
+	}
+	for _, row := range leaderboard.Leaderboard {
+		lastResultAt := ""
+		if row.LastResultAt != nil {
+			lastResultAt = formatCompetitionTime(*row.LastResultAt)
+		}
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"rank=%d participant=%s sport=%s mode=%s facility=%s team_scope=%s stat=%s value=%.4f last_result_at=%s computed_at=%s\n",
+			row.Rank,
+			row.Participant,
+			row.SportKey,
+			row.ModeKey,
+			row.FacilityKey,
+			row.TeamScope,
+			row.StatType,
+			row.StatValue,
+			lastResultAt,
+			formatCompetitionTime(row.ComputedAt),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGameIdentityText(cmd *cobra.Command, identity competition.GameIdentityProjection) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"status=%s contract=%s projection=%s result_source=%s rating_source=%s cp_policy=%s badge_policy=%s rivalry_policy=%s squad_policy=%s cp_rows=%d badges=%d rivalries=%d squads=%d\n",
+		identity.Status,
+		identity.ContractVersion,
+		identity.ProjectionVersion,
+		identity.ResultSource,
+		identity.RatingSource,
+		identity.CPPolicyVersion,
+		identity.BadgePolicyVersion,
+		identity.RivalryPolicyVersion,
+		identity.SquadPolicyVersion,
+		len(identity.CP),
+		len(identity.BadgeAwards),
+		len(identity.RivalryStates),
+		len(identity.SquadIdentities),
+	); err != nil {
+		return err
+	}
+	for _, row := range identity.CP {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"rank=%d participant=%s sport=%s mode=%s facility=%s team_scope=%s cp=%d computed_at=%s\n",
+			row.Rank,
+			row.Participant,
+			row.SportKey,
+			row.ModeKey,
+			row.FacilityKey,
+			row.TeamScope,
+			row.CP,
+			formatCompetitionTime(row.ComputedAt),
+		); err != nil {
+			return err
+		}
+	}
+	for _, award := range identity.BadgeAwards {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"badge=%s participant=%s sport=%s mode=%s facility=%s team_scope=%s policy=%s computed_at=%s\n",
+			award.BadgeKey,
+			award.Participant,
+			award.SportKey,
+			award.ModeKey,
+			award.FacilityKey,
+			award.TeamScope,
+			award.PolicyVersion,
+			formatCompetitionTime(award.ComputedAt),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeMemberStatsText(cmd *cobra.Command, stats []competition.MemberStat) error {
+	for _, stat := range stats {
+		lastPlayedAt := ""
+		if stat.LastPlayedAt != nil {
+			lastPlayedAt = formatCompetitionTime(*stat.LastPlayedAt)
+		}
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"user_id=%s sport=%s mode=%s played=%d wins=%d losses=%d draws=%d rating_mu=%.4f rating_sigma=%.4f last_played_at=%s\n",
+			stat.UserID,
+			stat.SportKey,
+			stat.ModeKey,
+			stat.MatchesPlayed,
+			stat.Wins,
+			stat.Losses,
+			stat.Draws,
+			stat.CurrentRatingMu,
+			stat.CurrentRatingSigma,
+			lastPlayedAt,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeMemberHistoryText(cmd *cobra.Command, history []competition.MemberHistoryEntry) error {
+	for _, entry := range history {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"match_id=%s source_result_id=%s canonical_result_id=%s name=%q sport=%s mode=%s facility=%s outcome=%s recorded_at=%s\n",
+			entry.CompetitionMatchID,
+			entry.SourceResultID,
+			entry.CanonicalResultID,
+			entry.DisplayName,
+			entry.SportKey,
+			entry.ModeKey,
+			entry.FacilityKey,
+			entry.Outcome,
+			formatCompetitionTime(entry.RecordedAt),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeCompetitionSafetyReadinessText(cmd *cobra.Command, readiness competition.CompetitionSafetyReadiness) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"status=%s role=%s reports=%d blocks=%d reliability_events=%d audit_events=%d message=%q\n",
+		readiness.Status,
+		readiness.Actor.Role,
+		readiness.Summary.ReportCount,
+		readiness.Summary.BlockCount,
+		readiness.Summary.ReliabilityEventCount,
+		readiness.Summary.AuditEventCount,
+		readiness.Message,
+	); err != nil {
+		return err
+	}
+	for _, item := range readiness.Commands {
+		reason := item.UnavailableReason
+		if reason == "" {
+			reason = "available"
+		}
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"command=%s available=%t capability=%s dry_run=%t apply=%t reason=%q\n",
+			item.Name,
+			item.Available,
+			item.RequiredCapability,
+			item.DryRunSupported,
+			item.ApplySupported,
+			reason,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeCompetitionSafetyReviewText(cmd *cobra.Command, review competition.CompetitionSafetyReview) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"reports=%d blocks=%d reliability_events=%d audit_events=%d\n",
+		review.Summary.ReportCount,
+		review.Summary.BlockCount,
+		review.Summary.ReliabilityEventCount,
+		review.Summary.AuditEventCount,
+	); err != nil {
+		return err
+	}
+	for _, report := range review.Reports {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "report=%s target_type=%s reason=%s status=%s occurred_at=%s\n", report.ID, report.TargetType, report.ReasonCode, report.Status, formatCompetitionTime(report.OccurredAt)); err != nil {
+			return err
+		}
+	}
+	for _, block := range review.Blocks {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "block=%s reason=%s status=%s occurred_at=%s\n", block.ID, block.ReasonCode, block.Status, formatCompetitionTime(block.OccurredAt)); err != nil {
+			return err
+		}
+	}
+	for _, reliability := range review.ReliabilityEvents {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "reliability_event=%s type=%s severity=%s occurred_at=%s\n", reliability.ID, reliability.ReliabilityType, reliability.Severity, formatCompetitionTime(reliability.OccurredAt)); err != nil {
+			return err
+		}
+	}
+	for _, event := range review.AuditEvents {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "audit_event=%s type=%s privacy_scope=%s occurred_at=%s\n", event.ID, event.EventType, event.PrivacyScope, formatCompetitionTime(event.OccurredAt)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeSportListText(cmd *cobra.Command, sportsList []sports.Sport) error {
 	for _, entry := range sportsList {
 		if _, err := fmt.Fprintf(
@@ -1829,6 +2445,10 @@ func formatTimestamp(value pgtype.Timestamptz) string {
 	}
 
 	return value.Time.Format(time.RFC3339)
+}
+
+func formatCompetitionTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339)
 }
 
 func formatParticipantRange(minimum int, maximum int) string {
