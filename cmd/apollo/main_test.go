@@ -472,6 +472,23 @@ func TestCompetitionCLIDemoProjectionSafetyAndPreviewReads(t *testing.T) {
 		t.Fatalf("publicIdentity = %#v, want public redacted projection", publicIdentity)
 	}
 
+	tuningJSON := runRootCommand(t,
+		"competition", "game-identity", "tuning",
+		"--include-db",
+		"--sport-key", "badminton",
+		"--mode-key", "head_to_head:s2-p1",
+		"--facility-key", "ashtonbee",
+		"--team-scope", "all",
+		"--format", "json",
+	)
+	var tuningReport competition.GameIdentityPolicyTuningReport
+	if err := json.Unmarshal([]byte(tuningJSON), &tuningReport); err != nil {
+		t.Fatalf("json.Unmarshal(game identity tuning) error = %v output=%s", err, tuningJSON)
+	}
+	if !tuningReport.Summary.DBBackedAnalysis || tuningReport.DatabaseAnalysis.RowCount == 0 || tuningReport.ActiveBehaviorChange {
+		t.Fatalf("tuningReport = %#v, want DB-backed candidate analysis without active behavior change", tuningReport)
+	}
+
 	memberStatsJSON := runRootCommand(t, "competition", "member", "stats", "--user-id", memberOneID.String(), "--format", "json")
 	var memberStats []competition.MemberStat
 	if err := json.Unmarshal([]byte(memberStatsJSON), &memberStats); err != nil {
@@ -642,6 +659,41 @@ func TestCompetitionRatingSimulationCLIJSONAndText(t *testing.T) {
 		!strings.Contains(textOutput, "scenario=three_v_five_asymmetric_comparison_stress classification=comparison_only acceptance=rejected") ||
 		!strings.Contains(textOutput, "cutover_blocker=openskill_active_read_path_deferred") {
 		t.Fatalf("textOutput missing simulation proof fields: %s", textOutput)
+	}
+}
+
+func TestCompetitionGameIdentityTuningCLIJSONAndText(t *testing.T) {
+	jsonOutput := runRootCommand(t, "competition", "game-identity", "tuning", "--format", "json")
+	var report competition.GameIdentityPolicyTuningReport
+	if err := json.Unmarshal([]byte(jsonOutput), &report); err != nil {
+		t.Fatalf("json.Unmarshal(game identity tuning) error = %v output=%s", err, jsonOutput)
+	}
+	if report.ReportVersion != competition.GameIdentityPolicyTuningReportVersion {
+		t.Fatalf("ReportVersion = %q, want %q", report.ReportVersion, competition.GameIdentityPolicyTuningReportVersion)
+	}
+	if report.CPPolicyVersion != "apollo_cp_v1" || report.BadgePolicyVersion != "apollo_badge_awards_v1" ||
+		report.RivalryPolicyVersion != "apollo_rivalry_state_v1" || report.SquadPolicyVersion != "apollo_squad_identity_v1" {
+		t.Fatalf("policy versions = %+v, want active game identity policy versions", report)
+	}
+	if report.ActiveBehaviorChange || report.Summary.ActiveBehaviorChange {
+		t.Fatalf("active behavior change = %t/%t, want unchanged policy output", report.ActiveBehaviorChange, report.Summary.ActiveBehaviorChange)
+	}
+	if report.Summary.ScenarioCount != 6 || report.Summary.RejectedScenarioCount != 0 || report.Summary.RejectedFindingCount != 2 {
+		t.Fatalf("summary = %+v, want deterministic accepted scenarios and rejected retune findings", report.Summary)
+	}
+	if report.DatabaseAnalysis.Status != "not_requested" || report.Summary.DBBackedAnalysis {
+		t.Fatalf("database analysis = %+v summary=%+v, want fixture-only default", report.DatabaseAnalysis, report.Summary)
+	}
+	if strings.Contains(strings.ToLower(jsonOutput), "openskill") || strings.Contains(strings.ToLower(jsonOutput), "user_id") {
+		t.Fatalf("jsonOutput leaked blocked fields: %s", jsonOutput)
+	}
+
+	textOutput := runRootCommand(t, "competition", "game-identity", "tuning", "--format", "text")
+	if !strings.Contains(textOutput, "report=apollo_game_identity_policy_tuning_v1") ||
+		!strings.Contains(textOutput, "scenario=cp_weight_balance classification=active_policy acceptance=accepted") ||
+		!strings.Contains(textOutput, "finding=retune_active_constants_now policy_area=all status=rejected") ||
+		!strings.Contains(textOutput, "db_status=not_requested") {
+		t.Fatalf("textOutput missing tuning proof fields: %s", textOutput)
 	}
 }
 
