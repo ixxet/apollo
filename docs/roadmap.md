@@ -11,8 +11,8 @@ Current repo/runtime working line on `main`: Phase 3B.20.1 cohesion hardening
 over Phase 3B.20 game identity, Phase 3B.19 public competition readiness, Phase
 3B.18 internal social safety/reliability foundation, Phase 3B.17 internal
 tournament runtime, and Phase 3B.16 competition analytics foundation,
-Rating Policy Simulation / Golden Expansion, Rating Policy Wrapper, Scale Gate
-Numeric Ceilings, CLI Demo Spine,
+Game Identity Policy Tuning Loop, Rating Policy Simulation / Golden Expansion,
+Rating Policy Wrapper, Scale Gate Numeric Ceilings, CLI Demo Spine,
 Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
@@ -216,6 +216,14 @@ schedule-control lines
   consumption, same-origin proxy boundaries, auth/role/state behavior,
   production-backed versus mock/stub status, test coverage, and blocked
   adjacent scope while runtime and deployed truth remain unchanged
+- Game Identity Policy Tuning Loop is now real in repo/runtime on `main`:
+  APOLLO has deterministic fixtures and `apollo competition game-identity
+  tuning --format json` for current CP weights, badge thresholds, rivalry
+  activation, squad aggregation, accepted/rejected findings, policy risks, and
+  blockers. Optional DB-backed local projection-row analysis is implemented,
+  but this worker environment had no `APOLLO_DATABASE_URL`, so no real local DB
+  population evidence is claimed. Active game identity policy versions and
+  public/member output behavior remain unchanged.
 - the current Milestone 2.0 hardening follow-up on `main`, now closed on
   `v0.19.1`, adds graceful
   shutdown plus HTTP/NATS/request bounds, keeps the shared parser as the only
@@ -266,6 +274,12 @@ tournament ideas into one gated plan. Current scan state:
   states, empty/error/denied states, production/mock status, current tests, and
   APOLLO source-truth ownership are documented in the platform matrix. This
   does not change runtime or deployed truth.
+- closed locally in repo/runtime: Game Identity Policy Tuning Loop. APOLLO now
+  has deterministic fixture evaluation and `apollo competition game-identity
+  tuning --format json` for CP weights, badge thresholds, rivalry activation,
+  squad aggregation, accepted/rejected findings, policy risks, blockers, and
+  optional DB-backed local projection-row analysis. Active policy versions and
+  public/member output behavior are unchanged; deployed truth is unchanged.
 - still deferred: OpenSkill active read path, public tournaments, public/member
   safety UI details, messaging/chat, broad public social graph, public profiles
   and scouting, production historical rating backtesting, recurring schedule
@@ -345,6 +359,33 @@ The simulation proof covers:
 OpenSkill active read path, rollback/cutover mechanics, production historical
 backtesting, public ratings, and public tournaments remain deferred.
 
+## Game Identity Policy Tuning Loop
+
+Repo/local runtime truth: APOLLO now has deterministic fixture proof through
+`competition.BuildGameIdentityPolicyTuningReport` and
+`apollo competition game-identity tuning --format json`.
+
+The tuning proof covers:
+
+- active CP weights: matches played 10, wins 30, draws 15, losses 5
+- active badge thresholds: first match at 1 match, first win at 1 win, regular
+  competitor at 5 matches
+- rivalry activation: top two CP rows inside the same sport/mode/facility/
+  team-scope context, active when CP gap is <= 50, emerging above that gap
+- squad aggregation: participant count and CP total by sport/mode/facility/
+  team-scope context
+- accepted findings to keep current v1 policies unchanged
+- rejected findings against active retuning or broader identity/social surface
+  expansion without stronger evidence
+- policy risk table and blockers before broader identity, social, or tournament
+  work
+- optional `--include-db` local projection-row analysis when
+  `APOLLO_DATABASE_URL` points at a migrated APOLLO database
+
+This worker environment had no `APOLLO_DATABASE_URL`, so no real local DB
+population evidence is claimed. Active policy versions and public/member output
+behavior remain unchanged.
+
 ## Release Lines
 
 Tracer 24 remains tagged on `v0.15.0`, and `v0.15.1` remains the narrow
@@ -354,7 +395,8 @@ readiness, Phase 3B.18 internal social safety/reliability foundation, Phase
 3B.17 internal tournament runtime, Phase 3B.16 competition analytics
 foundation, Phase 3B.13 rating foundation, Phase 3B.14 OpenSkill comparison
 evidence, Rating Policy Wrapper, Rating Policy Simulation / Golden Expansion,
-Phase 3B.15 ARES v2 proposal foundation, and the closed
+Game Identity Policy Tuning Loop, Phase 3B.15 ARES v2 proposal foundation, and
+the closed
 Tracer 28 authz/staff-boundary truth,
 Milestone 2.0 hardening follow-up, scheduling substrate, member-safe calendar,
 ops-read, approved booking lifecycle, public request/status/availability lines,
@@ -384,6 +426,7 @@ and staff-side edit/replacement plus bounded staff schedule-control lines.
 | Rating Policy Wrapper | post-CLI Demo APOLLO rating policy wrapper on `main`: active legacy-engine projection records `apollo_rating_policy_wrapper_v1`, calibration status, fifth-match ranked transition, inactivity sigma inflation, and climbing-cap metadata | keep legacy engine active, keep OpenSkill comparison-only, keep public outputs redacted, and keep deployed truth separate | closed by Rating Policy Simulation; do not claim OpenSkill cutover, production backtesting, public tournaments, frontend completion, or deployed truth |
 | Rating Policy Simulation / Golden Expansion | post-wrapper APOLLO rating proof on `main`: deterministic fixtures, CLI JSON output, accepted/rejected scenarios, legacy baseline deltas, OpenSkill sidecar deltas, cutover blockers, and policy risks | keep proof local/CLI, keep OpenSkill sidecar-only, keep public/member reads allowlisted, and keep deployed truth separate | do not claim OpenSkill cutover, production backtesting, public ratings, public tournaments, frontend completion, or deployed truth |
 | Frontend Route/API Contract Matrix | post-rating-proof docs truth: Hestia/Themis route/API consumption, proxy denials, auth/role/state behavior, production/mock status, tests, and APOLLO ownership are frozen in the platform matrix | keep this docs-only, keep APOLLO source truth, keep Hestia/Themis as consumers, and require future frontend packets to update the matrix | do not claim runtime changes, generated contract enforcement, deployed frontend proof, public tournaments, OpenSkill active reads, frontend-owned formulas, public/member safety UI, or new product surface |
+| Game Identity Policy Tuning Loop | APOLLO game identity proof on `main`: deterministic fixtures, CLI JSON/text output, accepted/rejected findings, policy risks, blockers, and optional DB-backed local projection-row analysis for CP, badges, rivalry, and squads | keep APOLLO as game identity policy owner, keep active v1 policy behavior unchanged unless stronger evidence justifies a version bump, and keep deployed truth separate | do not claim production population backtesting, active retuning, public tournaments, broad social graph, persistent guilds, frontend-owned formulas, or deployed truth |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, public safety UI, public profiles/scouting, broad social graph behavior, or broader public leaderboard/game-identity expansion |
 
 ## Current Phase 3B Line
@@ -404,6 +447,10 @@ sidecar deltas, accepted/rejected classification, blockers, and risks while
 OpenSkill remains comparison-only. Frontend Route/API Contract Matrix is closed
 as docs truth only in the platform matrix; it records current Hestia/Themis
 route/API consumption and does not change APOLLO runtime or deployed truth.
+Game Identity Policy Tuning Loop is closed locally in repo/runtime: APOLLO now
+has deterministic CP/badge/rivalry/squad policy fixtures, CLI JSON/text output,
+accepted/rejected findings, policy risks, blockers, and optional DB-backed
+local projection-row analysis while active policy versions remain unchanged.
 The contracts redact public participant identity, scope member
 output to the caller, keep rivalry and labels scoped to their projection
 row/context, and exclude private/internal safety, manager, command, OpenSkill
