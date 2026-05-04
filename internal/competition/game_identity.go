@@ -64,9 +64,13 @@ func (s *Service) gameIdentityProjection(ctx context.Context, userID *uuid.UUID,
 		return GameIdentityProjection{}, err
 	}
 
+	return buildGameIdentityProjectionFromRows(rows, normalized.Limit, participantPrefix), nil
+}
+
+func buildGameIdentityProjectionFromRows(rows []gameIdentityProjectionRowRecord, limit int, participantPrefix string) GameIdentityProjection {
 	sortGameIdentityRows(rows)
-	if len(rows) > normalized.Limit {
-		rows = rows[:normalized.Limit]
+	if len(rows) > limit {
+		rows = rows[:limit]
 	}
 
 	status := publicCompetitionStatusEmpty
@@ -96,7 +100,7 @@ func (s *Service) gameIdentityProjection(ctx context.Context, userID *uuid.UUID,
 		BadgeAwards:          buildGameIdentityBadgeAwards(rows, labels),
 		RivalryStates:        buildGameIdentityRivalryStates(rows, labels),
 		SquadIdentities:      buildGameIdentitySquadIdentities(rows),
-	}, nil
+	}
 }
 
 func normalizeGameIdentityInput(input PublicGameIdentityInput) PublicGameIdentityInput {

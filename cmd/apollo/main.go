@@ -449,6 +449,12 @@ func newCompetitionCmd() *cobra.Command {
 	}
 	ratingCmd.AddCommand(newCompetitionRatingSimulationCmd())
 
+	gameIdentityCmd := &cobra.Command{
+		Use:   "game-identity",
+		Short: "Run local APOLLO game identity policy proof reports.",
+	}
+	gameIdentityCmd.AddCommand(newCompetitionGameIdentityTuningCmd())
+
 	competitionCmd.AddCommand(publicCmd)
 	competitionCmd.AddCommand(memberCmd)
 	competitionCmd.AddCommand(sessionCmd)
@@ -456,6 +462,7 @@ func newCompetitionCmd() *cobra.Command {
 	competitionCmd.AddCommand(commandCmd)
 	competitionCmd.AddCommand(safetyCmd)
 	competitionCmd.AddCommand(ratingCmd)
+	competitionCmd.AddCommand(gameIdentityCmd)
 	return competitionCmd
 }
 
@@ -1077,6 +1084,49 @@ func newCompetitionRatingSimulationCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "json", "output format: text or json")
+	return cmd
+}
+
+func newCompetitionGameIdentityTuningCmd() *cobra.Command {
+	var input competition.PublicGameIdentityInput
+	var format string
+	var includeDB bool
+
+	cmd := &cobra.Command{
+		Use:   "tuning",
+		Short: "Show deterministic local APOLLO game identity policy tuning proof.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			report := competition.BuildGameIdentityPolicyTuningReport()
+			if includeDB {
+				service, pool, err := openCompetitionService(cmd.Context())
+				if err != nil {
+					return err
+				}
+				defer pool.Close()
+
+				report, err = service.GameIdentityPolicyTuningReport(cmd.Context(), input)
+				if err != nil {
+					return err
+				}
+			}
+
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, report)
+			case "text":
+				return writeGameIdentityTuningText(cmd, report)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&input.SportKey, "sport-key", "", "filter DB analysis by sport key")
+	cmd.Flags().StringVar(&input.ModeKey, "mode-key", "", "filter DB analysis by mode key")
+	cmd.Flags().StringVar(&input.FacilityKey, "facility-key", "", "filter DB analysis by facility key")
+	cmd.Flags().StringVar(&input.TeamScope, "team-scope", "all", "DB analysis team scope: all, solo, or team")
+	cmd.Flags().IntVar(&input.Limit, "limit", 10, "maximum DB rows to analyze")
+	cmd.Flags().StringVar(&format, "format", "json", "output format: text or json")
+	cmd.Flags().BoolVar(&includeDB, "include-db", false, "include DB-backed local projection-row analysis")
 	return cmd
 }
 
@@ -2462,6 +2512,81 @@ func writeRatingSimulationText(cmd *cobra.Command, report rating.SimulationRepor
 	}
 	for _, risk := range report.PolicyRisks {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "policy_risk=%s classification=%s deferred_to=%q reason=%q\n", risk.Key, risk.Classification, risk.DeferredTo, risk.Reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGameIdentityTuningText(cmd *cobra.Command, report competition.GameIdentityPolicyTuningReport) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"report=%s fixture=%s contract=%s projection=%s cp_policy=%s badge_policy=%s rivalry_policy=%s squad_policy=%s active_behavior_change=%t scenarios=%d accepted=%d rejected=%d findings=%d rejected_findings=%d risks=%d blockers=%d db_status=%s db_rows=%d\n",
+		report.ReportVersion,
+		report.FixtureVersion,
+		report.ContractVersion,
+		report.ProjectionVersion,
+		report.CPPolicyVersion,
+		report.BadgePolicyVersion,
+		report.RivalryPolicyVersion,
+		report.SquadPolicyVersion,
+		report.ActiveBehaviorChange,
+		report.Summary.ScenarioCount,
+		report.Summary.AcceptedScenarioCount,
+		report.Summary.RejectedScenarioCount,
+		report.Summary.FindingCount,
+		report.Summary.RejectedFindingCount,
+		report.Summary.PolicyRiskCount,
+		report.Summary.BlockerCount,
+		report.DatabaseAnalysis.Status,
+		report.DatabaseAnalysis.RowCount,
+	); err != nil {
+		return err
+	}
+	for _, scenario := range report.Scenarios {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"scenario=%s classification=%s acceptance=%s risk=%s input_rows=%d evaluations=%d reason=%q\n",
+			scenario.Label,
+			scenario.Classification,
+			scenario.AcceptanceStatus,
+			scenario.RiskClassification,
+			scenario.InputRows,
+			len(scenario.Evaluations),
+			scenario.Reason,
+		); err != nil {
+			return err
+		}
+	}
+	for _, finding := range report.Findings {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"finding=%s policy_area=%s status=%s behavior_change=%t reason=%q evidence=%q\n",
+			finding.Key,
+			finding.PolicyArea,
+			finding.Status,
+			finding.BehaviorChange,
+			finding.Reason,
+			finding.Evidence,
+		); err != nil {
+			return err
+		}
+	}
+	for _, risk := range report.PolicyRisks {
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"policy_risk=%s policy_area=%s classification=%s reason=%q handling=%q\n",
+			risk.Key,
+			risk.PolicyArea,
+			risk.Classification,
+			risk.Reason,
+			risk.CurrentHandling,
+		); err != nil {
+			return err
+		}
+	}
+	for _, blocker := range report.Blockers {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "blocker=%s status=%s reason=%q\n", blocker.Key, blocker.Status, blocker.Reason); err != nil {
 			return err
 		}
 	}
