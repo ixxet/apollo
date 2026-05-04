@@ -3,7 +3,7 @@
 Status: consolidated read-only audit artifact
 Scope: APOLLO-centered, with ATHENA, Hestia, Themis, gateway, and platform compatibility noted where they affect launch safety
 Original audit date: 2026-04-26
-Current through: 2026-05-04 (post-Packet 7 ATHENA Real Ingress Bridge closeout)
+Current through: 2026-05-04 (post-Packet 8 Live Destructive Probe Plan)
 Cross-references:
 
 - [Competition system audit](../../ashton-platform/planning/audits/2026-04-29-competition-system-audit.md) — cross-repo competition truth snapshot
@@ -32,6 +32,7 @@ Fast scan for agents before reading the full audit:
 | Frontend route/API contract matrix | Closed as docs truth: Hestia and Themis route/API consumption, proxy denials, auth/role states, empty/error/denied states, production/mock status, and test coverage are enumerated in the platform matrix. | New frontend behavior, generated contract enforcement, deployed Hestia/Themis proof, public tournaments, OpenSkill read-path switch, or frontend-owned formulas. |
 | Game identity policy tuning | Closed locally in APOLLO repo/runtime: deterministic CP, badge, rivalry, and squad fixtures plus `apollo competition game-identity tuning --format json` record accepted/rejected findings, policy risks, blockers, and optional DB-backed local projection-row analysis. Active policy versions remain unchanged. | Production population backtesting, active retuning, deployed truth, public tournaments, broad social graph, persistent guilds, or frontend-owned formulas. |
 | ATHENA real ingress bridge | Closed locally in ATHENA repo/runtime: `athena edge ingress-bridge` classifies existing physical evidence for future co-presence, private daily presence, and reliability verification gates while redacting identity hashes and keeping accepted-presence truth separate from source-pass sessions. | Persistent teams, XP ledger, reliability scoring, public/member UI, frontend routes, schema/proto changes, live DB proof, or deployed truth. |
+| Live destructive probe plan | Closed as platform docs/runbook truth: future APOLLO/ATHENA live mutation and SIGTERM probes have target gates, abort criteria, evidence ledger, rollback expectations, and command skeletons. | Executed live destructive proof, deployed truth change, deploy/GitOps mutation, public tournament readiness, or OpenSkill read-path cutover. |
 | Historical evidence | Closeout addenda and hardening docs preserve what was true at the time of each tracer. | Current deferred truth unless a current section says it still applies. |
 
 The strategic pattern that held through 3B.20 is:
@@ -1486,6 +1487,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-05-03 | Rating Policy Wrapper is closed locally in APOLLO repo/runtime: active legacy-engine rating projection uses `apollo_rating_policy_wrapper_v1` with calibration status, fifth-match ranked transition, inactivity sigma inflation, and upward movement cap metadata. OpenSkill remains comparison-only against the legacy baseline; deployed truth is unchanged. | `go test -count=1 ./internal/rating`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server ./cmd/apollo`; `go test -count=1 ./db/migrations`; `go vet ./...`; `go build ./cmd/apollo`; `go test -count=1 ./...`; `go test -race ./internal/...`. |
 | 2026-05-03 | Rating Policy Simulation / Golden Expansion is closed locally in APOLLO repo/runtime: deterministic fixtures and `apollo competition rating simulation --format json` prove active wrapper scenarios, legacy baseline deltas, OpenSkill sidecar deltas, accepted/rejected classification, cutover blockers, and policy risks. OpenSkill remains comparison-only; deployed truth is unchanged. | `git diff --check`; `go test -count=1 ./internal/rating`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server ./cmd/apollo`; `go vet ./...`; `go build ./cmd/apollo`; `go test -count=1 ./...`; `go test -race ./internal/...`. |
 | 2026-05-03 | Game Identity Policy Tuning Loop is closed locally in APOLLO repo/runtime: deterministic fixtures and `apollo competition game-identity tuning --format json` prove current CP weights, badge thresholds, rivalry activation, squad aggregation, accepted/rejected findings, policy risks, and blockers. Optional DB-backed local analysis is implemented and test-proved with fixture-backed projection rows; this worker environment had no `APOLLO_DATABASE_URL`, so no real local DB evidence is claimed. Active game identity policy versions remain unchanged; deployed truth is unchanged. | `go test -count=1 ./internal/competition -run 'TestGameIdentityPolicyTuning\|TestPublicGameIdentity\|TestMemberGameIdentity'`; `go test -count=1 ./cmd/apollo -run 'TestCompetitionGameIdentityTuningCLIJSONAndText\|TestCompetitionCLIDemoProjectionSafetyAndPreviewReads'`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server ./cmd/apollo`; `go vet ./...`; `go build ./cmd/apollo`. |
+| 2026-05-04 | Packet 8 Live Destructive Probe Plan is closed as docs/runbook truth only in platform: future APOLLO/ATHENA live mutation and SIGTERM probes have fixture gates, abort criteria, evidence ledger, rollback expectations, and command skeletons. No live destructive probe, rollout restart, pod kill, DB write, APOLLO runtime change, deploy/GitOps change, or deployed-truth change happened. | `planning/LIVE-DESTRUCTIVE-PROBE-PLAN.md`; platform/APOLLO/ATHENA docs-only verification. |
 
 ## Hard Non-Touches
 
@@ -1546,12 +1548,13 @@ Loop, the following packets are closed for their bounded scope:
 | Frontend Route/API Contract Matrix | Closed as docs truth only; runtime and deployed truth unchanged. |
 | Game Identity Policy Tuning Loop | Closed locally in repo/runtime; deterministic fixtures and CLI JSON/text report document CP, badge, rivalry, and squad findings, risks, blockers, and optional DB-backed local analysis. Active policy behavior unchanged; not deployed truth. |
 | ATHENA Real Ingress Bridge | Closed locally in ATHENA repo/runtime; `athena edge ingress-bridge` classifies physical evidence for future co-presence, private daily presence, and reliability gates while keeping source, accepted-presence, and source-pass session truth separate. APOLLO runtime and deployed truth unchanged. |
+| Live destructive-probe and SIGTERM proof plan | Closed as docs/runbook truth only in platform; no live destructive probe, rollout restart, pod kill, DB write, APOLLO runtime change, or deployed-truth change happened. |
 
 Current next launch-expansion packets in priority order:
 
 | Priority | Packet | Why now |
 | --- | --- | --- |
-| 1 | Live destructive-probe and SIGTERM proof plan | Milestone 3.0 intentionally avoided production-destructive mutation probes and in-flight production SIGTERM proof. Plan these before higher-stakes live operation. |
+| 1 | Live destructive-probe execution gate | Packet 8 planned the probe. Actual execution still requires explicit operator approval, disposable APOLLO/ATHENA fixtures, current image capture, metrics/log access, and concrete rollback proof. |
 | 2 | Feature-specific co-presence / private daily presence / reliability gates | Packet 7 gives ATHENA local/runtime bridge evidence, but APOLLO product behavior, XP ledgers, persistent teams, and reliability scoring remain deferred until separate packets define their own gates. |
 
 What to avoid as a next packet:
@@ -2646,8 +2649,9 @@ cd /Users/zizo/Personal-Projects/ASHTON/ashton-platform
 git diff --check
 ```
 
-Next launch-expansion packet: live destructive probe/SIGTERM proof planning or
-another bounded trust packet, depending on the next planning ruling.
+Next launch-expansion packet: live destructive probe/SIGTERM execution gate,
+only with explicit operator approval, disposable fixtures, and concrete
+rollback proof; otherwise another bounded trust packet.
 
 ## Game Identity Policy Tuning Loop Addendum
 

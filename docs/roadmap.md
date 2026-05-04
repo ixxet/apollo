@@ -286,6 +286,12 @@ tournament ideas into one gated plan. Current scan state:
   source-pass session facts for future APOLLO co-presence, private daily
   presence, and reliability gates. APOLLO runtime and deployed truth are
   unchanged.
+- closed as platform docs/runbook truth only: Live Destructive Probe Plan.
+  Future APOLLO/ATHENA live mutation and SIGTERM proof now has fixture gates,
+  abort criteria, evidence ledger, rollback expectations, and command
+  skeletons. No live destructive probe, rollout restart, pod kill, DB write,
+  APOLLO runtime change, deploy/GitOps change, or deployed-truth change
+  happened.
 - still deferred: OpenSkill active read path, public tournaments, public/member
   safety UI details, messaging/chat, broad public social graph, public profiles
   and scouting, production historical rating backtesting, recurring schedule
@@ -434,6 +440,7 @@ and staff-side edit/replacement plus bounded staff schedule-control lines.
 | Frontend Route/API Contract Matrix | post-rating-proof docs truth: Hestia/Themis route/API consumption, proxy denials, auth/role/state behavior, production/mock status, tests, and APOLLO ownership are frozen in the platform matrix | keep this docs-only, keep APOLLO source truth, keep Hestia/Themis as consumers, and require future frontend packets to update the matrix | do not claim runtime changes, generated contract enforcement, deployed frontend proof, public tournaments, OpenSkill active reads, frontend-owned formulas, public/member safety UI, or new product surface |
 | Game Identity Policy Tuning Loop | APOLLO game identity proof on `main`: deterministic fixtures, CLI JSON/text output, accepted/rejected findings, policy risks, blockers, and optional DB-backed local projection-row analysis for CP, badges, rivalry, and squads | keep APOLLO as game identity policy owner, keep active v1 policy behavior unchanged unless stronger evidence justifies a version bump, and keep deployed truth separate | do not claim production population backtesting, active retuning, public tournaments, broad social graph, persistent guilds, frontend-owned formulas, or deployed truth |
 | ATHENA Real Ingress Bridge | ATHENA local/runtime proof on `main`: CLI JSON/text report over source/accepted presence, identity presence, scope, timestamps, projection replay reasons, and source-pass sessions for future APOLLO trust gates | keep ATHENA as physical truth owner, keep APOLLO product behavior unchanged, keep source truth separate from accepted-presence truth, and keep deployed truth separate | do not claim persistent teams, XP ledger, reliability scoring, accepted-presence session cutover, frontend routes, public API, schema/proto changes, or live DB proof |
+| Live Destructive Probe Plan | platform docs/runbook truth: future APOLLO/ATHENA live mutation and SIGTERM proof is planned with canary/fixture gates, abort criteria, evidence ledger, rollback expectations, and command skeletons | keep this planning-only until a separate operator-approved execution gate runs | do not claim live destructive proof, mutate deployed data, change runtime, touch frontends, switch OpenSkill, or unblock public tournaments |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, public safety UI, public profiles/scouting, broad social graph behavior, or broader public leaderboard/game-identity expansion |
 
 ## Current Phase 3B Line
@@ -458,6 +465,10 @@ Game Identity Policy Tuning Loop is closed locally in repo/runtime: APOLLO now
 has deterministic CP/badge/rivalry/squad policy fixtures, CLI JSON/text output,
 accepted/rejected findings, policy risks, blockers, and optional DB-backed
 local projection-row analysis while active policy versions remain unchanged.
+Live Destructive Probe Plan is closed as platform docs/runbook truth only:
+future APOLLO/ATHENA live mutation and SIGTERM proof has a plan, but no live
+destructive probe, rollout restart, pod kill, DB write, APOLLO runtime change,
+deploy/GitOps change, or deployed-truth change happened.
 The contracts redact public participant identity, scope member
 output to the caller, keep rivalry and labels scoped to their projection
 row/context, and exclude private/internal safety, manager, command, OpenSkill
