@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/competition"
 	"github.com/ixxet/apollo/internal/config"
+	"github.com/ixxet/apollo/internal/presence"
 	"github.com/ixxet/apollo/internal/rating"
 	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/testutil"
@@ -93,6 +95,63 @@ func TestNewRootCmdIncludesCompetitionCommand(t *testing.T) {
 
 	if _, _, err := rootCmd.Find([]string{"competition"}); err != nil {
 		t.Fatalf("rootCmd.Find(competition) error = %v", err)
+	}
+}
+
+func TestPresenceAthenaGateCommandClassifiesBridgeReportWithoutRawIdentityLeak(t *testing.T) {
+	rootCmd := newRootCmd()
+	if _, _, err := rootCmd.Find([]string{"presence", "athena-gate"}); err != nil {
+		t.Fatalf("rootCmd.Find(presence athena-gate) error = %v", err)
+	}
+
+	reportPath := t.TempDir() + "/athena-bridge.json"
+	if err := os.WriteFile(reportPath, []byte(`{
+		"facility_id":"ashtonbee",
+		"zone_id":"gym-floor",
+		"since":"2026-04-10T08:00:00Z",
+		"until":"2026-04-10T12:00:00Z",
+		"evidence":[{
+			"evidence_id":"evidence-001",
+			"event_id":"evt-001",
+			"identity_present":true,
+			"identity_ref":"identity-001",
+			"external_identity_hash":"raw-hash-should-not-emit",
+			"facility_id":"ashtonbee",
+			"zone_id":"gym-floor",
+			"direction":"in",
+			"source_result":"pass",
+			"observed_at":"2026-04-10T09:00:00Z",
+			"source_committed":true,
+			"accepted_presence":true,
+			"eligibility":{
+				"co_presence_proof":{"eligible":true},
+				"private_daily_presence":{"eligible":true},
+				"reliability_verification":{"eligible":true}
+			}
+		}]
+	}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(report) error = %v", err)
+	}
+
+	output := runRootCommand(t, "presence", "athena-gate", "--bridge-report", reportPath, "--format", "json")
+	if strings.Contains(output, "external_identity_hash") || strings.Contains(output, "raw-hash-should-not-emit") {
+		t.Fatalf("presence athena-gate output leaked raw ATHENA identity: %s", output)
+	}
+
+	var gateReport presence.AthenaPresenceGateReport
+	if err := json.Unmarshal([]byte(output), &gateReport); err != nil {
+		t.Fatalf("json.Unmarshal(gate output) error = %v output=%s", err, output)
+	}
+	if gateReport.Summary.EligibleCoPresenceEvidence != 1 || gateReport.Summary.DailyPresenceReadyCredits != 1 {
+		t.Fatalf("gate summary = %+v, want one co-presence and one daily-ready signal", gateReport.Summary)
+	}
+
+	textOutput := runRootCommand(t, "presence", "athena-gate", "--bridge-report", reportPath, "--format", "text")
+	if !strings.Contains(textOutput, "co_presence_eligible=1") || !strings.Contains(textOutput, "daily_ready=1") {
+		t.Fatalf("text output = %q, want readable eligibility summary", textOutput)
+	}
+	if strings.Contains(textOutput, "raw-hash-should-not-emit") {
+		t.Fatalf("text output leaked raw ATHENA identity: %s", textOutput)
 	}
 }
 

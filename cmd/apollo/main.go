@@ -78,6 +78,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd.AddCommand(newScheduleCmd())
 	rootCmd.AddCommand(newSportCmd())
 	rootCmd.AddCommand(newVisitCmd())
+	rootCmd.AddCommand(newPresenceCmd())
 
 	return rootCmd
 }
@@ -391,6 +392,55 @@ func newVisitCmd() *cobra.Command {
 	visitCmd.AddCommand(listCmd)
 
 	return visitCmd
+}
+
+func newPresenceCmd() *cobra.Command {
+	presenceCmd := &cobra.Command{
+		Use:   "presence",
+		Short: "Run APOLLO presence runtime proofs.",
+	}
+	presenceCmd.AddCommand(newPresenceAthenaGateCmd())
+	return presenceCmd
+}
+
+func newPresenceAthenaGateCmd() *cobra.Command {
+	var bridgeReportPath string
+	var format string
+
+	cmd := &cobra.Command{
+		Use:   "athena-gate",
+		Short: "Classify ATHENA ingress bridge evidence for future APOLLO presence gates.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			trimmedPath := strings.TrimSpace(bridgeReportPath)
+			if trimmedPath == "" {
+				return fmt.Errorf("bridge report path is required")
+			}
+
+			payload, err := os.ReadFile(trimmedPath)
+			if err != nil {
+				return fmt.Errorf("read ATHENA bridge report: %w", err)
+			}
+
+			var bridgeReport presence.AthenaIngressBridgeReport
+			if err := json.Unmarshal(payload, &bridgeReport); err != nil {
+				return fmt.Errorf("decode ATHENA bridge report: %w", err)
+			}
+
+			gateReport := presence.BuildAthenaPresenceGateReport(bridgeReport)
+			switch format {
+			case "json":
+				return writeJSONOutput(cmd, gateReport)
+			case "text":
+				return writePresenceAthenaGateText(cmd, gateReport)
+			default:
+				return fmt.Errorf("unsupported format %q", format)
+			}
+		},
+	}
+	cmd.Flags().StringVar(&bridgeReportPath, "bridge-report", "", "path to ATHENA edge ingress-bridge JSON output")
+	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
+	_ = cmd.MarkFlagRequired("bridge-report")
+	return cmd
 }
 
 func newCompetitionCmd() *cobra.Command {
@@ -2084,6 +2134,50 @@ func writeJSONOutput(cmd *cobra.Command, value any) error {
 	encoder := json.NewEncoder(cmd.OutOrStdout())
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
+}
+
+func writePresenceAthenaGateText(cmd *cobra.Command, report presence.AthenaPresenceGateReport) error {
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"facility=%s zone=%s evidence=%d accepted=%d co_presence_eligible=%d daily_ready=%d daily_already_counted=%d\n",
+		report.FacilityID,
+		report.ZoneID,
+		report.Summary.TotalEvidence,
+		report.Summary.AcceptedEvidence,
+		report.Summary.EligibleCoPresenceEvidence,
+		report.Summary.DailyPresenceReadyCredits,
+		report.Summary.DailyPresenceAlreadyCounted,
+	); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(
+		cmd.OutOrStdout(),
+		"boundary=%s\n",
+		report.Contract.MutationBoundary,
+	); err != nil {
+		return err
+	}
+	for _, evidence := range report.Evidence {
+		reasons := strings.Join(evidence.ReasonCodes, ",")
+		if reasons == "" {
+			reasons = "none"
+		}
+		if _, err := fmt.Fprintf(
+			cmd.OutOrStdout(),
+			"evidence=%s event=%s identity_ref=%s accepted=%t co_presence=%t daily=%t source_pass_session=%t reasons=%s\n",
+			evidence.EvidenceID,
+			evidence.EventID,
+			evidence.IdentityRef,
+			evidence.AcceptedPresence,
+			evidence.CoPresence.Eligible,
+			evidence.PrivateDailyPresence.Eligible,
+			evidence.SourcePassSession.Eligible,
+			reasons,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeCompetitionSessionListText(cmd *cobra.Command, sessions []competition.SessionSummary) error {
