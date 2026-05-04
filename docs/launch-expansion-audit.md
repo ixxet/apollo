@@ -3,7 +3,7 @@
 Status: consolidated read-only audit artifact
 Scope: APOLLO-centered, with ATHENA, Hestia, Themis, gateway, and platform compatibility noted where they affect launch safety
 Original audit date: 2026-04-26
-Current through: 2026-05-04 (post-Packet 8 Live Destructive Probe Plan)
+Current through: 2026-05-04 (post-Co-presence / Private Daily Presence Gate)
 Cross-references:
 
 - [Competition system audit](../../ashton-platform/planning/audits/2026-04-29-competition-system-audit.md) — cross-repo competition truth snapshot
@@ -32,6 +32,7 @@ Fast scan for agents before reading the full audit:
 | Frontend route/API contract matrix | Closed as docs truth: Hestia and Themis route/API consumption, proxy denials, auth/role states, empty/error/denied states, production/mock status, and test coverage are enumerated in the platform matrix. | New frontend behavior, generated contract enforcement, deployed Hestia/Themis proof, public tournaments, OpenSkill read-path switch, or frontend-owned formulas. |
 | Game identity policy tuning | Closed locally in APOLLO repo/runtime: deterministic CP, badge, rivalry, and squad fixtures plus `apollo competition game-identity tuning --format json` record accepted/rejected findings, policy risks, blockers, and optional DB-backed local projection-row analysis. Active policy versions remain unchanged. | Production population backtesting, active retuning, deployed truth, public tournaments, broad social graph, persistent guilds, or frontend-owned formulas. |
 | ATHENA real ingress bridge | Closed locally in ATHENA repo/runtime: `athena edge ingress-bridge` classifies existing physical evidence for future co-presence, private daily presence, and reliability verification gates while redacting identity hashes and keeping accepted-presence truth separate from source-pass sessions. | Persistent teams, XP ledger, reliability scoring, public/member UI, frontend routes, schema/proto changes, live DB proof, or deployed truth. |
+| APOLLO presence gate proof | Closed locally in APOLLO repo/runtime: `apollo presence athena-gate --bridge-report <path> --format json|text` classifies ATHENA bridge JSON into internal co-presence and private daily presence eligibility signals. APOLLO owns product eligibility classification while ATHENA remains physical truth owner. | Visit/tap-link/streak mutation, XP ledger, persistent teams, reliability scoring, public/member route, public API/UI, frontend work, live population proof, or deployed truth. |
 | Live destructive probe plan | Closed as platform docs/runbook truth: future APOLLO/ATHENA live mutation and SIGTERM probes have target gates, abort criteria, evidence ledger, rollback expectations, and command skeletons. | Executed live destructive proof, deployed truth change, deploy/GitOps mutation, public tournament readiness, or OpenSkill read-path cutover. |
 | Historical evidence | Closeout addenda and hardening docs preserve what was true at the time of each tracer. | Current deferred truth unless a current section says it still applies. |
 
@@ -53,10 +54,14 @@ Phase 3B.20 closed the first trusted game identity layer after 3B.19 public
 competition readiness and 3B.18 internal social safety/reliability. Game
 Identity Policy Tuning Loop now adds the local APOLLO tuning proof without
 changing active policy behavior. Packet 7 then closed the ATHENA-side local
-runtime ingress bridge proof without changing APOLLO product behavior. The next
-launch-expansion packet should stay on live-probe planning or another bounded
-trust packet, not dashboards, public profiles, public tournaments,
-messaging/chat, broad social graph behavior, or an OpenSkill hard swap.
+runtime ingress bridge proof without changing APOLLO product behavior. The
+Co-presence / Private Daily Presence Gate now adds APOLLO-owned internal
+classification over that ATHENA bridge JSON without mutating visits, tap-links,
+streaks, XP, teams, reliability, public/member routes, public API, frontend UI,
+or deployed truth. The next launch-expansion packet should stay on live-probe
+execution or another bounded trust packet, not dashboards, public profiles,
+public tournaments, messaging/chat, broad social graph behavior, or an
+OpenSkill hard swap.
 
 ## Evidence Anchors
 
@@ -86,6 +91,7 @@ Current APOLLO facts are grounded in these files:
 | Safety / reliability module (3B.18, manager-internal) | [internal/competition/safety.go](../internal/competition/safety.go), [internal/competition/safety_repository.go](../internal/competition/safety_repository.go) |
 | Public projection module (3B.19) | [internal/competition/public.go](../internal/competition/public.go) |
 | Game identity module (3B.20, public-projection) | [internal/competition/game_identity.go](../internal/competition/game_identity.go), [internal/competition/game_identity_repository.go](../internal/competition/game_identity_repository.go) |
+| ATHENA presence gate proof | [internal/presence/athena_ingress_gate.go](../internal/presence/athena_ingress_gate.go), [cmd/apollo/main.go](../cmd/apollo/main.go) |
 | Role/capability map | [internal/authz/authz.go](../internal/authz/authz.go) |
 | Trusted-surface verification | [internal/authz/trusted_surface.go](../internal/authz/trusted_surface.go) |
 | HTTP route surface | [internal/server/server.go](../internal/server/server.go) |
@@ -218,6 +224,13 @@ APOLLO currently has:
   projection replay reasons, and source-pass session lifecycle facts for
   future APOLLO co-presence, private daily presence, and reliability gates.
   APOLLO runtime behavior is unchanged.
+- Co-presence / Private Daily Presence Gate: APOLLO now has an internal
+  CLI-first repo/local runtime proof through `apollo presence athena-gate`
+  over ATHENA bridge JSON. It classifies APOLLO product eligibility signals for
+  future co-presence and private daily presence/check-in readiness while
+  preserving ATHENA as physical truth owner. It is read-only and does not
+  mutate visits, tap-links, streaks, XP, teams, reliability, public/member
+  routes, public APIs, frontend UI, or deployed truth.
 - OpenSkill dual-run comparison: internal comparison rows/events record
   legacy/OpenSkill values, deltas, accepted budgets, scenarios, and explicit
   delta flags from the same finalized/corrected canonical result order while
@@ -1488,6 +1501,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-05-03 | Rating Policy Simulation / Golden Expansion is closed locally in APOLLO repo/runtime: deterministic fixtures and `apollo competition rating simulation --format json` prove active wrapper scenarios, legacy baseline deltas, OpenSkill sidecar deltas, accepted/rejected classification, cutover blockers, and policy risks. OpenSkill remains comparison-only; deployed truth is unchanged. | `git diff --check`; `go test -count=1 ./internal/rating`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server ./cmd/apollo`; `go vet ./...`; `go build ./cmd/apollo`; `go test -count=1 ./...`; `go test -race ./internal/...`. |
 | 2026-05-03 | Game Identity Policy Tuning Loop is closed locally in APOLLO repo/runtime: deterministic fixtures and `apollo competition game-identity tuning --format json` prove current CP weights, badge thresholds, rivalry activation, squad aggregation, accepted/rejected findings, policy risks, and blockers. Optional DB-backed local analysis is implemented and test-proved with fixture-backed projection rows; this worker environment had no `APOLLO_DATABASE_URL`, so no real local DB evidence is claimed. Active game identity policy versions remain unchanged; deployed truth is unchanged. | `go test -count=1 ./internal/competition -run 'TestGameIdentityPolicyTuning\|TestPublicGameIdentity\|TestMemberGameIdentity'`; `go test -count=1 ./cmd/apollo -run 'TestCompetitionGameIdentityTuningCLIJSONAndText\|TestCompetitionCLIDemoProjectionSafetyAndPreviewReads'`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server ./cmd/apollo`; `go vet ./...`; `go build ./cmd/apollo`. |
 | 2026-05-04 | Packet 8 Live Destructive Probe Plan is closed as docs/runbook truth only in platform: future APOLLO/ATHENA live mutation and SIGTERM probes have fixture gates, abort criteria, evidence ledger, rollback expectations, and command skeletons. No live destructive probe, rollout restart, pod kill, DB write, APOLLO runtime change, deploy/GitOps change, or deployed-truth change happened. | `planning/LIVE-DESTRUCTIVE-PROBE-PLAN.md`; platform/APOLLO/ATHENA docs-only verification. |
+| 2026-05-04 | Co-presence / Private Daily Presence Gate is closed locally in APOLLO repo/runtime: `apollo presence athena-gate --bridge-report <path> --format json|text` reads ATHENA ingress bridge JSON and classifies internal co-presence plus private daily presence readiness. ATHENA remains physical truth owner; APOLLO owns product eligibility classification. No visits, tap-links, streaks, XP, teams, reliability scoring, public/member routes, frontend UI, deploy/GitOps, or deployed truth changed. | `ad0171e`; `go test -count=1 ./internal/presence ./cmd/apollo`; focused APOLLO boundary tests. |
 
 ## Hard Non-Touches
 
@@ -1519,7 +1533,8 @@ Kill or defer a tracer if any of these are true:
 - It requires public result trust before disputes exist.
 - It exposes social/leaderboard/rivalry surfaces before reporting and moderation exist.
 - It depends on ATHENA physical truth but skips feature-specific gates beyond
-  the Packet 7 local/runtime ingress bridge proof.
+  the Packet 7 local/runtime ingress bridge proof and APOLLO's internal
+  co-presence/private daily presence gate proof.
 - It needs Hestia/Themis API routes that are stubbed or undefined.
 - It requires cross-repo contract changes without compatibility matrix updates.
 - It requires public scale but rating recompute duration/row ceiling is unknown.
@@ -1548,6 +1563,7 @@ Loop, the following packets are closed for their bounded scope:
 | Frontend Route/API Contract Matrix | Closed as docs truth only; runtime and deployed truth unchanged. |
 | Game Identity Policy Tuning Loop | Closed locally in repo/runtime; deterministic fixtures and CLI JSON/text report document CP, badge, rivalry, and squad findings, risks, blockers, and optional DB-backed local analysis. Active policy behavior unchanged; not deployed truth. |
 | ATHENA Real Ingress Bridge | Closed locally in ATHENA repo/runtime; `athena edge ingress-bridge` classifies physical evidence for future co-presence, private daily presence, and reliability gates while keeping source, accepted-presence, and source-pass session truth separate. APOLLO runtime and deployed truth unchanged. |
+| Co-presence / Private Daily Presence Gate | Closed locally in APOLLO repo/runtime; `apollo presence athena-gate` classifies ATHENA bridge JSON into APOLLO-owned internal co-presence and private daily presence readiness signals without mutating visits, tap-links, streaks, XP, teams, reliability, public/member routes, or frontend UI. |
 | Live destructive-probe and SIGTERM proof plan | Closed as docs/runbook truth only in platform; no live destructive probe, rollout restart, pod kill, DB write, APOLLO runtime change, or deployed-truth change happened. |
 
 Current next launch-expansion packets in priority order:
@@ -1555,7 +1571,7 @@ Current next launch-expansion packets in priority order:
 | Priority | Packet | Why now |
 | --- | --- | --- |
 | 1 | Live destructive-probe execution gate | Packet 8 planned the probe. Actual execution still requires explicit operator approval, disposable APOLLO/ATHENA fixtures, current image capture, metrics/log access, and concrete rollback proof. |
-| 2 | Feature-specific co-presence / private daily presence / reliability gates | Packet 7 gives ATHENA local/runtime bridge evidence, but APOLLO product behavior, XP ledgers, persistent teams, and reliability scoring remain deferred until separate packets define their own gates. |
+| 2 | Feature-specific reliability gate | Packet 7 gives ATHENA local/runtime bridge evidence and APOLLO now has a co-presence/private daily presence classification proof, but reliability scoring/product behavior remains deferred until a separate packet defines its own gate. |
 
 What to avoid as a next packet:
 
@@ -2754,3 +2770,35 @@ Confirmed boundaries:
 - No live ATHENA/APOLLO DB proof is claimed; the worker environment had no
   `ATHENA_EDGE_POSTGRES_DSN` or `APOLLO_DATABASE_URL`.
 - Hestia and Themis remained untouched.
+
+## Co-presence / Private Daily Presence Gate Addendum
+
+Date: 2026-05-04
+
+Co-presence / Private Daily Presence Gate is closed in APOLLO repo/local
+runtime truth only. Deployed truth remains unchanged.
+
+Implemented truth:
+
+- APOLLO now exposes `apollo presence athena-gate --bridge-report <path>
+  --format json|text`.
+- The command reads ATHENA `edge ingress-bridge` JSON and produces an internal
+  APOLLO gate report for future co-presence and private daily presence/check-in
+  readiness.
+- ATHENA remains physical truth owner. APOLLO owns product eligibility
+  classification over ATHENA's bridge output.
+- Private daily presence readiness is facility-scoped and one-report-credit per
+  UTC day and report-local identity reference. It does not create XP or mutate
+  durable streak truth.
+- Accepted-presence truth remains separate from source-pass session truth.
+
+Confirmed boundaries:
+
+- No APOLLO visit, tap-link, streak, XP, team, reliability score, public/member
+  route, public API, frontend UI, schema/proto, ATHENA runtime, deploy/GitOps,
+  public tournament, OpenSkill read-path, messaging/chat, broad social graph,
+  or booking/commercial behavior was added.
+- No live population proof or deployed truth is claimed.
+- Persistent teams, XP ledger, reliability scoring, public social graph,
+  public API/UI, public tournaments, OpenSkill switch, and live population proof
+  remain deferred.
