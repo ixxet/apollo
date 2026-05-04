@@ -3,7 +3,7 @@
 Status: consolidated read-only audit artifact
 Scope: APOLLO-centered, with ATHENA, Hestia, Themis, gateway, and platform compatibility noted where they affect launch safety
 Original audit date: 2026-04-26
-Current through: 2026-05-03 (post-Frontend Route/API Contract Matrix docs closeout)
+Current through: 2026-05-04 (post-Packet 7 ATHENA Real Ingress Bridge closeout)
 Cross-references:
 
 - [Competition system audit](../../ashton-platform/planning/audits/2026-04-29-competition-system-audit.md) — cross-repo competition truth snapshot
@@ -31,6 +31,7 @@ Fast scan for agents before reading the full audit:
 | Rating policy simulation | Closed locally in repo/runtime: deterministic fixtures and CLI output now cover active policy behavior, legacy baseline deltas, OpenSkill sidecar deltas, accepted/rejected scenarios, blockers, and risk classification. | OpenSkill cutover, public rating launch readiness, production data backtesting, public tournaments, or deployed truth. |
 | Frontend route/API contract matrix | Closed as docs truth: Hestia and Themis route/API consumption, proxy denials, auth/role states, empty/error/denied states, production/mock status, and test coverage are enumerated in the platform matrix. | New frontend behavior, generated contract enforcement, deployed Hestia/Themis proof, public tournaments, OpenSkill read-path switch, or frontend-owned formulas. |
 | Game identity policy tuning | Closed locally in APOLLO repo/runtime: deterministic CP, badge, rivalry, and squad fixtures plus `apollo competition game-identity tuning --format json` record accepted/rejected findings, policy risks, blockers, and optional DB-backed local projection-row analysis. Active policy versions remain unchanged. | Production population backtesting, active retuning, deployed truth, public tournaments, broad social graph, persistent guilds, or frontend-owned formulas. |
+| ATHENA real ingress bridge | Closed locally in ATHENA repo/runtime: `athena edge ingress-bridge` classifies existing physical evidence for future co-presence, private daily presence, and reliability verification gates while redacting identity hashes and keeping accepted-presence truth separate from source-pass sessions. | Persistent teams, XP ledger, reliability scoring, public/member UI, frontend routes, schema/proto changes, live DB proof, or deployed truth. |
 | Historical evidence | Closeout addenda and hardening docs preserve what was true at the time of each tracer. | Current deferred truth unless a current section says it still applies. |
 
 The strategic pattern that held through 3B.20 is:
@@ -50,10 +51,11 @@ Scale Gate ceilings, abuse controls, and explicit retention policy.
 Phase 3B.20 closed the first trusted game identity layer after 3B.19 public
 competition readiness and 3B.18 internal social safety/reliability. Game
 Identity Policy Tuning Loop now adds the local APOLLO tuning proof without
-changing active policy behavior. The next launch-expansion packet should stay on
-bounded cohesion hardening, ATHENA real ingress, or live-probe planning, not
-dashboards, public profiles, public tournaments, messaging/chat, broad social
-graph behavior, or an OpenSkill hard swap.
+changing active policy behavior. Packet 7 then closed the ATHENA-side local
+runtime ingress bridge proof without changing APOLLO product behavior. The next
+launch-expansion packet should stay on live-probe planning or another bounded
+trust packet, not dashboards, public profiles, public tournaments,
+messaging/chat, broad social graph behavior, or an OpenSkill hard swap.
 
 ## Evidence Anchors
 
@@ -209,6 +211,12 @@ APOLLO currently has:
   DB-backed local projection-row analysis. Active policy versions remain
   `apollo_cp_v1`, `apollo_badge_awards_v1`, `apollo_rivalry_state_v1`, and
   `apollo_squad_identity_v1`; no public/member output behavior changed.
+- ATHENA Real Ingress Bridge: ATHENA now has a CLI-first local/runtime proof
+  through `athena edge ingress-bridge` that classifies source/accepted
+  presence, identity hash presence, facility/zone/node scope, timestamps,
+  projection replay reasons, and source-pass session lifecycle facts for
+  future APOLLO co-presence, private daily presence, and reliability gates.
+  APOLLO runtime behavior is unchanged.
 - OpenSkill dual-run comparison: internal comparison rows/events record
   legacy/OpenSkill values, deltas, accepted budgets, scenarios, and explicit
   delta flags from the same finalized/corrected canonical result order while
@@ -1508,7 +1516,8 @@ Kill or defer a tracer if any of these are true:
 
 - It requires public result trust before disputes exist.
 - It exposes social/leaderboard/rivalry surfaces before reporting and moderation exist.
-- It depends on ATHENA physical truth but only mock data is available.
+- It depends on ATHENA physical truth but skips feature-specific gates beyond
+  the Packet 7 local/runtime ingress bridge proof.
 - It needs Hestia/Themis API routes that are stubbed or undefined.
 - It requires cross-repo contract changes without compatibility matrix updates.
 - It requires public scale but rating recompute duration/row ceiling is unknown.
@@ -1536,13 +1545,14 @@ Loop, the following packets are closed for their bounded scope:
 | Rating Policy Simulation / Golden Expansion | Closed locally in repo/runtime; deterministic fixtures, CLI JSON output, accepted/rejected scenarios, cutover blockers, and policy risks are documented; OpenSkill remains comparison-only; not deployed truth. |
 | Frontend Route/API Contract Matrix | Closed as docs truth only; runtime and deployed truth unchanged. |
 | Game Identity Policy Tuning Loop | Closed locally in repo/runtime; deterministic fixtures and CLI JSON/text report document CP, badge, rivalry, and squad findings, risks, blockers, and optional DB-backed local analysis. Active policy behavior unchanged; not deployed truth. |
+| ATHENA Real Ingress Bridge | Closed locally in ATHENA repo/runtime; `athena edge ingress-bridge` classifies physical evidence for future co-presence, private daily presence, and reliability gates while keeping source, accepted-presence, and source-pass session truth separate. APOLLO runtime and deployed truth unchanged. |
 
 Current next launch-expansion packets in priority order:
 
 | Priority | Packet | Why now |
 | --- | --- | --- |
-| 1 | ATHENA real ingress (cross-repo) | Sediment teams, daily check-in XP, reliability presence verification all depend on stronger physical-truth ingress than current bounded proof. |
-| 2 | Live destructive-probe and SIGTERM proof plan | Milestone 3.0 intentionally avoided production-destructive mutation probes and in-flight production SIGTERM proof. Plan these before higher-stakes live operation. |
+| 1 | Live destructive-probe and SIGTERM proof plan | Milestone 3.0 intentionally avoided production-destructive mutation probes and in-flight production SIGTERM proof. Plan these before higher-stakes live operation. |
+| 2 | Feature-specific co-presence / private daily presence / reliability gates | Packet 7 gives ATHENA local/runtime bridge evidence, but APOLLO product behavior, XP ledgers, persistent teams, and reliability scoring remain deferred until separate packets define their own gates. |
 
 What to avoid as a next packet:
 
@@ -1604,8 +1614,12 @@ These priorities and avoidances are forward-looking guidance. The Immediate Acti
     policy behavior, accepted/rejected findings, policy risks, blockers, and
     optional DB-backed local projection-row analysis. Active policy behavior
     and deployed truth are unchanged.
-17. Next: ATHENA real ingress bridge or live destructive-probe/SIGTERM proof
-    planning, depending on the next planning ruling.
+17. Closed by ATHENA Real Ingress Bridge: ATHENA has local/runtime CLI proof
+    that classifies source/accepted presence, identity presence, scope,
+    timestamp, projection, and source-pass session facts for future APOLLO
+    trust gates. APOLLO runtime and deployed truth are unchanged.
+18. Next: live destructive-probe/SIGTERM proof planning or another bounded
+    trust packet, depending on the next planning ruling.
 
 ## Proof Commands
 
@@ -2632,8 +2646,8 @@ cd /Users/zizo/Personal-Projects/ASHTON/ashton-platform
 git diff --check
 ```
 
-Next launch-expansion packet: ATHENA real ingress bridge or live destructive
-probe/SIGTERM proof planning, depending on the next planning ruling.
+Next launch-expansion packet: live destructive probe/SIGTERM proof planning or
+another bounded trust packet, depending on the next planning ruling.
 
 ## Game Identity Policy Tuning Loop Addendum
 
@@ -2704,3 +2718,35 @@ Confirmed boundaries:
   social graph work was added.
 - Hestia, Themis, Prometheus, gateway, ATHENA, and deployed truth were
   unchanged.
+
+## ATHENA Real Ingress Bridge Addendum
+
+Date: 2026-05-04
+
+ATHENA Real Ingress Bridge is closed in ATHENA repo/local runtime truth only.
+APOLLO runtime behavior and deployed truth remain unchanged.
+
+Implemented truth:
+
+- ATHENA now exposes `athena edge ingress-bridge --facility <facility>
+  --since <RFC3339> --until <RFC3339> --format json|text`.
+- The report classifies existing ATHENA observation, accepted-presence,
+  projection replay, and source-pass session facts for future co-presence,
+  private daily presence/check-in credit, and reliability verification gates.
+- Source `pass` / `fail` truth remains immutable.
+- Policy-backed accepted presence remains separate truth and does not rewrite
+  source `fail`.
+- Source-pass `edge_sessions` remain the only session lifecycle truth in this
+  line; accepted-presence session cutover remains deferred.
+- Default JSON/text output redacts raw account IDs, names, and external
+  identity hashes.
+
+Confirmed boundaries:
+
+- No APOLLO runtime code, XP ledger, persistent team behavior, reliability
+  score, public/member route, frontend UI, schema/proto change, deploy/GitOps
+  change, public tournament, OpenSkill read-path switch, messaging/chat, broad
+  social graph, or booking/commercial workflow was added.
+- No live ATHENA/APOLLO DB proof is claimed; the worker environment had no
+  `ATHENA_EDGE_POSTGRES_DSN` or `APOLLO_DATABASE_URL`.
+- Hestia and Themis remained untouched.

@@ -280,6 +280,12 @@ tournament ideas into one gated plan. Current scan state:
   squad aggregation, accepted/rejected findings, policy risks, blockers, and
   optional DB-backed local projection-row analysis. Active policy versions and
   public/member output behavior are unchanged; deployed truth is unchanged.
+- closed locally in ATHENA repo/runtime: ATHENA Real Ingress Bridge. `athena
+  edge ingress-bridge` now classifies ATHENA source/accepted presence,
+  identity presence, scope, timestamps, projection replay reasons, and
+  source-pass session facts for future APOLLO co-presence, private daily
+  presence, and reliability gates. APOLLO runtime and deployed truth are
+  unchanged.
 - still deferred: OpenSkill active read path, public tournaments, public/member
   safety UI details, messaging/chat, broad public social graph, public profiles
   and scouting, production historical rating backtesting, recurring schedule
@@ -427,6 +433,7 @@ and staff-side edit/replacement plus bounded staff schedule-control lines.
 | Rating Policy Simulation / Golden Expansion | post-wrapper APOLLO rating proof on `main`: deterministic fixtures, CLI JSON output, accepted/rejected scenarios, legacy baseline deltas, OpenSkill sidecar deltas, cutover blockers, and policy risks | keep proof local/CLI, keep OpenSkill sidecar-only, keep public/member reads allowlisted, and keep deployed truth separate | do not claim OpenSkill cutover, production backtesting, public ratings, public tournaments, frontend completion, or deployed truth |
 | Frontend Route/API Contract Matrix | post-rating-proof docs truth: Hestia/Themis route/API consumption, proxy denials, auth/role/state behavior, production/mock status, tests, and APOLLO ownership are frozen in the platform matrix | keep this docs-only, keep APOLLO source truth, keep Hestia/Themis as consumers, and require future frontend packets to update the matrix | do not claim runtime changes, generated contract enforcement, deployed frontend proof, public tournaments, OpenSkill active reads, frontend-owned formulas, public/member safety UI, or new product surface |
 | Game Identity Policy Tuning Loop | APOLLO game identity proof on `main`: deterministic fixtures, CLI JSON/text output, accepted/rejected findings, policy risks, blockers, and optional DB-backed local projection-row analysis for CP, badges, rivalry, and squads | keep APOLLO as game identity policy owner, keep active v1 policy behavior unchanged unless stronger evidence justifies a version bump, and keep deployed truth separate | do not claim production population backtesting, active retuning, public tournaments, broad social graph, persistent guilds, frontend-owned formulas, or deployed truth |
+| ATHENA Real Ingress Bridge | ATHENA local/runtime proof on `main`: CLI JSON/text report over source/accepted presence, identity presence, scope, timestamps, projection replay reasons, and source-pass sessions for future APOLLO trust gates | keep ATHENA as physical truth owner, keep APOLLO product behavior unchanged, keep source truth separate from accepted-presence truth, and keep deployed truth separate | do not claim persistent teams, XP ledger, reliability scoring, accepted-presence session cutover, frontend routes, public API, schema/proto changes, or live DB proof |
 | launch expansion audit | post-current APOLLO competition/rating/tournament/social expansion | follow [`launch-expansion-audit.md`](launch-expansion-audit.md) gates and packet order | do not jump directly to OpenSkill cutover, public tournaments, public safety UI, public profiles/scouting, broad social graph behavior, or broader public leaderboard/game-identity expansion |
 
 ## Current Phase 3B Line
