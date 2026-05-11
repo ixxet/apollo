@@ -200,13 +200,50 @@ func TestClientHandlesTimeoutStatusAndMalformedPayloads(t *testing.T) {
 	})
 
 	t.Run("ingress bridge non 200", func(t *testing.T) {
-		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"internal read token is required"}`))
-		}))
-		defer upstream.Close()
+		testCases := []struct {
+			name       string
+			statusCode int
+			body       string
+		}{
+			{name: "unauthorized", statusCode: http.StatusUnauthorized, body: `{"error":"internal read token is required"}`},
+			{name: "forbidden", statusCode: http.StatusForbidden, body: `{"error":"internal read token is required"}`},
+			{name: "unavailable", statusCode: http.StatusServiceUnavailable, body: `{"error":"edge ingress bridge internal read auth is not configured"}`},
+		}
 
-		client, err := NewClient(upstream.URL, time.Second)
+		for _, testCase := range testCases {
+			t.Run(testCase.name, func(t *testing.T) {
+				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(testCase.statusCode)
+					_, _ = w.Write([]byte(testCase.body))
+				}))
+				defer upstream.Close()
+
+				client, err := NewClient(upstream.URL, time.Second)
+				if err != nil {
+					t.Fatalf("NewClient() error = %v", err)
+				}
+				_, err = client.IngressBridgeReport(context.Background(), IngressBridgeFilter{
+					FacilityID:   "ashtonbee",
+					Since:        time.Date(2026, 4, 15, 13, 0, 0, 0, time.UTC),
+					Until:        time.Date(2026, 4, 15, 14, 0, 0, 0, time.UTC),
+					SessionLimit: 1,
+				})
+				var statusErr *UpstreamStatusError
+				if !errors.As(err, &statusErr) || statusErr.StatusCode != testCase.statusCode {
+					t.Fatalf("IngressBridgeReport() error = %v, want upstream %d", err, testCase.statusCode)
+				}
+			})
+		}
+	})
+
+	t.Run("ingress bridge upstream failure", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"facility_id":"ashtonbee"}`))
+		}))
+		baseURL := upstream.URL
+		upstream.Close()
+
+		client, err := NewClientWithInternalReadToken(baseURL, time.Second, "bridge-token")
 		if err != nil {
 			t.Fatalf("NewClient() error = %v", err)
 		}
@@ -216,9 +253,8 @@ func TestClientHandlesTimeoutStatusAndMalformedPayloads(t *testing.T) {
 			Until:        time.Date(2026, 4, 15, 14, 0, 0, 0, time.UTC),
 			SessionLimit: 1,
 		})
-		var statusErr *UpstreamStatusError
-		if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("IngressBridgeReport() error = %v, want upstream 401", err)
+		if !errors.Is(err, ErrRequestFailed) {
+			t.Fatalf("IngressBridgeReport() error = %v, want request failed", err)
 		}
 	})
 
@@ -300,6 +336,26 @@ func TestClientRejectsInvalidIngressBridgeFilter(t *testing.T) {
 	})
 	if !errors.Is(err, ErrIngressBridgeLimitInvalid) {
 		t.Fatalf("IngressBridgeReport(negative limit) error = %v, want limit invalid", err)
+	}
+
+	_, err = client.IngressBridgeReport(context.Background(), IngressBridgeFilter{
+		FacilityID:   "ashtonbee",
+		Since:        time.Date(2026, 4, 15, 13, 0, 0, 0, time.UTC),
+		Until:        time.Date(2026, 4, 15, 14, 0, 0, 0, time.UTC),
+		SessionLimit: 0,
+	})
+	if !errors.Is(err, ErrIngressBridgeLimitInvalid) {
+		t.Fatalf("IngressBridgeReport(zero limit) error = %v, want limit invalid", err)
+	}
+
+	_, err = client.IngressBridgeReport(context.Background(), IngressBridgeFilter{
+		FacilityID:   "ashtonbee",
+		Since:        time.Date(2026, 4, 15, 13, 0, 0, 0, time.UTC),
+		Until:        time.Date(2026, 4, 15, 14, 0, 0, 0, time.UTC),
+		SessionLimit: maxIngressBridgeSessionLimit + 1,
+	})
+	if !errors.Is(err, ErrIngressBridgeLimitInvalid) {
+		t.Fatalf("IngressBridgeReport(large limit) error = %v, want limit invalid", err)
 	}
 
 	if err != nil && strings.Contains(err.Error(), "account") {
