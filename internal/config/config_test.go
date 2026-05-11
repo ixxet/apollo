@@ -9,6 +9,7 @@ import (
 func TestLoadReadsOpsAthenaConfig(t *testing.T) {
 	t.Setenv("APOLLO_ATHENA_BASE_URL", "http://127.0.0.1:8080")
 	t.Setenv("APOLLO_ATHENA_TIMEOUT", "1500ms")
+	t.Setenv("APOLLO_ATHENA_INTERNAL_READ_TOKEN", "bridge-token")
 	t.Setenv("APOLLO_OPS_ANALYTICS_MAX_WINDOW", "48h")
 
 	cfg, err := Load()
@@ -20,6 +21,9 @@ func TestLoadReadsOpsAthenaConfig(t *testing.T) {
 	}
 	if cfg.AthenaTimeout != 1500*time.Millisecond {
 		t.Fatalf("AthenaTimeout = %s, want 1500ms", cfg.AthenaTimeout)
+	}
+	if cfg.AthenaInternalReadToken != "bridge-token" {
+		t.Fatalf("AthenaInternalReadToken = %q, want bridge-token", cfg.AthenaInternalReadToken)
 	}
 	if cfg.OpsAnalyticsMaxWindow != 48*time.Hour {
 		t.Fatalf("OpsAnalyticsMaxWindow = %s, want 48h", cfg.OpsAnalyticsMaxWindow)

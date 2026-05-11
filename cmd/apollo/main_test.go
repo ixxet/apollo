@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -152,6 +153,71 @@ func TestPresenceAthenaGateCommandClassifiesBridgeReportWithoutRawIdentityLeak(t
 	}
 	if strings.Contains(textOutput, "raw-hash-should-not-emit") {
 		t.Fatalf("text output leaked raw ATHENA identity: %s", textOutput)
+	}
+}
+
+func TestPresenceAthenaGateCommandReadsRuntimeAthenaBridge(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/presence/ingress-bridge" {
+			t.Fatalf("path = %s, want ingress bridge endpoint", r.URL.Path)
+		}
+		if got := r.Header.Get("X-Ashton-Internal-Read-Token"); got != "bridge-token" {
+			t.Fatalf("internal read token = %q, want bridge-token", got)
+		}
+		if got := r.URL.Query().Get("facility"); got != "ashtonbee" {
+			t.Fatalf("facility query = %q, want ashtonbee", got)
+		}
+		if got := r.URL.Query().Get("session_limit"); got != "50" {
+			t.Fatalf("session_limit query = %q, want 50", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"facility_id":"ashtonbee",
+			"zone_id":"gym-floor",
+			"since":"2026-04-10T08:00:00Z",
+			"until":"2026-04-10T12:00:00Z",
+			"evidence":[{
+				"evidence_id":"evidence-001",
+				"event_id":"evt-001",
+				"identity_present":true,
+				"identity_ref":"identity-001",
+				"facility_id":"ashtonbee",
+				"zone_id":"gym-floor",
+				"direction":"in",
+				"source_result":"pass",
+				"observed_at":"2026-04-10T09:00:00Z",
+				"source_committed":true,
+				"accepted_presence":true,
+				"eligibility":{
+					"co_presence_proof":{"eligible":true},
+					"private_daily_presence":{"eligible":true},
+					"reliability_verification":{"eligible":true}
+				}
+			}]
+		}`))
+	}))
+	defer upstream.Close()
+
+	output := runRootCommand(t,
+		"presence", "athena-gate",
+		"--athena-url", upstream.URL,
+		"--athena-internal-token", "bridge-token",
+		"--facility", "ashtonbee",
+		"--zone", "gym-floor",
+		"--since", "2026-04-10T08:00:00Z",
+		"--until", "2026-04-10T12:00:00Z",
+		"--format", "json",
+	)
+	if strings.Contains(output, "external_identity_hash") {
+		t.Fatalf("runtime gate output leaked raw ATHENA identity: %s", output)
+	}
+
+	var gateReport presence.AthenaPresenceGateReport
+	if err := json.Unmarshal([]byte(output), &gateReport); err != nil {
+		t.Fatalf("json.Unmarshal(runtime gate output) error = %v output=%s", err, output)
+	}
+	if gateReport.Summary.EligibleCoPresenceEvidence != 1 || gateReport.Summary.DailyPresenceReadyCredits != 1 {
+		t.Fatalf("gate summary = %+v, want one runtime co-presence and daily-ready signal", gateReport.Summary)
 	}
 }
 
