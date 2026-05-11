@@ -501,7 +501,7 @@ func newPresenceAthenaGateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&bridgeNodeID, "node", "", "optional node id for runtime ATHENA ingress bridge reads")
 	cmd.Flags().StringVar(&bridgeSince, "since", "", "inclusive RFC3339 lower bound for runtime ATHENA ingress bridge reads")
 	cmd.Flags().StringVar(&bridgeUntil, "until", "", "inclusive RFC3339 upper bound for runtime ATHENA ingress bridge reads")
-	cmd.Flags().IntVar(&bridgeSessionLimit, "session-limit", 50, "maximum number of source-pass session facts to request; 0 requests all")
+	cmd.Flags().IntVar(&bridgeSessionLimit, "session-limit", 50, "maximum number of source-pass session facts to request from ATHENA; must be between 1 and 250")
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
 	return cmd
 }

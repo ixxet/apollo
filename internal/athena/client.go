@@ -30,10 +30,13 @@ var (
 	ErrAnalyticsLimitInvalid        = errors.New("athena analytics session_limit must be greater than zero")
 	ErrIngressBridgeFacilityMissing = errors.New("athena ingress bridge facility is required")
 	ErrIngressBridgeWindowInvalid   = errors.New("athena ingress bridge window is invalid")
-	ErrIngressBridgeLimitInvalid    = errors.New("athena ingress bridge session_limit must be greater than or equal to zero")
+	ErrIngressBridgeLimitInvalid    = errors.New("athena ingress bridge session_limit must be between 1 and 250")
 )
 
-const internalReadTokenHeader = "X-Ashton-Internal-Read-Token"
+const (
+	internalReadTokenHeader      = "X-Ashton-Internal-Read-Token"
+	maxIngressBridgeSessionLimit = 250
+)
 
 type UpstreamStatusError struct {
 	StatusCode int
@@ -282,9 +285,7 @@ func (c *Client) IngressBridgeReport(ctx context.Context, filter IngressBridgeFi
 	}
 	query.Set("since", filter.Since.UTC().Format(time.RFC3339))
 	query.Set("until", filter.Until.UTC().Format(time.RFC3339))
-	if filter.SessionLimit >= 0 {
-		query.Set("session_limit", fmt.Sprintf("%d", filter.SessionLimit))
-	}
+	query.Set("session_limit", fmt.Sprintf("%d", filter.SessionLimit))
 
 	response, err := c.doInternalGET(ctx, "/api/v1/presence/ingress-bridge", query)
 	if err != nil {
@@ -332,7 +333,7 @@ func validateIngressBridgeFilter(filter IngressBridgeFilter) error {
 	if filter.Since.IsZero() || filter.Until.IsZero() || filter.Until.Before(filter.Since) {
 		return ErrIngressBridgeWindowInvalid
 	}
-	if filter.SessionLimit < 0 {
+	if filter.SessionLimit <= 0 || filter.SessionLimit > maxIngressBridgeSessionLimit {
 		return ErrIngressBridgeLimitInvalid
 	}
 
