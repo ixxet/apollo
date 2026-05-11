@@ -10,18 +10,19 @@ import (
 )
 
 type Config struct {
-	HTTPAddr              string
-	DatabaseURL           string
-	NATSURL               string
-	SessionCookieName     string
-	SessionCookieSecret   string
-	SessionCookieSecure   bool
-	VerificationTokenTTL  time.Duration
-	SessionTTL            time.Duration
-	LogVerificationTokens bool
-	AthenaBaseURL         string
-	AthenaTimeout         time.Duration
-	OpsAnalyticsMaxWindow time.Duration
+	HTTPAddr                string
+	DatabaseURL             string
+	NATSURL                 string
+	SessionCookieName       string
+	SessionCookieSecret     string
+	SessionCookieSecure     bool
+	VerificationTokenTTL    time.Duration
+	SessionTTL              time.Duration
+	LogVerificationTokens   bool
+	AthenaBaseURL           string
+	AthenaTimeout           time.Duration
+	AthenaInternalReadToken string
+	OpsAnalyticsMaxWindow   time.Duration
 }
 
 func Load() (Config, error) {
@@ -61,18 +62,19 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		HTTPAddr:              getEnv("APOLLO_HTTP_ADDR", ":8081"),
-		DatabaseURL:           getEnv("APOLLO_DATABASE_URL", ""),
-		NATSURL:               getEnv("APOLLO_NATS_URL", ""),
-		SessionCookieName:     getEnv("APOLLO_SESSION_COOKIE_NAME", "apollo_session"),
-		SessionCookieSecret:   getEnv("APOLLO_SESSION_COOKIE_SECRET", ""),
-		SessionCookieSecure:   sessionCookieSecure,
-		VerificationTokenTTL:  verificationTokenTTL,
-		SessionTTL:            sessionTTL,
-		LogVerificationTokens: logVerificationTokens,
-		AthenaBaseURL:         athenaBaseURL,
-		AthenaTimeout:         athenaTimeout,
-		OpsAnalyticsMaxWindow: opsAnalyticsMaxWindow,
+		HTTPAddr:                getEnv("APOLLO_HTTP_ADDR", ":8081"),
+		DatabaseURL:             getEnv("APOLLO_DATABASE_URL", ""),
+		NATSURL:                 getEnv("APOLLO_NATS_URL", ""),
+		SessionCookieName:       getEnv("APOLLO_SESSION_COOKIE_NAME", "apollo_session"),
+		SessionCookieSecret:     getEnv("APOLLO_SESSION_COOKIE_SECRET", ""),
+		SessionCookieSecure:     sessionCookieSecure,
+		VerificationTokenTTL:    verificationTokenTTL,
+		SessionTTL:              sessionTTL,
+		LogVerificationTokens:   logVerificationTokens,
+		AthenaBaseURL:           athenaBaseURL,
+		AthenaTimeout:           athenaTimeout,
+		AthenaInternalReadToken: getEnv("APOLLO_ATHENA_INTERNAL_READ_TOKEN", ""),
+		OpsAnalyticsMaxWindow:   opsAnalyticsMaxWindow,
 	}, nil
 }
 

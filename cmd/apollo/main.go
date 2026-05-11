@@ -270,7 +270,7 @@ func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *
 
 	var opsReader server.OpsOverviewReader
 	if strings.TrimSpace(cfg.AthenaBaseURL) != "" {
-		athenaClient, err := athena.NewClient(cfg.AthenaBaseURL, cfg.AthenaTimeout)
+		athenaClient, err := athena.NewClientWithInternalReadToken(cfg.AthenaBaseURL, cfg.AthenaTimeout, cfg.AthenaInternalReadToken)
 		if err != nil {
 			return server.Dependencies{}, err
 		}
@@ -405,6 +405,15 @@ func newPresenceCmd() *cobra.Command {
 
 func newPresenceAthenaGateCmd() *cobra.Command {
 	var bridgeReportPath string
+	var athenaURL string
+	var athenaInternalToken string
+	var athenaTimeout time.Duration
+	var bridgeFacilityID string
+	var bridgeZoneID string
+	var bridgeNodeID string
+	var bridgeSince string
+	var bridgeUntil string
+	var bridgeSessionLimit int
 	var format string
 
 	cmd := &cobra.Command{
@@ -412,13 +421,59 @@ func newPresenceAthenaGateCmd() *cobra.Command {
 		Short: "Classify ATHENA ingress bridge evidence for future APOLLO presence gates.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			trimmedPath := strings.TrimSpace(bridgeReportPath)
-			if trimmedPath == "" {
-				return fmt.Errorf("bridge report path is required")
-			}
-
-			payload, err := os.ReadFile(trimmedPath)
-			if err != nil {
-				return fmt.Errorf("read ATHENA bridge report: %w", err)
+			var payload []byte
+			if trimmedPath != "" {
+				if cmd.Flags().Changed("athena-url") {
+					return fmt.Errorf("--bridge-report and --athena-url are mutually exclusive")
+				}
+				var err error
+				payload, err = os.ReadFile(trimmedPath)
+				if err != nil {
+					return fmt.Errorf("read ATHENA bridge report: %w", err)
+				}
+			} else {
+				cfg, err := config.Load()
+				if err != nil {
+					return err
+				}
+				effectiveURL := strings.TrimSpace(athenaURL)
+				if effectiveURL == "" {
+					effectiveURL = cfg.AthenaBaseURL
+				}
+				if effectiveURL == "" {
+					return fmt.Errorf("bridge report path or ATHENA URL is required")
+				}
+				effectiveToken := strings.TrimSpace(athenaInternalToken)
+				if !cmd.Flags().Changed("athena-internal-token") {
+					effectiveToken = cfg.AthenaInternalReadToken
+				}
+				effectiveTimeout := athenaTimeout
+				if effectiveTimeout <= 0 {
+					effectiveTimeout = cfg.AthenaTimeout
+				}
+				since, err := parsePresenceGateBoundary(bridgeSince, "--since")
+				if err != nil {
+					return err
+				}
+				until, err := parsePresenceGateBoundary(bridgeUntil, "--until")
+				if err != nil {
+					return err
+				}
+				client, err := athena.NewClientWithInternalReadToken(effectiveURL, effectiveTimeout, effectiveToken)
+				if err != nil {
+					return err
+				}
+				payload, err = client.IngressBridgeReport(cmd.Context(), athena.IngressBridgeFilter{
+					FacilityID:   bridgeFacilityID,
+					ZoneID:       bridgeZoneID,
+					NodeID:       bridgeNodeID,
+					Since:        since,
+					Until:        until,
+					SessionLimit: bridgeSessionLimit,
+				})
+				if err != nil {
+					return fmt.Errorf("read ATHENA ingress bridge: %w", err)
+				}
 			}
 
 			var bridgeReport presence.AthenaIngressBridgeReport
@@ -438,8 +493,16 @@ func newPresenceAthenaGateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&bridgeReportPath, "bridge-report", "", "path to ATHENA edge ingress-bridge JSON output")
+	cmd.Flags().StringVar(&athenaURL, "athena-url", "", "ATHENA base URL for runtime ingress bridge reads; defaults to APOLLO_ATHENA_BASE_URL")
+	cmd.Flags().StringVar(&athenaInternalToken, "athena-internal-token", "", "ATHENA internal read token; defaults to APOLLO_ATHENA_INTERNAL_READ_TOKEN")
+	cmd.Flags().DurationVar(&athenaTimeout, "athena-timeout", 0, "ATHENA request timeout; defaults to APOLLO_ATHENA_TIMEOUT")
+	cmd.Flags().StringVar(&bridgeFacilityID, "facility", "", "facility id for runtime ATHENA ingress bridge reads")
+	cmd.Flags().StringVar(&bridgeZoneID, "zone", "", "optional zone id for runtime ATHENA ingress bridge reads")
+	cmd.Flags().StringVar(&bridgeNodeID, "node", "", "optional node id for runtime ATHENA ingress bridge reads")
+	cmd.Flags().StringVar(&bridgeSince, "since", "", "inclusive RFC3339 lower bound for runtime ATHENA ingress bridge reads")
+	cmd.Flags().StringVar(&bridgeUntil, "until", "", "inclusive RFC3339 upper bound for runtime ATHENA ingress bridge reads")
+	cmd.Flags().IntVar(&bridgeSessionLimit, "session-limit", 50, "maximum number of source-pass session facts to request; 0 requests all")
 	cmd.Flags().StringVar(&format, "format", "text", "output format: text or json")
-	_ = cmd.MarkFlagRequired("bridge-report")
 	return cmd
 }
 
@@ -1974,6 +2037,18 @@ func parseScheduleBoundary(raw string, _ bool) (time.Time, error) {
 		return parsed.UTC(), nil
 	}
 	return time.Time{}, fmt.Errorf("window boundary must be RFC3339")
+}
+
+func parsePresenceGateBoundary(raw string, flag string) (time.Time, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("%s is required for runtime ATHENA ingress bridge reads", flag)
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s must be RFC3339", flag)
+	}
+	return parsed.UTC(), nil
 }
 
 func newSportCmd() *cobra.Command {

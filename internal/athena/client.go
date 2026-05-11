@@ -1,10 +1,12 @@
 package athena
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,18 +16,24 @@ import (
 )
 
 var (
-	ErrBaseURLRequired          = errors.New("athena base url is required")
-	ErrBaseURLInvalid           = errors.New("athena base url is invalid")
-	ErrTimeoutInvalid           = errors.New("athena timeout must be greater than zero")
-	ErrMalformedResponse        = errors.New("athena occupancy response is malformed")
-	ErrAnalyticsMalformed       = errors.New("athena analytics response is malformed")
-	ErrRequestTimeout           = errors.New("athena request timed out")
-	ErrRequestFailed            = errors.New("athena request failed")
-	ErrAnalyticsFacilityMissing = errors.New("athena analytics facility is required")
-	ErrAnalyticsWindowInvalid   = errors.New("athena analytics window is invalid")
-	ErrAnalyticsBucketInvalid   = errors.New("athena analytics bucket_minutes must be greater than zero")
-	ErrAnalyticsLimitInvalid    = errors.New("athena analytics session_limit must be greater than zero")
+	ErrBaseURLRequired              = errors.New("athena base url is required")
+	ErrBaseURLInvalid               = errors.New("athena base url is invalid")
+	ErrTimeoutInvalid               = errors.New("athena timeout must be greater than zero")
+	ErrMalformedResponse            = errors.New("athena occupancy response is malformed")
+	ErrAnalyticsMalformed           = errors.New("athena analytics response is malformed")
+	ErrIngressBridgeMalformed       = errors.New("athena ingress bridge response is malformed")
+	ErrRequestTimeout               = errors.New("athena request timed out")
+	ErrRequestFailed                = errors.New("athena request failed")
+	ErrAnalyticsFacilityMissing     = errors.New("athena analytics facility is required")
+	ErrAnalyticsWindowInvalid       = errors.New("athena analytics window is invalid")
+	ErrAnalyticsBucketInvalid       = errors.New("athena analytics bucket_minutes must be greater than zero")
+	ErrAnalyticsLimitInvalid        = errors.New("athena analytics session_limit must be greater than zero")
+	ErrIngressBridgeFacilityMissing = errors.New("athena ingress bridge facility is required")
+	ErrIngressBridgeWindowInvalid   = errors.New("athena ingress bridge window is invalid")
+	ErrIngressBridgeLimitInvalid    = errors.New("athena ingress bridge session_limit must be greater than or equal to zero")
 )
+
+const internalReadTokenHeader = "X-Ashton-Internal-Read-Token"
 
 type UpstreamStatusError struct {
 	StatusCode int
@@ -55,6 +63,15 @@ type AnalyticsFilter struct {
 	Until         time.Time
 	BucketMinutes int
 	SessionLimit  int
+}
+
+type IngressBridgeFilter struct {
+	FacilityID   string
+	ZoneID       string
+	NodeID       string
+	Since        time.Time
+	Until        time.Time
+	SessionLimit int
 }
 
 type AnalyticsReport struct {
@@ -119,8 +136,9 @@ type SessionFact struct {
 }
 
 type Client struct {
-	baseURL    *url.URL
-	httpClient *http.Client
+	baseURL           *url.URL
+	httpClient        *http.Client
+	internalReadToken string
 }
 
 type occupancyResponse struct {
@@ -135,6 +153,14 @@ type errorResponse struct {
 }
 
 func NewClient(baseURL string, timeout time.Duration) (*Client, error) {
+	return newClient(baseURL, timeout, "")
+}
+
+func NewClientWithInternalReadToken(baseURL string, timeout time.Duration, token string) (*Client, error) {
+	return newClient(baseURL, timeout, token)
+}
+
+func newClient(baseURL string, timeout time.Duration, token string) (*Client, error) {
 	trimmed := strings.TrimSpace(baseURL)
 	if trimmed == "" {
 		return nil, ErrBaseURLRequired
@@ -159,6 +185,7 @@ func NewClient(baseURL string, timeout time.Duration) (*Client, error) {
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
+		internalReadToken: strings.TrimSpace(token),
 	}, nil
 }
 
@@ -240,6 +267,47 @@ func (c *Client) OccupancyAnalytics(ctx context.Context, filter AnalyticsFilter)
 	return payload, nil
 }
 
+func (c *Client) IngressBridgeReport(ctx context.Context, filter IngressBridgeFilter) (json.RawMessage, error) {
+	if err := validateIngressBridgeFilter(filter); err != nil {
+		return nil, err
+	}
+
+	query := make(url.Values)
+	query.Set("facility", strings.TrimSpace(filter.FacilityID))
+	if strings.TrimSpace(filter.ZoneID) != "" {
+		query.Set("zone", strings.TrimSpace(filter.ZoneID))
+	}
+	if strings.TrimSpace(filter.NodeID) != "" {
+		query.Set("node", strings.TrimSpace(filter.NodeID))
+	}
+	query.Set("since", filter.Since.UTC().Format(time.RFC3339))
+	query.Set("until", filter.Until.UTC().Format(time.RFC3339))
+	if filter.SessionLimit >= 0 {
+		query.Set("session_limit", fmt.Sprintf("%d", filter.SessionLimit))
+	}
+
+	response, err := c.doInternalGET(ctx, "/api/v1/presence/ingress-bridge", query)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return nil, decodeUpstreamStatus(response)
+	}
+
+	payload, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrIngressBridgeMalformed, err)
+	}
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 || !json.Valid(trimmed) || trimmed[0] != '{' {
+		return nil, ErrIngressBridgeMalformed
+	}
+
+	return json.RawMessage(trimmed), nil
+}
+
 func validateAnalyticsFilter(filter AnalyticsFilter) error {
 	if strings.TrimSpace(filter.FacilityID) == "" {
 		return ErrAnalyticsFacilityMissing
@@ -252,6 +320,20 @@ func validateAnalyticsFilter(filter AnalyticsFilter) error {
 	}
 	if filter.SessionLimit < 0 {
 		return ErrAnalyticsLimitInvalid
+	}
+
+	return nil
+}
+
+func validateIngressBridgeFilter(filter IngressBridgeFilter) error {
+	if strings.TrimSpace(filter.FacilityID) == "" {
+		return ErrIngressBridgeFacilityMissing
+	}
+	if filter.Since.IsZero() || filter.Until.IsZero() || filter.Until.Before(filter.Since) {
+		return ErrIngressBridgeWindowInvalid
+	}
+	if filter.SessionLimit < 0 {
+		return ErrIngressBridgeLimitInvalid
 	}
 
 	return nil
@@ -274,6 +356,14 @@ func validateAnalyticsReport(report AnalyticsReport) error {
 }
 
 func (c *Client) doGET(ctx context.Context, endpoint string, query url.Values) (*http.Response, error) {
+	return c.doGETWithInternalRead(ctx, endpoint, query, false)
+}
+
+func (c *Client) doInternalGET(ctx context.Context, endpoint string, query url.Values) (*http.Response, error) {
+	return c.doGETWithInternalRead(ctx, endpoint, query, true)
+}
+
+func (c *Client) doGETWithInternalRead(ctx context.Context, endpoint string, query url.Values, internalRead bool) (*http.Response, error) {
 	requestURL := *c.baseURL
 	requestURL.Path = path.Join(c.baseURL.Path, endpoint)
 	requestURL.RawQuery = query.Encode()
@@ -281,6 +371,9 @@ func (c *Client) doGET(ctx context.Context, endpoint string, query url.Values) (
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("build athena request: %w", err)
+	}
+	if internalRead && c.internalReadToken != "" {
+		request.Header.Set(internalReadTokenHeader, c.internalReadToken)
 	}
 
 	response, err := c.httpClient.Do(request)
