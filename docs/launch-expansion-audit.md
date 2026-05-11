@@ -31,8 +31,8 @@ Fast scan for agents before reading the full audit:
 | Rating policy simulation | Closed locally in repo/runtime: deterministic fixtures and CLI output now cover active policy behavior, legacy baseline deltas, OpenSkill sidecar deltas, accepted/rejected scenarios, blockers, and risk classification. | OpenSkill cutover, public rating launch readiness, production data backtesting, public tournaments, or deployed truth. |
 | Frontend route/API contract matrix | Closed as docs truth: Hestia and Themis route/API consumption, proxy denials, auth/role states, empty/error/denied states, production/mock status, and test coverage are enumerated in the platform matrix. | New frontend behavior, generated contract enforcement, deployed Hestia/Themis proof, public tournaments, OpenSkill read-path switch, or frontend-owned formulas. |
 | Game identity policy tuning | Closed locally in APOLLO repo/runtime: deterministic CP, badge, rivalry, and squad fixtures plus `apollo competition game-identity tuning --format json` record accepted/rejected findings, policy risks, blockers, and optional DB-backed local projection-row analysis. Active policy versions remain unchanged. | Production population backtesting, active retuning, deployed truth, public tournaments, broad social graph, persistent guilds, or frontend-owned formulas. |
-| ATHENA real ingress bridge | Closed locally in ATHENA repo/runtime: `athena edge ingress-bridge` and token-gated internal `GET /api/v1/presence/ingress-bridge` classify existing physical evidence for future co-presence, private daily presence, and reliability verification gates while redacting identity hashes and keeping accepted-presence truth separate from source-pass sessions. | Persistent teams, XP ledger, reliability scoring, public/member UI, frontend routes, schema/proto changes, public exposure, live DB proof, or deployed truth. |
-| APOLLO presence gate proof | Closed locally in APOLLO repo/runtime: `apollo presence athena-gate --bridge-report <path> --format json|text` or `--athena-url <url>` classifies ATHENA bridge JSON into internal co-presence and private daily presence eligibility signals. APOLLO sends `X-Ashton-Internal-Read-Token` when configured and owns product eligibility classification while ATHENA remains physical truth owner. | Visit/tap-link/streak mutation, XP ledger, persistent teams, reliability scoring, public/member route, public API/UI, frontend work, live population proof, public ATHENA exposure, or deployed truth. |
+| ATHENA real ingress bridge | Closed locally in ATHENA repo/runtime: `athena edge ingress-bridge` and token-gated internal `GET /api/v1/presence/ingress-bridge` classify existing physical evidence for future co-presence, private daily presence, and reliability verification gates while redacting identity hashes and keeping accepted-presence truth separate from source-pass sessions. The HTTP read uses fixed-length token comparison, no-store responses, and bounded session limits. | Persistent teams, XP ledger, reliability scoring, public/member UI, frontend routes, schema/proto changes, public exposure, live DB proof, or deployed truth. |
+| APOLLO presence gate proof | Closed locally in APOLLO repo/runtime: `apollo presence athena-gate --bridge-report <path> --format json|text` or `--athena-url <url>` classifies ATHENA bridge JSON into internal co-presence and private daily presence eligibility signals. APOLLO sends `X-Ashton-Internal-Read-Token` when configured, bounds runtime bridge requests to `session-limit` 1-250, and owns product eligibility classification while ATHENA remains physical truth owner. | Visit/tap-link/streak mutation, XP ledger, persistent teams, reliability scoring, public/member route, public API/UI, frontend work, live population proof, public ATHENA exposure, or deployed truth. |
 | Live destructive probe plan | Closed as platform docs/runbook truth: future APOLLO/ATHENA live mutation and SIGTERM probes have target gates, abort criteria, evidence ledger, rollback expectations, and command skeletons. | Executed live destructive proof, deployed truth change, deploy/GitOps mutation, public tournament readiness, or OpenSkill read-path cutover. |
 | Historical evidence | Closeout addenda and hardening docs preserve what was true at the time of each tracer. | Current deferred truth unless a current section says it still applies. |
 
@@ -1504,6 +1504,7 @@ Use this table to link future rulings to PRs, commits, or conversation artifacts
 | 2026-05-03 | Game Identity Policy Tuning Loop is closed locally in APOLLO repo/runtime: deterministic fixtures and `apollo competition game-identity tuning --format json` prove current CP weights, badge thresholds, rivalry activation, squad aggregation, accepted/rejected findings, policy risks, and blockers. Optional DB-backed local analysis is implemented and test-proved with fixture-backed projection rows; this worker environment had no `APOLLO_DATABASE_URL`, so no real local DB evidence is claimed. Active game identity policy versions remain unchanged; deployed truth is unchanged. | `go test -count=1 ./internal/competition -run 'TestGameIdentityPolicyTuning\|TestPublicGameIdentity\|TestMemberGameIdentity'`; `go test -count=1 ./cmd/apollo -run 'TestCompetitionGameIdentityTuningCLIJSONAndText\|TestCompetitionCLIDemoProjectionSafetyAndPreviewReads'`; `go test -count=1 ./internal/competition ./internal/rating ./internal/server ./cmd/apollo`; `go vet ./...`; `go build ./cmd/apollo`. |
 | 2026-05-04 | Packet 8 Live Destructive Probe Plan is closed as docs/runbook truth only in platform: future APOLLO/ATHENA live mutation and SIGTERM probes have fixture gates, abort criteria, evidence ledger, rollback expectations, and command skeletons. No live destructive probe, rollout restart, pod kill, DB write, APOLLO runtime change, deploy/GitOps change, or deployed-truth change happened. | `planning/LIVE-DESTRUCTIVE-PROBE-PLAN.md`; platform/APOLLO/ATHENA docs-only verification. |
 | 2026-05-04 | Co-presence / Private Daily Presence Gate is closed locally in APOLLO repo/runtime: `apollo presence athena-gate --bridge-report <path> --format json|text` reads ATHENA ingress bridge JSON and classifies internal co-presence plus private daily presence readiness. ATHENA remains physical truth owner; APOLLO owns product eligibility classification. No visits, tap-links, streaks, XP, teams, reliability scoring, public/member routes, frontend UI, deploy/GitOps, or deployed truth changed. | `ad0171e`; `go test -count=1 ./internal/presence ./cmd/apollo`; focused APOLLO boundary tests. |
+| 2026-05-11 | Operational presence bridge deploy readiness is hardened in repo/runtime only: ATHENA bridge reads now use fixed-length token comparison, no-store responses, and bounded HTTP session limits; APOLLO refuses unbounded runtime bridge `session-limit` values and has expanded upstream 401/403/503/malformed/failure coverage. Closed-test deploy/smoke remains unexecuted without explicit approval, and deployed truth is unchanged. | `go test -count=1 ./internal/config ./internal/athena ./internal/presence ./cmd/apollo`; `go vet ./...`; `go build ./cmd/apollo`; `go test -count=1 ./...`. |
 
 ## Hard Non-Touches
 
@@ -2817,19 +2818,23 @@ same ingress bridge report shape, and APOLLO's ATHENA client plus
 Runtime/auth truth:
 
 - ATHENA requires `ATHENA_INTERNAL_READ_TOKEN` for the bridge HTTP read and
-  checks it through `X-Ashton-Internal-Read-Token`.
+  checks it through `X-Ashton-Internal-Read-Token` using fixed-length token
+  comparison before the constant-time compare.
 - Missing bridge tokens return `401`; invalid bridge tokens return `403`; an
   unconfigured ATHENA internal token returns `503` instead of serving an
   unauthenticated report.
+- ATHENA bridge HTTP responses set no-store/no-cache headers, and runtime
+  `session_limit` values are bounded to `1` through `250`.
 - APOLLO sends the token from `APOLLO_ATHENA_INTERNAL_READ_TOKEN` or the
-  internal CLI flag when configured.
+  internal CLI flag when configured, and `apollo presence athena-gate
+  --athena-url` refuses unbounded runtime session-limit values.
 - File-backed `--bridge-report` remains available for local artifact proof.
 
 Boundaries:
 
 - This is repo/runtime auth proof only. No deploy, proxy/GitOps change, public
-  exposure, frontend UI, public/member route, schema/proto change, or live DB
-  proof is claimed.
+  exposure, frontend UI, public/member route, schema/proto change, live smoke,
+  or live DB proof is claimed.
 - ATHENA remains physical truth owner; APOLLO owns product eligibility
   classification.
 - Visits, tap-links, streaks, XP, teams, reliability scores, public
