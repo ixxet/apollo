@@ -13,7 +13,8 @@ over Phase 3B.20 game identity, Phase 3B.19 public competition readiness, Phase
 tournament runtime, and Phase 3B.16 competition analytics foundation,
 Game Identity Policy Tuning Loop, Rating Policy Simulation / Golden Expansion,
 Rating Policy Wrapper, Scale Gate Numeric Ceilings, CLI Demo Spine,
-Co-presence / Private Daily Presence Gate,
+Co-presence / Private Daily Presence Gate, Operational ATHENA/APOLLO Presence
+Trust Gate,
 Tracer 28 `v0.19.x`, Milestone 2.0 hardening
 `v0.19.1`, Phase 3 shared substrate B, Phase 3A.1 member shell foundation,
 Phase 3A.4 member-safe schedule calendar, Phase 3B.1 ops read foundation, and
@@ -282,19 +283,20 @@ tournament ideas into one gated plan. Current scan state:
   optional DB-backed local projection-row analysis. Active policy versions and
   public/member output behavior are unchanged; deployed truth is unchanged.
 - closed locally in ATHENA repo/runtime: ATHENA Real Ingress Bridge. `athena
-  edge ingress-bridge` now classifies ATHENA source/accepted presence,
-  identity presence, scope, timestamps, projection replay reasons, and
-  source-pass session facts for future APOLLO co-presence, private daily
-  presence, and reliability gates. APOLLO runtime and deployed truth are
-  unchanged.
+  edge ingress-bridge` plus token-gated internal
+  `GET /api/v1/presence/ingress-bridge` now classify ATHENA source/accepted
+  presence, identity presence, scope, timestamps, projection replay reasons,
+  and source-pass session facts for future APOLLO co-presence, private daily
+  presence, and reliability gates. Deployed truth is unchanged.
 - closed locally in APOLLO repo/runtime: Co-presence / Private Daily Presence
-  Gate. `apollo presence athena-gate --bridge-report <path> --format json|text`
-  classifies ATHENA bridge JSON into APOLLO-owned internal eligibility signals
-  for future co-presence and private daily presence/check-in readiness. ATHENA
-  remains physical truth owner, APOLLO owns product eligibility
-  classification, and no visits, tap-links, streaks, XP, teams, reliability
-  scoring, public/member routes, public APIs, frontend UI, or deployed truth
-  changed.
+  Gate plus Operational ATHENA/APOLLO Presence Trust Gate. `apollo presence
+  athena-gate --bridge-report <path> --format json|text` or `--athena-url
+  <url>` classifies ATHENA bridge JSON into APOLLO-owned internal eligibility
+  signals for future co-presence and private daily presence/check-in readiness.
+  APOLLO sends `X-Ashton-Internal-Read-Token` when configured, ATHENA remains
+  physical truth owner, APOLLO owns product eligibility classification, and no
+  visits, tap-links, streaks, XP, teams, reliability scoring, public/member
+  routes, public APIs, frontend UI, deploy/GitOps, or deployed truth changed.
 - closed as platform docs/runbook truth only: Live Destructive Probe Plan.
   Future APOLLO/ATHENA live mutation and SIGTERM proof now has fixture gates,
   abort criteria, evidence ledger, rollback expectations, and command
@@ -476,12 +478,12 @@ has deterministic CP/badge/rivalry/squad policy fixtures, CLI JSON/text output,
 accepted/rejected findings, policy risks, blockers, and optional DB-backed
 local projection-row analysis while active policy versions remain unchanged.
 Co-presence / Private Daily Presence Gate is closed locally in repo/runtime:
-APOLLO now has `apollo presence athena-gate` over ATHENA bridge JSON for
-internal co-presence and private daily presence/check-in readiness
-classification. ATHENA remains physical truth owner, APOLLO owns product
-eligibility classification, and the proof does not mutate visits, tap-links,
-streaks, XP, teams, reliability, public/member routes, public APIs, frontend
-UI, or deployed truth.
+APOLLO now has `apollo presence athena-gate` over ATHENA bridge JSON from a file
+or token-gated ATHENA runtime read for internal co-presence and private daily
+presence/check-in readiness classification. ATHENA remains physical truth
+owner, APOLLO owns product eligibility classification, and the proof does not
+mutate visits, tap-links, streaks, XP, teams, reliability, public/member
+routes, public APIs, frontend UI, deploy/GitOps, or deployed truth.
 Live Destructive Probe Plan is closed as platform docs/runbook truth only:
 future APOLLO/ATHENA live mutation and SIGTERM proof has a plan, but no live
 destructive probe, rollout restart, pod kill, DB write, APOLLO runtime change,
