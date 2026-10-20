@@ -1329,7 +1329,8 @@ func (s *Service) expandBlockOccurrences(block Block, snapshot *facilitySnapshot
 
 		exceptions := snapshot.exceptions[block.ID]
 		occurrences := make([]blockOccurrence, 0)
-		for !current.After(windowEnd) {
+		// windowEnd is the exclusive midnight after the final allowed date.
+		for current.Before(windowEnd) {
 			localStart := time.Date(current.Year(), current.Month(), current.Day(), startClock.Hour(), startClock.Minute(), 0, 0, location)
 			localEnd := time.Date(current.Year(), current.Month(), current.Day(), endClock.Hour(), endClock.Minute(), 0, 0, location)
 			if !localEnd.After(localStart) {

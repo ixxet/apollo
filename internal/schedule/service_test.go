@@ -12,6 +12,49 @@ import (
 	"github.com/ixxet/apollo/internal/testutil"
 )
 
+func TestWeeklyOccurrencesRespectInclusiveRecurrenceEndDate(t *testing.T) {
+	for _, test := range []struct {
+		name, endDate, from, until, wantStart string
+		weekday                               int
+	}{
+		{"day after expiry", "2026-11-19", "2026-11-20T00:00:00-05:00", "2026-11-21T00:00:00-05:00", "", 5},
+		{"last date included", "2026-11-19", "2026-11-19T00:00:00-05:00", "2026-11-20T00:00:00-05:00", "2026-11-19T14:00:00Z", 4},
+		{"matching weekday on last date", "2026-11-20", "2026-11-20T00:00:00-05:00", "2026-11-21T00:00:00-05:00", "2026-11-20T14:00:00Z", 5},
+		{"clock change after expiry", "2026-10-31", "2026-11-01T00:00:00-04:00", "2026-11-02T00:00:00-05:00", "", 7},
+		{"clock change on last date", "2026-11-01", "2026-11-01T00:00:00-04:00", "2026-11-02T00:00:00-05:00", "2026-11-01T14:00:00Z", 7},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			block := Block{
+				ID: uuid.New(), FacilityKey: "ashtonbee", Scope: ScopeFacility,
+				ScheduleType: ScheduleTypeWeekly, Kind: KindOperatingHours,
+				Effect: EffectInformational, Visibility: VisibilityPublicLabeled,
+				Status: StatusScheduled, Weekday: intPtr(test.weekday),
+				StartTime: stringPtr("09:00"), EndTime: stringPtr("18:00"),
+				Timezone:            stringPtr("America/Toronto"),
+				RecurrenceStartDate: stringPtr("2026-10-21"), RecurrenceEndDate: stringPtr(test.endDate),
+			}
+			occurrences, err := (&Service{}).expandBlockOccurrences(block, &facilitySnapshot{}, CalendarWindow{
+				From: mustParseTime(t, test.from), Until: mustParseTime(t, test.until),
+			})
+			if err != nil {
+				t.Fatalf("expandBlockOccurrences() error = %v", err)
+			}
+			if test.wantStart == "" {
+				if len(occurrences) != 0 {
+					t.Fatalf("got %d occurrences after the recurrence end date, want none", len(occurrences))
+				}
+				return
+			}
+			if len(occurrences) != 1 || !occurrences[0].StartsAt.Equal(mustParseTime(t, test.wantStart)) {
+				t.Fatalf("occurrences = %+v, want one starting at %s", occurrences, test.wantStart)
+			}
+			if occurrences[0].EndsAt.Sub(occurrences[0].StartsAt) != 9*time.Hour {
+				t.Fatalf("occurrence duration = %s, want 9h", occurrences[0].EndsAt.Sub(occurrences[0].StartsAt))
+			}
+		})
+	}
+}
+
 func TestScheduleGraphConflictPropagationAndExclusiveNormalization(t *testing.T) {
 	t.Run("parent blocks child and child blocks parent", func(t *testing.T) {
 		service, actor, cleanup := newScheduleServiceFixture(t)
