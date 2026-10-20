@@ -2255,6 +2255,9 @@ func writeJSONOutput(cmd *cobra.Command, value any) error {
 }
 
 func writePresenceAthenaGateText(cmd *cobra.Command, report presence.AthenaPresenceGateReport) error {
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "completeness observations=%t sessions=%t replay_context=%t\n", report.Completeness.Observations, report.Completeness.Sessions, report.Completeness.ReplayContext); err != nil {
+		return err
+	}
 	if _, err := fmt.Fprintf(
 		cmd.OutOrStdout(),
 		"facility=%s zone=%s evidence=%d accepted=%d co_presence_eligible=%d daily_ready=%d daily_already_counted=%d\n",

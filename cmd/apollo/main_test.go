@@ -1662,3 +1662,16 @@ func TestPresenceAthenaGateRejectsNonRegularFiles(t *testing.T) {
 		t.Fatalf("canceled file read=%v", err)
 	}
 }
+
+func TestPresenceAthenaGateTextKeepsEmptyIncompleteEvidenceExplicit(t *testing.T) {
+	command := newRootCmd()
+	var output bytes.Buffer
+	command.SetOut(&output)
+	report := presence.AthenaPresenceGateReport{Completeness: presence.AthenaIngressBridgeCompleteness{Observations: true, Sessions: true, ReplayContext: false, ReasonCodes: []string{presence.AthenaReasonIncompleteReplay}}}
+	if err := writePresenceAthenaGateText(command, report); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "completeness observations=true sessions=true replay_context=false") || !strings.Contains(output.String(), "evidence=0") {
+		t.Fatalf("empty incomplete text lost safety state: %s", output.String())
+	}
+}
