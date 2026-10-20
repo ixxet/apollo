@@ -5,6 +5,73 @@
 Keep APOLLO moving through narrow bounded release lines instead of trying to
 jump straight to a broad product.
 
+## Booking implementation follow-up (2026-10-20)
+
+The authorised follow-up implements the concrete R1 booking gaps. Simultaneous
+approvals of distinct overlapping requests reproduced two reservations. A
+transaction-scoped advisory lock now serialises schedule creation per facility
+before the conflict snapshot and insert, including parent/child and exclusive
+resources. Adjacent windows still succeed; cancelled lock waits leave the
+request unchanged. This adds no migration or public API. The shared disposable
+PostgreSQL helper now requests an explicit ephemeral binding and validates the
+inspected port within its existing two-minute startup budget instead of using
+port 5432. Live local diagnostics found running, non-OOM Docker containers with
+`PublishAllPorts=true` but no actual binding; a three-concurrent-database
+regression exercises the explicit binding. A consumer fixture also waits for
+its actual handler result before checking linked state; no presence runtime or
+credit behavior changes.
+
+Hestia/Themis have retry-safe failure states, explicit time validation, passing
+local browser suites and approved non-root container/CI publication. Actual
+adapter-node frontends, APOLLO HTTP/services and disposable PostgreSQL prove
+request -> receipt/status -> staff verification -> approval -> one reservation
+-> public message -> linked cancellation, with no ATHENA dependency. The
+opt-in rehearsal uses a captured test sender; it does not prove provider mail
+delivery or external TLS. The schema-032-to-033 fixture, previous pinned APOLLO
+image against 033 and a dump/restore to a separate disposable database were
+also exercised. These are bounded synthetic proofs, not a live backup or
+representative migration lock-time measurement.
+
+### SMTP verification delivery
+
+Standard SMTP is now an optional real `EmailSender`, explicitly authorised in
+this follow-up. Configure it only on `serve`; the migration initContainer needs
+the database reference, not mail credentials. No new dependencies are added.
+
+| Environment | Meaning |
+| --- | --- |
+| `APOLLO_SMTP_HOST` | Provider hostname without a port; enables SMTP when set |
+| `APOLLO_SMTP_FROM` | Required single sender address, optionally with display name |
+| `APOLLO_SMTP_TLS_MODE` | `starttls` by default; `tls` for implicit TLS; no plaintext mode |
+| `APOLLO_SMTP_PORT` | Defaults to 587 for STARTTLS or 465 for implicit TLS |
+| `APOLLO_SMTP_USERNAME` / `APOLLO_SMTP_PASSWORD` | Matching secret references; both required together; both absent permits an approved encrypted relay |
+| `APOLLO_SMTP_TIMEOUT` | Total connection/dialogue deadline; default 4s, positive and at most 4s |
+| `APOLLO_LOG_VERIFICATION_TOKENS` | Must be false with SMTP; startup refuses the combination |
+
+TLS requires normal hostname/certificate validation and TLS 1.2 or newer.
+STARTTLS must be advertised and complete before AUTH PLAIN or envelope/message
+data. Cancellation closes the transport. Provider error text, addresses,
+credentials and verification codes are not included in SMTP errors or logs.
+The email carries the existing verification code to paste into the sign-in
+page. A final SMTP DATA acceptance is success even if QUIT fails; it proves
+server acceptance, not inbox delivery or reading. There are no automatic
+delivery retries or new notification flows.
+
+No SMTP settings retains the existing no-op development sender. Partial SMTP
+settings fail rather than falling back; no-op and token logging are not a
+staff-login delivery solution. Local TLS fixtures prove both secure modes,
+certificate/STARTTLS refusal, protected AUTH, generated-code/hash consistency,
+timeouts/cancellation and redacted delivery failures. Real provider credentials,
+approved staff recipients/roles and inbox acceptance remain deployment inputs.
+
+Current commands, results, commits, image candidates and the exact proposed
+deployment changes live in the [canonical readiness record](https://github.com/ixxet/ashton-platform/blob/main/planning/BOOKING-SCHEDULING-CLOSED-TEST-READINESS.md).
+Pending requests remain unreserved by explicit user decision. Existing staff
+schedule holds block availability. No timed customer hold or instant booking
+policy is introduced. The interactive scheduling concept is separate design
+discussion, not an implemented frontend redesign. Live rollout still requires
+the target/images/configuration/migration/fixture/rollback approval in that record.
+
 ## R1 bridge hardening and booking-first priority (2026-10-20)
 
 R1 repairs the internal ATHENA bridge. `athena_ingress_bridge_v2` requires
@@ -33,11 +100,10 @@ schedule blocks. Its explicit opt-in skip in single-repo CI is not a pass.
 
 Delivery priority is booking/scheduling through Hestia and Themis, then
 competition/rating/game identity, then member services; broader ATHENA physical
-truth is later. The next implementation packet is Booking/Scheduling Closed-Test
-Implementation + Deployment. It must repair the documented frontend load/malformed
-states and test fixtures, package both frontends, establish staff login and
-inventory, prove migration/rollback compatibility, then obtain explicit live
-approval. Booking has no required ATHENA dependency. Daily credits, teams,
+truth is later. The Booking/Scheduling Closed-Test Implementation + Deployment
+follow-up above now records those repairs, packaging and local proofs. Provider
+configuration, approved staff/inventory, live backup and final rollout approval
+remain open. Booking has no required ATHENA dependency. Daily credits, teams,
 reliability scoring, public tournaments, OpenSkill cutover and destructive probes
 remain separately deferred. This is source/local proof, not an external booking
 launch or a live deployment.
