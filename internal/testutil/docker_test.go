@@ -58,6 +58,32 @@ func TestDockerHostResolutionAndOverride(t *testing.T) {
 	})
 }
 
+func TestPublishedPortWaitsForValidBinding(t *testing.T) {
+	values := []string{"", "0", "not-a-port", "65536", "49152"}
+	index := 0
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	port, err := waitForPublishedPort(ctx, func(context.Context) (string, error) {
+		value := values[index]
+		if index < len(values)-1 {
+			index++
+		}
+		return value, nil
+	})
+	if err != nil || port != "49152" {
+		t.Fatalf("published port=%q error=%v, want assigned port", port, err)
+	}
+}
+
+func TestPublishedPortHonoursCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	port, err := waitForPublishedPort(ctx, func(context.Context) (string, error) { return "", nil })
+	if port != "" || !errors.Is(err, context.Canceled) {
+		t.Fatalf("published port=%q error=%v, want cancellation", port, err)
+	}
+}
+
 func TestWaitForPostgresClosesFailedAttempts(t *testing.T) {
 	originalNewPostgresPool := newPostgresPool
 	originalPingPostgresPool := pingPostgresPool

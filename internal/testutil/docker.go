@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -82,13 +83,37 @@ func StartPostgres(ctx context.Context) (*PostgresEnv, error) {
 		return nil, err
 	}
 
+	// Docker can return a snapshot before binding its random host port. An empty
+	// DSN port would silently make pgx try the unrelated default port 5432.
+	startupCtx, cancelStartup := context.WithTimeout(ctx, defaultPostgresStartupConfig.maxWait)
+	defer cancelStartup()
+	port, err := waitForPublishedPort(startupCtx, func(inspectCtx context.Context) (string, error) {
+		current := resource.GetPort("5432/tcp")
+		if parsed, err := strconv.Atoi(current); err == nil && parsed > 0 && parsed <= 65535 {
+			return current, nil
+		}
+		if resource.Container == nil || resource.Container.ID == "" {
+			return "", fmt.Errorf("Docker returned no container ID")
+		}
+		container, err := pool.Client.InspectContainerWithContext(resource.Container.ID, inspectCtx)
+		if err != nil {
+			return "", err
+		}
+		resource.Container = container
+		return resource.GetPort("5432/tcp"), nil
+	})
+	if err != nil {
+		_ = pool.Purge(resource)
+		return nil, fmt.Errorf("PostgreSQL published port: %w", err)
+	}
+
 	databaseURL := fmt.Sprintf(
 		"postgres://apollo:apollo@%s:%s/apollo?sslmode=disable",
 		dockerHost(),
-		resource.GetPort("5432/tcp"),
+		port,
 	)
 
-	db, err := waitForPostgres(ctx, databaseURL, defaultPostgresStartupConfig)
+	db, err := waitForPostgres(startupCtx, databaseURL, defaultPostgresStartupConfig)
 	if err != nil {
 		_ = pool.Purge(resource)
 		return nil, err
@@ -100,6 +125,29 @@ func StartPostgres(ctx context.Context) (*PostgresEnv, error) {
 		DB:          db,
 		DatabaseURL: databaseURL,
 	}, nil
+}
+
+func waitForPublishedPort(ctx context.Context, lookup func(context.Context) (string, error)) (string, error) {
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		port, err := lookup(ctx)
+		if err != nil {
+			return "", err
+		}
+		parsed, err := strconv.Atoi(port)
+		if err == nil && parsed > 0 && parsed <= 65535 {
+			return port, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func waitForPostgres(ctx context.Context, databaseURL string, cfg postgresStartupConfig) (*pgxpool.Pool, error) {
