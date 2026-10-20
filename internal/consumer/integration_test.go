@@ -47,8 +47,10 @@ func TestIdentifiedPresenceIntegrationCreatesOneVisitWithoutWorkout(t *testing.T
 	repository := visits.NewRepository(postgresEnv.DB)
 	service := presence.NewService(presence.NewRepository(postgresEnv.DB), visits.NewService(repository))
 	handler := NewIdentifiedPresenceHandler(service)
+	handled := make(chan error, 1)
 	if _, err := natsEnv.Conn.Subscribe(protoevents.SubjectIdentifiedPresenceArrived, func(msg *nats.Msg) {
-		_, _ = handler.HandleMessage(context.Background(), msg.Data)
+		_, err := handler.HandleMessage(context.Background(), msg.Data)
+		handled <- err
 	}); err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
@@ -58,6 +60,16 @@ func TestIdentifiedPresenceIntegrationCreatesOneVisitWithoutWorkout(t *testing.T
 	}
 	if err := natsEnv.Conn.Flush(); err != nil {
 		t.Fatalf("Flush() error = %v", err)
+	}
+	// The visit is committed before linked presence state. Wait for the actual
+	// handler result rather than racing its remaining writes after observing it.
+	select {
+	case err := <-handled:
+		if err != nil {
+			t.Fatalf("identified presence handler error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("identified presence handler did not finish")
 	}
 
 	deadline := time.Now().Add(5 * time.Second)

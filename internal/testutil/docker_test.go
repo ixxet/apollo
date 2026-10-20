@@ -3,12 +3,55 @@ package testutil
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestPostgresConcurrentStartsPublishUsablePorts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	results := make(chan error, 3)
+	var workers sync.WaitGroup
+	for range 3 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			env, err := StartPostgres(ctx)
+			if err != nil {
+				results <- err
+				return
+			}
+			defer env.Close()
+			parsed, err := url.Parse(env.DatabaseURL)
+			if err != nil || parsed.Port() == "" {
+				results <- fmt.Errorf("PostgreSQL did not provide an explicit usable port")
+				return
+			}
+			var database string
+			if err := env.DB.QueryRow(ctx, "SELECT current_database()").Scan(&database); err != nil {
+				results <- err
+				return
+			}
+			if database != "apollo" {
+				results <- fmt.Errorf("unexpected fixture database")
+				return
+			}
+			results <- nil
+		}()
+	}
+	for range 3 {
+		if err := <-results; err != nil {
+			t.Error(err)
+		}
+	}
+	workers.Wait()
+}
 
 func TestDockerHostResolutionAndOverride(t *testing.T) {
 	t.Run("env override wins", func(t *testing.T) {

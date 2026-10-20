@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 	"github.com/ory/dockertest/v3"
+	dc "github.com/ory/dockertest/v3/docker"
 )
 
 type postgresStartupConfig struct {
@@ -71,13 +72,22 @@ func StartPostgres(ctx context.Context) (*PostgresEnv, error) {
 	}
 
 	resource, err := pool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "postgres",
-		Tag:        "16-alpine",
+		Repository:   "postgres",
+		Tag:          "16-alpine",
+		ExposedPorts: []string{"5432/tcp"},
+		PortBindings: map[dc.Port][]dc.PortBinding{
+			"5432/tcp": {{HostIP: "0.0.0.0", HostPort: ""}},
+		},
+		Labels: map[string]string{"io.ashton.test": "apollo-postgres"},
 		Env: []string{
 			"POSTGRES_USER=apollo",
 			"POSTGRES_PASSWORD=apollo",
 			"POSTGRES_DB=apollo",
 		},
+	}, func(hostConfig *dc.HostConfig) {
+		// Docker Desktop can leave running containers permanently unbound with
+		// PublishAllPorts alone. Request this ephemeral binding explicitly.
+		hostConfig.PublishAllPorts = false
 	})
 	if err != nil {
 		return nil, err
@@ -100,11 +110,19 @@ func StartPostgres(ctx context.Context) (*PostgresEnv, error) {
 			return "", err
 		}
 		resource.Container = container
+		if container.State.Status == "exited" || container.State.Dead {
+			return "", fmt.Errorf("PostgreSQL container stopped before port binding (exit=%d, oom=%t)", container.State.ExitCode, container.State.OOMKilled)
+		}
 		return resource.GetPort("5432/tcp"), nil
 	})
 	if err != nil {
 		_ = pool.Purge(resource)
-		return nil, fmt.Errorf("PostgreSQL published port: %w", err)
+		detail := ""
+		if resource.Container != nil {
+			state := resource.Container.State
+			detail = fmt.Sprintf(" (state=%s, running=%t, exit=%d, oom=%t)", state.Status, state.Running, state.ExitCode, state.OOMKilled)
+		}
+		return nil, fmt.Errorf("PostgreSQL published port%s: %w", detail, err)
 	}
 
 	databaseURL := fmt.Sprintf(
