@@ -1,19 +1,118 @@
 package presence
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
 
+func validAthenaBridgeFixture() AthenaIngressBridgeReport {
+	base := time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC)
+	exit := base.Add(time.Minute)
+	evidence := bridgeEvidence("evidence-001", "entry", "identity-001", "ashtonbee", "in", "pass", base, true, true, "touchnet_pass", AthenaIngressEligibility{CoPresenceProof: GateSignal{Eligible: true}, PrivateDailyPresence: GateSignal{Eligible: true}, ReliabilityVerification: GateSignal{Eligible: true}})
+	evidence.SessionState = "closed"
+	evidence.NodeID = "entry-node"
+	return AthenaIngressBridgeReport{
+		FacilityID: "ashtonbee", Since: base, Until: exit,
+		Contract:     AthenaIngressBridgeContract{Version: AthenaBridgeVersion, Scope: "repo_local_runtime_proof", ReplayOrder: "stored_at,observed_at,event_id,observation_id", IdentityScope: "report_local", SourceTruth: "immutable", AcceptedPresenceTruth: "separate", SessionTruth: "source-pass only", IdentityOutput: "redacted", UnknownIdentityScope: "report-local"},
+		Completeness: AthenaIngressBridgeCompleteness{Observations: true, Sessions: true, ReplayContext: true, ReasonCodes: []string{}},
+		Evidence:     []AthenaIngressBridgeEvidence{evidence},
+		Sessions:     []AthenaIngressBridgeSession{{SessionID: "session-001", IdentityPresent: true, IdentityRef: "identity-001", State: "closed", EntryEventID: "entry", EntryNodeID: "entry-node", EntryAt: &base, ExitEventID: "exit", ExitNodeID: "exit-node", ExitAt: &exit, Eligibility: evidence.Eligibility}},
+		Summary:      AthenaIngressBridgeSummary{TotalEvidence: 1, TotalSessions: 1, SourcePass: 1, AcceptedSourcePass: 1, EligibleCoPresence: 2, EligibleDailyPresence: 2, EligibleReliabilityVerification: 2, ReasonCounts: []GateReasonCount{}},
+	}
+}
+
+func TestDecodeAthenaBridgeSafetyEnvelope(t *testing.T) {
+	good, err := json.Marshal(validAthenaBridgeFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeAthenaIngressBridgeReport(bytes.NewReader(good)); err != nil {
+		t.Fatalf("valid report: %v", err)
+	}
+	mutations := map[string]func(map[string]any){
+		"missing-contract":        func(m map[string]any) { delete(m, "contract") },
+		"unsupported-contract":    func(m map[string]any) { m["contract"].(map[string]any)["version"] = "future" },
+		"missing-completeness":    func(m map[string]any) { delete(m, "completeness") },
+		"missing-safety-bool":     func(m map[string]any) { delete(m["completeness"].(map[string]any), "sessions") },
+		"null-safety-bool":        func(m map[string]any) { m["completeness"].(map[string]any)["sessions"] = nil },
+		"wrong-type":              func(m map[string]any) { m["facility_id"] = 123 },
+		"null-array":              func(m map[string]any) { m["sessions"] = nil },
+		"wrong-facility":          func(m map[string]any) { m["facility_id"] = "elsewhere" },
+		"wrong-node":              func(m map[string]any) { m["node_id"] = "other-node" },
+		"wrong-zone":              func(m map[string]any) { m["zone_id"] = "other-zone" },
+		"reversed-window":         func(m map[string]any) { m["until"] = "2026-10-20T09:00:00Z" },
+		"evidence-outside-window": func(m map[string]any) { m["since"] = "2026-10-20T10:00:01Z" },
+		"incomplete-eligible":     func(m map[string]any) { m["completeness"].(map[string]any)["replay_context"] = false },
+		"missing-eligible": func(m map[string]any) {
+			delete(m["evidence"].([]any)[0].(map[string]any)["eligibility"].(map[string]any)["co_presence_proof"].(map[string]any), "eligible")
+		},
+		"missing-accepted":  func(m map[string]any) { delete(m["evidence"].([]any)[0].(map[string]any), "accepted_presence") },
+		"identity-mismatch": func(m map[string]any) { m["sessions"].([]any)[0].(map[string]any)["identity_ref"] = "identity-002" },
+		"unsafe-identity": func(m map[string]any) {
+			m["evidence"].([]any)[0].(map[string]any)["identity_ref"] = strings.Repeat("A", 64)
+		},
+		"future-exit":         func(m map[string]any) { m["sessions"].([]any)[0].(map[string]any)["exit_at"] = "2026-10-20T11:00:00Z" },
+		"event-time-mismatch": func(m map[string]any) { m["sessions"].([]any)[0].(map[string]any)["entry_at"] = "2026-10-20T10:00:01Z" },
+		"policy-reliability":  func(m map[string]any) { m["evidence"].([]any)[0].(map[string]any)["source_result"] = "fail" },
+		"summary-mismatch":    func(m map[string]any) { m["summary"].(map[string]any)["total_evidence"] = 0 },
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			var value map[string]any
+			if err := json.Unmarshal(good, &value); err != nil {
+				t.Fatal(err)
+			}
+			mutate(value)
+			payload, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeAthenaIngressBridgeReport(bytes.NewReader(payload)); err == nil {
+				t.Fatal("unsafe envelope accepted")
+			}
+		})
+	}
+	for _, bad := range []string{"{}", "null", "[]", string(good) + "{}", string(good) + "broken"} {
+		if _, err := DecodeAthenaIngressBridgeReport(strings.NewReader(bad)); err == nil {
+			t.Fatal("malformed report accepted")
+		}
+	}
+	additive := append(append([]byte(nil), good[:len(good)-1]...), []byte(`,"future_field":{"harmless":true}}`)...)
+	if _, err := DecodeAthenaIngressBridgeReport(bytes.NewReader(additive)); err != nil {
+		t.Fatalf("additive fields: %v", err)
+	}
+	exact := append(append([]byte(nil), good...), bytes.Repeat([]byte(" "), AthenaBridgeMaxBytes-len(good))...)
+	if _, err := DecodeAthenaIngressBridgeReport(bytes.NewReader(exact)); err != nil {
+		t.Fatalf("exact byte budget: %v", err)
+	}
+	if _, err := DecodeAthenaIngressBridgeReport(bytes.NewReader(append(exact, ' '))); err == nil {
+		t.Fatal("byte overflow accepted")
+	}
+}
+
+func TestAthenaBridgeIncompleteContextBlocksEveryGate(t *testing.T) {
+	input := validAthenaBridgeFixture()
+	input.Completeness.ReplayContext = false
+	input.Completeness.ReasonCodes = []string{AthenaReasonIncompleteReplay}
+	report := BuildAthenaPresenceGateReport(input)
+	if report.Summary.EligibleCoPresenceEvidence != 0 || report.Summary.DailyPresenceReadyCredits != 0 || report.Evidence[0].SourcePassSession.Eligible {
+		t.Fatalf("incomplete evidence escaped: %+v", report)
+	}
+	assertGateReason(t, report.Evidence[0].ReasonCodes, AthenaReasonIncompleteReplay)
+}
+
 func TestBuildAthenaPresenceGateReportClassifiesAcceptedEvidenceAndDailyReadiness(t *testing.T) {
 	base := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
 	report := BuildAthenaPresenceGateReport(AthenaIngressBridgeReport{
-		FacilityID: "ashtonbee",
-		ZoneID:     "gym-floor",
-		Since:      base.Add(-time.Hour),
-		Until:      base.Add(4 * time.Hour),
+		Contract:     AthenaIngressBridgeContract{Version: AthenaBridgeVersion},
+		Completeness: AthenaIngressBridgeCompleteness{Observations: true, Sessions: true, ReplayContext: true},
+		FacilityID:   "ashtonbee",
+		ZoneID:       "gym-floor",
+		Since:        base.Add(-time.Hour),
+		Until:        base.Add(4 * time.Hour),
 		Evidence: []AthenaIngressBridgeEvidence{
 			bridgeEvidence("evidence-001", "evt-pass-in", "identity-001", "ashtonbee", "in", "pass", base, true, true, "", AthenaIngressEligibility{
 				CoPresenceProof:         GateSignal{Eligible: true},
@@ -75,9 +174,11 @@ func TestBuildAthenaPresenceGateReportRejectsUnsafeOrIneligibleEvidence(t *testi
 	base := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
 	rawHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	report := BuildAthenaPresenceGateReport(AthenaIngressBridgeReport{
-		FacilityID: "ashtonbee",
-		Since:      base.Add(-time.Hour),
-		Until:      base.Add(4 * time.Hour),
+		Contract:     AthenaIngressBridgeContract{Version: AthenaBridgeVersion},
+		Completeness: AthenaIngressBridgeCompleteness{Observations: true, Sessions: true, ReplayContext: true},
+		FacilityID:   "ashtonbee",
+		Since:        base.Add(-time.Hour),
+		Until:        base.Add(4 * time.Hour),
 		Evidence: []AthenaIngressBridgeEvidence{
 			bridgeEvidence("evidence-accepted-false", "evt-accepted-false", "identity-001", "ashtonbee", "in", "pass", base, false, false, "", AthenaIngressEligibility{
 				CoPresenceProof:      GateSignal{Eligible: true},

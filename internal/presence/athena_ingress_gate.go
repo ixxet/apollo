@@ -1,13 +1,24 @@
 package presence
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
 
 const (
+	AthenaBridgeVersion          = "athena_ingress_bridge_v2"
+	AthenaBridgeMaxBytes         = 2 << 20
+	AthenaBridgeMaxObservations  = 1000
+	AthenaBridgeMaxSessions      = 250
+	AthenaBridgeMaxWindow        = 24 * time.Hour
+	AthenaReasonIncompleteReplay = "incomplete_replay_context"
+
 	AthenaReasonMissingIdentity                          = "missing_identity"
 	AthenaReasonUnknownIdentity                          = "unknown_identity"
 	AthenaReasonSourceFailWithoutAcceptedPresence        = "source_fail_without_accepted_presence"
@@ -28,18 +39,29 @@ const (
 )
 
 type AthenaIngressBridgeReport struct {
-	FacilityID string                        `json:"facility_id"`
-	ZoneID     string                        `json:"zone_id,omitempty"`
-	NodeID     string                        `json:"node_id,omitempty"`
-	Since      time.Time                     `json:"since"`
-	Until      time.Time                     `json:"until"`
-	Contract   AthenaIngressBridgeContract   `json:"contract"`
-	Summary    AthenaIngressBridgeSummary    `json:"summary"`
-	Evidence   []AthenaIngressBridgeEvidence `json:"evidence"`
-	Sessions   []AthenaIngressBridgeSession  `json:"sessions"`
+	FacilityID   string                          `json:"facility_id"`
+	ZoneID       string                          `json:"zone_id,omitempty"`
+	NodeID       string                          `json:"node_id,omitempty"`
+	Since        time.Time                       `json:"since"`
+	Until        time.Time                       `json:"until"`
+	Completeness AthenaIngressBridgeCompleteness `json:"completeness"`
+	Contract     AthenaIngressBridgeContract     `json:"contract"`
+	Summary      AthenaIngressBridgeSummary      `json:"summary"`
+	Evidence     []AthenaIngressBridgeEvidence   `json:"evidence"`
+	Sessions     []AthenaIngressBridgeSession    `json:"sessions"`
+}
+
+type AthenaIngressBridgeCompleteness struct {
+	Observations  bool     `json:"observations"`
+	Sessions      bool     `json:"sessions"`
+	ReplayContext bool     `json:"replay_context"`
+	ReasonCodes   []string `json:"reason_codes"`
 }
 
 type AthenaIngressBridgeContract struct {
+	Version               string `json:"version"`
+	ReplayOrder           string `json:"replay_order"`
+	IdentityScope         string `json:"identity_scope"`
 	Scope                 string `json:"scope"`
 	SourceTruth           string `json:"source_truth"`
 	AcceptedPresenceTruth string `json:"accepted_presence_truth"`
@@ -88,8 +110,10 @@ type AthenaIngressBridgeSession struct {
 	IdentityRef     string                   `json:"identity_ref,omitempty"`
 	State           string                   `json:"state"`
 	EntryEventID    string                   `json:"entry_event_id,omitempty"`
+	EntryNodeID     string                   `json:"entry_node_id,omitempty"`
 	EntryAt         *time.Time               `json:"entry_at,omitempty"`
 	ExitEventID     string                   `json:"exit_event_id,omitempty"`
+	ExitNodeID      string                   `json:"exit_node_id,omitempty"`
 	ExitAt          *time.Time               `json:"exit_at,omitempty"`
 	Eligibility     AthenaIngressEligibility `json:"eligibility"`
 	ReasonCodes     []string                 `json:"reason_codes,omitempty"`
@@ -102,15 +126,16 @@ type AthenaIngressEligibility struct {
 }
 
 type AthenaPresenceGateReport struct {
-	FacilityID         string                       `json:"facility_id"`
-	ZoneID             string                       `json:"zone_id,omitempty"`
-	NodeID             string                       `json:"node_id,omitempty"`
-	Since              time.Time                    `json:"since"`
-	Until              time.Time                    `json:"until"`
-	Contract           AthenaPresenceGateContract   `json:"contract"`
-	Summary            AthenaPresenceGateSummary    `json:"summary"`
-	Evidence           []AthenaPresenceGateEvidence `json:"evidence"`
-	DailyPresenceReady []DailyPresenceReady         `json:"daily_presence_ready"`
+	Completeness       AthenaIngressBridgeCompleteness `json:"completeness"`
+	FacilityID         string                          `json:"facility_id"`
+	ZoneID             string                          `json:"zone_id,omitempty"`
+	NodeID             string                          `json:"node_id,omitempty"`
+	Since              time.Time                       `json:"since"`
+	Until              time.Time                       `json:"until"`
+	Contract           AthenaPresenceGateContract      `json:"contract"`
+	Summary            AthenaPresenceGateSummary       `json:"summary"`
+	Evidence           []AthenaPresenceGateEvidence    `json:"evidence"`
+	DailyPresenceReady []DailyPresenceReady            `json:"daily_presence_ready"`
 }
 
 type AthenaPresenceGateContract struct {
@@ -177,11 +202,12 @@ type GateReasonCount struct {
 
 func BuildAthenaPresenceGateReport(input AthenaIngressBridgeReport) AthenaPresenceGateReport {
 	report := AthenaPresenceGateReport{
-		FacilityID: strings.TrimSpace(input.FacilityID),
-		ZoneID:     strings.TrimSpace(input.ZoneID),
-		NodeID:     strings.TrimSpace(input.NodeID),
-		Since:      input.Since.UTC(),
-		Until:      input.Until.UTC(),
+		Completeness: input.Completeness,
+		FacilityID:   strings.TrimSpace(input.FacilityID),
+		ZoneID:       strings.TrimSpace(input.ZoneID),
+		NodeID:       strings.TrimSpace(input.NodeID),
+		Since:        input.Since.UTC(),
+		Until:        input.Until.UTC(),
 		Contract: AthenaPresenceGateContract{
 			Scope:                  "repo_local_runtime_proof",
 			PhysicalTruthOwner:     "athena",
@@ -203,6 +229,9 @@ func BuildAthenaPresenceGateReport(input AthenaIngressBridgeReport) AthenaPresen
 	reasonCounts := make(map[string]int)
 	report.Evidence = make([]AthenaPresenceGateEvidence, 0, len(ordered))
 	for _, evidence := range ordered {
+		if input.Contract.Version != AthenaBridgeVersion || !input.Completeness.Observations || !input.Completeness.Sessions || !input.Completeness.ReplayContext {
+			evidence.ReasonCodes = appendReasonCode(evidence.ReasonCodes, AthenaReasonIncompleteReplay)
+		}
 		classified := classifyAthenaPresenceGateEvidence(evidence)
 		if classified.PrivateDailyPresence.Eligible {
 			key := dailyPresenceCreditKey(classified)
@@ -280,7 +309,7 @@ func classifyAthenaPresenceGateEvidence(input AthenaIngressBridgeEvidence) Athen
 		AcceptedPresence:        input.AcceptedPresence,
 		AcceptancePath:          strings.TrimSpace(input.AcceptancePath),
 		SourceResult:            strings.TrimSpace(input.SourceResult),
-		SourcePassSession:       GateSignal{Eligible: input.Eligibility.ReliabilityVerification.Eligible, ReasonCodes: sourcePassReasons},
+		SourcePassSession:       GateSignal{Eligible: input.Eligibility.ReliabilityVerification.Eligible && input.AcceptedPresence && input.SourceCommitted && input.SourceResult == "pass" && input.SessionState == "closed" && len(structuralReasons) == 0, ReasonCodes: mergeReasonCodes(sourcePassReasons, structuralReasons)},
 		CoPresence:              GateSignal{Eligible: coPresenceEligible, ReasonCodes: reasonCodesIfBlocked(coPresenceEligible, coPresenceReasons)},
 		PrivateDailyPresence:    GateSignal{Eligible: dailyEligible, ReasonCodes: reasonCodesIfBlocked(dailyEligible, dailyReasons)},
 		PrivateDailyPresenceDay: dailyDay,
@@ -291,6 +320,15 @@ func classifyAthenaPresenceGateEvidence(input AthenaIngressBridgeEvidence) Athen
 
 func structuralGateReasons(input AthenaIngressBridgeEvidence) []string {
 	reasons := make([]string, 0)
+	if input.Direction != "in" && input.Direction != "out" {
+		reasons = appendReasonCode(reasons, "unsupported_direction")
+	}
+	if input.SourceResult != "pass" && input.SourceResult != "fail" {
+		reasons = appendReasonCode(reasons, "unsupported_source_result")
+	}
+	if input.SourceResult == "pass" && !input.SourceCommitted {
+		reasons = appendReasonCode(reasons, "source_pass_not_committed")
+	}
 	if !input.IdentityPresent || safeGateIdentityRef(input.IdentityRef) == "" {
 		reasons = appendReasonCode(reasons, AthenaReasonMissingIdentity)
 	}
@@ -308,14 +346,13 @@ func structuralGateReasons(input AthenaIngressBridgeEvidence) []string {
 	}
 	for _, reason := range input.ReasonCodes {
 		switch reason {
-		case AthenaReasonUnknownIdentity,
-			AthenaReasonSourceFailWithoutAcceptedPresence,
-			AthenaReasonStaleEvent,
-			AthenaReasonDuplicateReplay,
-			AthenaReasonOutOfOrderLifecycle:
+		case AthenaReasonIncompleteLifecycle, AthenaReasonNotArrival, AthenaReasonAcceptedPresenceWithoutSourcePassSession:
+			// These describe a separate signal, rather than invalidating accepted presence.
+		default:
 			reasons = appendReasonCode(reasons, reason)
 		}
 	}
+
 	return reasons
 }
 
@@ -384,28 +421,13 @@ func formatGateDay(value time.Time) string {
 	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 }
 
-func safeGateIdentityRef(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" || isLowerHex64(trimmed) {
-		return ""
-	}
-	lower := strings.ToLower(trimmed)
-	if strings.Contains(lower, "account") || strings.Contains(lower, "name") || strings.Contains(lower, "hash") {
-		return ""
-	}
-	return trimmed
-}
+var bridgeIdentityPattern = regexp.MustCompile(`^identity-[0-9]{3,}$`)
 
-func isLowerHex64(value string) bool {
-	if len(value) != 64 {
-		return false
+func safeGateIdentityRef(value string) string {
+	if len(value) > 64 || !bridgeIdentityPattern.MatchString(value) {
+		return ""
 	}
-	for _, char := range value {
-		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
-			return false
-		}
-	}
-	return true
+	return value
 }
 
 func reasonCodesIfBlocked(eligible bool, reasons []string) []string {
@@ -450,4 +472,249 @@ func sortedGateReasonCounts(counts map[string]int) []GateReasonCount {
 		result = append(result, GateReasonCount{Code: reason, Count: counts[reason]})
 	}
 	return result
+}
+
+// DecodeAthenaIngressBridgeReport is shared by HTTP and file consumers. Legacy
+// reports must be regenerated because missing safety metadata cannot be inferred.
+func DecodeAthenaIngressBridgeReport(reader io.Reader) (AthenaIngressBridgeReport, error) {
+	var report AthenaIngressBridgeReport
+	payload, err := io.ReadAll(io.LimitReader(reader, AthenaBridgeMaxBytes+1))
+	if err != nil {
+		return report, fmt.Errorf("read bridge report: %w", err)
+	}
+	if len(payload) > AthenaBridgeMaxBytes {
+		return report, fmt.Errorf("bridge report exceeds 2 MiB")
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return report, fmt.Errorf("decode bridge report: %w", err)
+	}
+	if err := requireBridgeFields(envelope, "facility_id", "since", "until", "contract", "completeness", "summary", "evidence", "sessions"); err != nil {
+		return report, err
+	}
+	if err := json.Unmarshal(payload, &report); err != nil {
+		return report, fmt.Errorf("decode bridge report: %w", err)
+	}
+	for field, names := range map[string][]string{
+		"contract":     {"version", "replay_order", "identity_scope", "scope", "source_truth", "accepted_presence_truth", "session_truth", "identity_output", "unknown_identity_scope"},
+		"completeness": {"observations", "sessions", "replay_context", "reason_codes"},
+		"summary":      {"total_evidence", "total_sessions", "source_pass", "source_fail", "accepted_source_pass", "accepted_policy", "eligible_co_presence", "eligible_daily_presence", "eligible_reliability_verification", "no_eligible_signals", "reason_counts"},
+	} {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(envelope[field], &object); err != nil {
+			return report, err
+		}
+		if err := requireBridgeFields(object, names...); err != nil {
+			return report, err
+		}
+	}
+	var evidenceObjects []map[string]json.RawMessage
+	var sessionObjects []map[string]json.RawMessage
+	if err := json.Unmarshal(envelope["evidence"], &evidenceObjects); err != nil {
+		return report, err
+	}
+	if err := json.Unmarshal(envelope["sessions"], &sessionObjects); err != nil {
+		return report, err
+	}
+	for _, object := range evidenceObjects {
+		if err := requireBridgeFields(object, "evidence_id", "event_id", "identity_present", "facility_id", "direction", "source_result", "observed_at", "source_committed", "accepted_presence", "eligibility"); err != nil {
+			return report, err
+		}
+		if err := requireBridgeSignals(object["eligibility"]); err != nil {
+			return report, err
+		}
+	}
+	for _, object := range sessionObjects {
+		if err := requireBridgeFields(object, "session_id", "identity_present", "state", "eligibility"); err != nil {
+			return report, err
+		}
+		if err := requireBridgeSignals(object["eligibility"]); err != nil {
+			return report, err
+		}
+	}
+	if err := ValidateAthenaIngressBridgeReport(report); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+func requireBridgeFields(object map[string]json.RawMessage, names ...string) error {
+	for _, name := range names {
+		value, ok := object[name]
+		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return fmt.Errorf("bridge report missing %s; regenerate with ATHENA v2", name)
+		}
+	}
+	return nil
+}
+
+func requireBridgeSignals(value json.RawMessage) error {
+	var signals map[string]json.RawMessage
+	if err := json.Unmarshal(value, &signals); err != nil {
+		return err
+	}
+	for _, name := range []string{"co_presence_proof", "private_daily_presence", "reliability_verification"} {
+		var signal map[string]json.RawMessage
+		if err := json.Unmarshal(signals[name], &signal); err != nil {
+			return err
+		}
+		if err := requireBridgeFields(signal, "eligible"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ValidateAthenaIngressBridgeReport(report AthenaIngressBridgeReport) error {
+	invalid := func() error { return fmt.Errorf("ATHENA bridge envelope is inconsistent or unsupported") }
+	if report.Contract.Version != AthenaBridgeVersion || report.Contract.Scope != "repo_local_runtime_proof" || report.Contract.IdentityScope != "report_local" || report.Contract.ReplayOrder != "stored_at,observed_at,event_id,observation_id" {
+		return invalid()
+	}
+	for _, text := range []string{report.Contract.SourceTruth, report.Contract.AcceptedPresenceTruth, report.Contract.SessionTruth, report.Contract.IdentityOutput, report.Contract.UnknownIdentityScope} {
+		if strings.TrimSpace(text) == "" {
+			return invalid()
+		}
+	}
+	if strings.TrimSpace(report.FacilityID) == "" || len(report.FacilityID) > 128 || report.Since.IsZero() || report.Until.IsZero() || report.Until.Before(report.Since) || report.Until.Sub(report.Since) > AthenaBridgeMaxWindow {
+		return invalid()
+	}
+	if report.Evidence == nil || report.Sessions == nil || len(report.Evidence) > AthenaBridgeMaxObservations || len(report.Sessions) > AthenaBridgeMaxSessions || report.Summary.TotalEvidence != len(report.Evidence) || report.Summary.TotalSessions != len(report.Sessions) {
+		return invalid()
+	}
+	complete := report.Completeness.Observations && report.Completeness.Sessions && report.Completeness.ReplayContext
+	if complete && len(report.Completeness.ReasonCodes) > 0 || !complete && len(report.Completeness.ReasonCodes) == 0 {
+		return invalid()
+	}
+	evidenceIDs := map[string]bool{}
+	sessionIDs := map[string]bool{}
+	var expected AthenaIngressBridgeSummary
+	countSignals := func(eligibility AthenaIngressEligibility) error {
+		for _, signal := range []GateSignal{eligibility.CoPresenceProof, eligibility.PrivateDailyPresence, eligibility.ReliabilityVerification} {
+			if signal.Eligible && (!complete || len(signal.ReasonCodes) > 0) {
+				return invalid()
+			}
+		}
+		if eligibility.CoPresenceProof.Eligible {
+			expected.EligibleCoPresence++
+		}
+		if eligibility.PrivateDailyPresence.Eligible {
+			expected.EligibleDailyPresence++
+		}
+		if eligibility.ReliabilityVerification.Eligible {
+			expected.EligibleReliabilityVerification++
+		}
+		if !eligibility.CoPresenceProof.Eligible && !eligibility.PrivateDailyPresence.Eligible && !eligibility.ReliabilityVerification.Eligible {
+			expected.NoEligibleSignals++
+		}
+		return nil
+	}
+	for _, evidence := range report.Evidence {
+		if evidence.EvidenceID == "" || evidenceIDs[evidence.EvidenceID] || evidence.EventID == "" || evidence.FacilityID != report.FacilityID || report.ZoneID != "" && evidence.ZoneID != report.ZoneID || report.NodeID != "" && evidence.NodeID != report.NodeID {
+			return invalid()
+		}
+		evidenceIDs[evidence.EvidenceID] = true
+		if evidence.ObservedAt == nil || evidence.ObservedAt.IsZero() || evidence.ObservedAt.Before(report.Since) || evidence.ObservedAt.After(report.Until) || evidence.Direction != "in" && evidence.Direction != "out" || evidence.SourceResult != "pass" && evidence.SourceResult != "fail" {
+			return invalid()
+		}
+		if evidence.IdentityPresent != (safeGateIdentityRef(evidence.IdentityRef) != "") || !evidence.IdentityPresent && evidence.IdentityRef != "" {
+			return invalid()
+		}
+		if err := countSignals(evidence.Eligibility); err != nil {
+			return err
+		}
+		signals := evidence.Eligibility
+		if signals.CoPresenceProof.Eligible || signals.PrivateDailyPresence.Eligible || signals.ReliabilityVerification.Eligible {
+			if len(structuralGateReasons(evidence)) > 0 || !evidence.AcceptedPresence {
+				return invalid()
+			}
+		}
+		if signals.PrivateDailyPresence.Eligible && evidence.Direction != "in" || signals.ReliabilityVerification.Eligible && (evidence.SourceResult != "pass" || !evidence.SourceCommitted || evidence.SessionState != "closed") {
+			return invalid()
+		}
+		if evidence.SourceResult == "pass" {
+			expected.SourcePass++
+		} else {
+			expected.SourceFail++
+		}
+		if evidence.AcceptedPresence {
+			if evidence.AcceptancePath == "touchnet_pass" {
+				expected.AcceptedSourcePass++
+			} else if evidence.AcceptancePath == "always_admit" || evidence.AcceptancePath == "grace_until" || evidence.AcceptancePath == "facility_window" {
+				expected.AcceptedPolicy++
+			}
+			if evidence.SourceResult == "pass" && !evidence.SourceCommitted || evidence.SourceResult == "fail" && evidence.AcceptancePath != "always_admit" && evidence.AcceptancePath != "grace_until" && evidence.AcceptancePath != "facility_window" {
+				return invalid()
+			}
+		}
+	}
+	for _, session := range report.Sessions {
+		if session.SessionID == "" || sessionIDs[session.SessionID] || session.IdentityPresent != (safeGateIdentityRef(session.IdentityRef) != "") || !session.IdentityPresent && session.IdentityRef != "" {
+			return invalid()
+		}
+		sessionIDs[session.SessionID] = true
+		if err := countSignals(session.Eligibility); err != nil {
+			return err
+		}
+		if session.EntryAt != nil && (session.EntryAt.IsZero() || session.EntryAt.After(report.Until) || session.EntryEventID == "") || session.ExitAt != nil && (session.ExitAt.IsZero() || session.ExitAt.Before(report.Since) || session.ExitAt.After(report.Until) || session.ExitEventID == "") {
+			return invalid()
+		}
+		if session.EntryAt != nil && session.ExitAt != nil && session.ExitAt.Before(*session.EntryAt) {
+			return invalid()
+		}
+		switch session.State {
+		case "closed":
+			if session.EntryAt == nil || session.ExitAt == nil {
+				return invalid()
+			}
+		case "open":
+			if session.EntryAt == nil || session.ExitAt != nil || session.Eligibility.ReliabilityVerification.Eligible {
+				return invalid()
+			}
+		case "unmatched_exit":
+			if session.EntryAt != nil || session.ExitAt == nil || session.Eligibility.CoPresenceProof.Eligible || session.Eligibility.PrivateDailyPresence.Eligible || session.Eligibility.ReliabilityVerification.Eligible {
+				return invalid()
+			}
+		default:
+			return invalid()
+		}
+		if !session.IdentityPresent && (session.Eligibility.CoPresenceProof.Eligible || session.Eligibility.PrivateDailyPresence.Eligible || session.Eligibility.ReliabilityVerification.Eligible) {
+			return invalid()
+		}
+		if report.NodeID != "" && session.EntryNodeID != report.NodeID && session.ExitNodeID != report.NodeID {
+			return invalid()
+		}
+		for _, evidence := range report.Evidence {
+			var at *time.Time
+			direction := ""
+			if evidence.EventID == session.EntryEventID {
+				at = session.EntryAt
+				direction = "in"
+			}
+			if evidence.EventID == session.ExitEventID {
+				at = session.ExitAt
+				direction = "out"
+			}
+			if at != nil && (evidence.IdentityRef != session.IdentityRef || !evidence.ObservedAt.Equal(*at) || evidence.Direction != direction || evidence.SourceResult != "pass") {
+				return invalid()
+			}
+		}
+	}
+	for _, evidence := range report.Evidence {
+		if !evidence.Eligibility.ReliabilityVerification.Eligible {
+			continue
+		}
+		found := false
+		for _, session := range report.Sessions {
+			if session.State == "closed" && session.IdentityRef == evidence.IdentityRef && (session.EntryEventID == evidence.EventID || session.ExitEventID == evidence.EventID) && session.Eligibility.ReliabilityVerification.Eligible {
+				found = true
+			}
+		}
+		if !found {
+			return invalid()
+		}
+	}
+	if expected.SourcePass != report.Summary.SourcePass || expected.SourceFail != report.Summary.SourceFail || expected.AcceptedSourcePass != report.Summary.AcceptedSourcePass || expected.AcceptedPolicy != report.Summary.AcceptedPolicy || expected.EligibleCoPresence != report.Summary.EligibleCoPresence || expected.EligibleDailyPresence != report.Summary.EligibleDailyPresence || expected.EligibleReliabilityVerification != report.Summary.EligibleReliabilityVerification || expected.NoEligibleSignals != report.Summary.NoEligibleSignals {
+		return invalid()
+	}
+	return nil
 }

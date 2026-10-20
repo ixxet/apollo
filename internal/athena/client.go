@@ -13,6 +13,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/ixxet/apollo/internal/presence"
 )
 
 var (
@@ -283,8 +285,8 @@ func (c *Client) IngressBridgeReport(ctx context.Context, filter IngressBridgeFi
 	if strings.TrimSpace(filter.NodeID) != "" {
 		query.Set("node", strings.TrimSpace(filter.NodeID))
 	}
-	query.Set("since", filter.Since.UTC().Format(time.RFC3339))
-	query.Set("until", filter.Until.UTC().Format(time.RFC3339))
+	query.Set("since", filter.Since.UTC().Format(time.RFC3339Nano))
+	query.Set("until", filter.Until.UTC().Format(time.RFC3339Nano))
 	query.Set("session_limit", fmt.Sprintf("%d", filter.SessionLimit))
 
 	response, err := c.doInternalGET(ctx, "/api/v1/presence/ingress-bridge", query)
@@ -294,16 +296,28 @@ func (c *Client) IngressBridgeReport(ctx context.Context, filter IngressBridgeFi
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return nil, decodeUpstreamStatus(response)
+		return nil, &UpstreamStatusError{StatusCode: response.StatusCode}
 	}
 
-	payload, err := io.ReadAll(response.Body)
+	payload, err := io.ReadAll(io.LimitReader(response.Body, presence.AthenaBridgeMaxBytes+1))
+	if err != nil {
+		var timeout net.Error
+		if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout() {
+			return nil, fmt.Errorf("%w: %w", ErrRequestTimeout, err)
+		}
+		return nil, fmt.Errorf("%w: %w", ErrIngressBridgeMalformed, err)
+	}
+
+	trimmed := bytes.TrimSpace(payload)
+	if len(payload) > presence.AthenaBridgeMaxBytes {
+		return nil, fmt.Errorf("%w: response exceeds 2 MiB", ErrIngressBridgeMalformed)
+	}
+	report, err := presence.DecodeAthenaIngressBridgeReport(bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrIngressBridgeMalformed, err)
 	}
-	trimmed := bytes.TrimSpace(payload)
-	if len(trimmed) == 0 || !json.Valid(trimmed) || trimmed[0] != '{' {
-		return nil, ErrIngressBridgeMalformed
+	if report.FacilityID != strings.TrimSpace(filter.FacilityID) || report.ZoneID != strings.TrimSpace(filter.ZoneID) || report.NodeID != strings.TrimSpace(filter.NodeID) || !report.Since.Equal(filter.Since) || !report.Until.Equal(filter.Until) || len(report.Sessions) > filter.SessionLimit {
+		return nil, fmt.Errorf("%w: requested scope mismatch", ErrIngressBridgeMalformed)
 	}
 
 	return json.RawMessage(trimmed), nil
@@ -331,6 +345,9 @@ func validateIngressBridgeFilter(filter IngressBridgeFilter) error {
 		return ErrIngressBridgeFacilityMissing
 	}
 	if filter.Since.IsZero() || filter.Until.IsZero() || filter.Until.Before(filter.Since) {
+		return ErrIngressBridgeWindowInvalid
+	}
+	if filter.Until.Sub(filter.Since) > presence.AthenaBridgeMaxWindow {
 		return ErrIngressBridgeWindowInvalid
 	}
 	if filter.SessionLimit <= 0 || filter.SessionLimit > maxIngressBridgeSessionLimit {
@@ -377,7 +394,16 @@ func (c *Client) doGETWithInternalRead(ctx context.Context, endpoint string, que
 		request.Header.Set(internalReadTokenHeader, c.internalReadToken)
 	}
 
-	response, err := c.httpClient.Do(request)
+	httpClient := c.httpClient
+	if internalRead {
+		bridgeClient := *c.httpClient
+		bridgeClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+		if bridgeClient.Timeout <= 0 || bridgeClient.Timeout > 5*time.Second {
+			bridgeClient.Timeout = 5 * time.Second
+		}
+		httpClient = &bridgeClient
+	}
+	response, err := httpClient.Do(request)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, fmt.Errorf("%w: %v", ErrRequestTimeout, err)

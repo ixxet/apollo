@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -427,9 +428,32 @@ func newPresenceAthenaGateCmd() *cobra.Command {
 					return fmt.Errorf("--bridge-report and --athena-url are mutually exclusive")
 				}
 				var err error
-				payload, err = os.ReadFile(trimmedPath)
+				if err := cmd.Context().Err(); err != nil {
+					return err
+				}
+				file, err := os.OpenFile(trimmedPath, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 				if err != nil {
 					return fmt.Errorf("read ATHENA bridge report: %w", err)
+				}
+
+				defer file.Close()
+				info, err := file.Stat()
+				if err != nil {
+					return fmt.Errorf("stat ATHENA bridge report: %w", err)
+				}
+				if !info.Mode().IsRegular() {
+					return fmt.Errorf("ATHENA bridge report must be a regular file")
+				}
+				if info.Size() > presence.AthenaBridgeMaxBytes {
+					return fmt.Errorf("ATHENA bridge report exceeds 2 MiB")
+				}
+				payload, err = io.ReadAll(io.LimitReader(file, presence.AthenaBridgeMaxBytes+1))
+
+				if err != nil {
+					return fmt.Errorf("read ATHENA bridge report: %w", err)
+				}
+				if err := cmd.Context().Err(); err != nil {
+					return err
 				}
 			} else {
 				cfg, err := config.Load()
@@ -476,9 +500,28 @@ func newPresenceAthenaGateCmd() *cobra.Command {
 				}
 			}
 
-			var bridgeReport presence.AthenaIngressBridgeReport
-			if err := json.Unmarshal(payload, &bridgeReport); err != nil {
+			bridgeReport, err := presence.DecodeAthenaIngressBridgeReport(strings.NewReader(string(payload)))
+			if err != nil {
 				return fmt.Errorf("decode ATHENA bridge report: %w", err)
+			}
+			if trimmedPath != "" {
+				if cmd.Flags().Changed("facility") && bridgeReport.FacilityID != strings.TrimSpace(bridgeFacilityID) || cmd.Flags().Changed("zone") && bridgeReport.ZoneID != strings.TrimSpace(bridgeZoneID) || cmd.Flags().Changed("node") && bridgeReport.NodeID != strings.TrimSpace(bridgeNodeID) {
+					return fmt.Errorf("bridge report requested scope mismatch")
+				}
+				for _, boundary := range []struct {
+					name, value string
+					at          time.Time
+				}{{"since", bridgeSince, bridgeReport.Since}, {"until", bridgeUntil, bridgeReport.Until}} {
+					if cmd.Flags().Changed(boundary.name) {
+						parsed, err := parsePresenceGateBoundary(boundary.value, "--"+boundary.name)
+						if err != nil {
+							return err
+						}
+						if !parsed.Equal(boundary.at) {
+							return fmt.Errorf("bridge report requested window mismatch")
+						}
+					}
+				}
 			}
 
 			gateReport := presence.BuildAthenaPresenceGateReport(bridgeReport)

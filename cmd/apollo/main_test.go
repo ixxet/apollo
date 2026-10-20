@@ -4,16 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ixxet/apollo/internal/athena"
 	"github.com/ixxet/apollo/internal/auth"
 	"github.com/ixxet/apollo/internal/authz"
 	"github.com/ixxet/apollo/internal/competition"
@@ -23,6 +29,207 @@ import (
 	"github.com/ixxet/apollo/internal/schedule"
 	"github.com/ixxet/apollo/internal/testutil"
 )
+
+// This explicitly requested rehearsal uses the sibling ATHENA checkout. Normal
+// APOLLO-only CI does not claim cross-service proof when that source is absent.
+func TestPresenceAthenaGateRealServicePostgres(t *testing.T) {
+	if os.Getenv("APOLLO_ATHENA_REHEARSAL") != "1" {
+		t.Skip("set APOLLO_ATHENA_REHEARSAL=1 with ATHENA_SOURCE_DIR to run real service proof")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	athenaRoot := os.Getenv("ATHENA_SOURCE_DIR")
+	if athenaRoot == "" {
+		t.Fatal("ATHENA_SOURCE_DIR is required for the real rehearsal")
+	}
+	postgres, err := testutil.StartPostgres(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer postgres.Close()
+	if err := testutil.ApplyApolloSchema(ctx, postgres.DB); err != nil {
+		t.Fatal(err)
+	}
+	files, err := filepath.Glob(filepath.Join(athenaRoot, "db/migrations/*.up.sql"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("ATHENA migrations: %v", err)
+	}
+	for _, file := range files {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := postgres.DB.Exec(ctx, string(body)); err != nil {
+			t.Fatalf("apply ATHENA migration %s: %v", filepath.Base(file), err)
+		}
+	}
+	nats, err := testutil.StartNATS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nats.Close()
+	bin := filepath.Join(t.TempDir(), "athena")
+	build := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/athena")
+	build.Dir = athenaRoot
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build ATHENA: %v %s", err, output)
+	}
+	addr := reserveListenAddress(t)
+	var environment []string
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, "ATHENA_") {
+			environment = append(environment, value)
+		}
+	}
+	environment = append(environment, "ATHENA_HTTP_ADDR="+addr, "ATHENA_ADAPTER=mock", "ATHENA_NATS_URL="+nats.URL, "ATHENA_EDGE_POSTGRES_DSN="+postgres.DatabaseURL, "ATHENA_EDGE_HASH_SALT=rehearsal-only", "ATHENA_EDGE_TOKENS=entry=in-token,exit=out-token", "ATHENA_EDGE_OCCUPANCY_PROJECTION=true", "ATHENA_EDGE_POLICY_ACCEPTANCE_ENABLED=true", "ATHENA_INTERNAL_READ_TOKEN=rehearsal-read")
+	policy := exec.CommandContext(ctx, bin, "policy", "create-facility-window", "--facility", "ashtonbee", "--starts-at", "2026-10-20T08:00:00Z", "--ends-at", "2026-10-20T12:00:00Z", "--actor-id", "r1-synthetic", "--format", "json")
+	policy.Env = environment
+	if _, err := policy.CombinedOutput(); err != nil {
+		t.Fatalf("create disposable policy: %v", err)
+	}
+	process := exec.CommandContext(ctx, bin, "serve")
+	process.Env = environment
+	// Runtime logs stay out of test output because tap paths may contain identity data.
+	process.Stdout = io.Discard
+	process.Stderr = io.Discard
+	if err := process.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = process.Process.Signal(os.Interrupt); _ = process.Wait() }()
+	baseURL := "http://" + addr
+	waitForHealthyHTTP(t, baseURL+"/api/v1/health")
+	productCounts := func() string {
+		var counts string
+		err := postgres.DB.QueryRow(ctx, `SELECT concat_ws(',', (SELECT count(*) FROM apollo.visits),(SELECT count(*) FROM apollo.visit_tap_links),(SELECT count(*) FROM apollo.member_presence_streaks),(SELECT count(*) FROM apollo.member_presence_streak_events),(SELECT count(*) FROM apollo.booking_requests),(SELECT count(*) FROM apollo.schedule_blocks))`).Scan(&counts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return counts
+	}
+	before := productCounts()
+	taps := []struct{ id, node, direction, at, result, account, status string }{
+		{"pre-entry", "entry", "in", "2026-10-20T09:00:00Z", "pass", "synthetic-one", ""},
+		{"repeat", "exit", "in", "2026-10-20T10:01:00Z", "pass", "synthetic-one", ""},
+		{"departure", "exit", "out", "2026-10-20T10:02:00Z", "pass", "synthetic-one", ""},
+		{"policy", "exit", "in", "2026-10-20T10:03:00Z", "fail", "synthetic-two", "No active access rule for this account."},
+		{"source-fail", "exit", "in", "2026-10-20T10:04:00Z", "fail", "synthetic-three", ""},
+	}
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	for _, tap := range taps {
+		name := ""
+		if tap.id == "policy" {
+			name = "Synthetic Rehearsal"
+		}
+		payload, _ := json.Marshal(map[string]string{"event_id": tap.id, "account_raw": tap.account, "direction": tap.direction, "facility_id": "ashtonbee", "zone_id": "gym-floor", "node_id": tap.node, "observed_at": tap.at, "result": tap.result, "account_type": "Standard", "name": name, "status_message": tap.status})
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/edge/tap", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		token := "in-token"
+		if tap.node == "exit" {
+			token = "out-token"
+		}
+		request.Header.Set("X-Ashton-Edge-Token", token)
+		response, err := httpClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		response.Body.Close()
+		if response.StatusCode != http.StatusAccepted && response.StatusCode != http.StatusOK {
+			t.Fatalf("tap %s status=%d body=%s", tap.id, response.StatusCode, body)
+		}
+	}
+	filter := athena.IngressBridgeFilter{FacilityID: "ashtonbee", ZoneID: "gym-floor", NodeID: "exit", Since: time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC), Until: time.Date(2026, 10, 20, 11, 0, 0, 0, time.UTC), SessionLimit: 10}
+	client, err := athena.NewClientWithInternalReadToken(baseURL, 5*time.Second, "rehearsal-read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := client.IngressBridgeReport(ctx, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, authCase := range []struct {
+		token  string
+		status int
+	}{{"", http.StatusUnauthorized}, {"invalid", http.StatusForbidden}} {
+		denied, err := athena.NewClientWithInternalReadToken(baseURL, time.Second, authCase.token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = denied.IngressBridgeReport(ctx, filter)
+		var statusErr *athena.UpstreamStatusError
+		if !errors.As(err, &statusErr) || statusErr.StatusCode != authCase.status {
+			t.Fatalf("real auth expected=%d error=%v", authCase.status, err)
+		}
+	}
+	emptyFilter := filter
+	emptyFilter.FacilityID = "synthetic-empty"
+	emptyPayload, err := client.IngressBridgeReport(ctx, emptyFilter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyReport, err := presence.DecodeAthenaIngressBridgeReport(bytes.NewReader(emptyPayload))
+	if err != nil || len(emptyReport.Evidence) != 0 || !emptyReport.Completeness.ReplayContext {
+		t.Fatalf("real empty report completeness=%+v error=%v", emptyReport.Completeness, err)
+	}
+
+	report, err := presence.DecodeAthenaIngressBridgeReport(bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Evidence) != 4 || !report.Completeness.ReplayContext {
+		t.Fatalf("real bridge summary=%+v completeness=%+v", report.Summary, report.Completeness)
+	}
+	gate := presence.BuildAthenaPresenceGateReport(report)
+	if gate.Summary.EligibleCoPresenceEvidence != 2 || gate.Summary.DailyPresenceReadyCredits != 1 {
+		t.Fatalf("real classifier summary: %+v", gate.Summary)
+	}
+	for _, evidence := range gate.Evidence {
+		if evidence.EventID == "policy" && evidence.SourcePassSession.Eligible {
+			t.Fatal("policy fail became source-pass session")
+		}
+		if evidence.EventID == "repeat" && (evidence.CoPresence.Eligible || evidence.PrivateDailyPresence.Eligible) {
+			t.Fatal("pre-window replay created duplicate eligibility")
+		}
+	}
+	args := []string{"presence", "athena-gate", "--athena-url", baseURL, "--athena-internal-token", "rehearsal-read", "--facility", "ashtonbee", "--zone", "gym-floor", "--node", "exit", "--since", filter.Since.Format(time.RFC3339Nano), "--until", filter.Until.Format(time.RFC3339Nano), "--session-limit", "10"}
+	jsonOutput := runRootCommand(t, append(append([]string(nil), args...), "--format", "json")...)
+	textOutput := runRootCommand(t, append(append([]string(nil), args...), "--format", "text")...)
+	if !strings.Contains(textOutput, "co_presence_eligible=2") || !strings.Contains(textOutput, "daily_ready=1") {
+		t.Fatalf("real text output: %s", textOutput)
+	}
+	file := filepath.Join(t.TempDir(), "bridge.json")
+	if err := os.WriteFile(file, payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileOutput := runRootCommand(t, "presence", "athena-gate", "--bridge-report", file, "--format", "json")
+	if fileOutput != jsonOutput {
+		t.Fatal("file/runtime JSON classification differs")
+	}
+	if stdout, _, err := runRootCommandWithResult(t, "presence", "athena-gate", "--bridge-report", file, "--facility", "elsewhere"); err == nil || stdout != "" {
+		t.Fatal("file scope mismatch accepted")
+	}
+	for _, payload := range [][]byte{[]byte("{}"), append(bytes.Repeat([]byte(" "), presence.AthenaBridgeMaxBytes), []byte("{}")...)} {
+		if err := os.WriteFile(file, payload, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if stdout, _, err := runRootCommandWithResult(t, "presence", "athena-gate", "--bridge-report", file, "--format", "json"); err == nil || stdout != "" {
+			t.Fatal("invalid/oversize file produced a gate report")
+		}
+	}
+
+	for _, unsafe := range []string{"synthetic-one", "synthetic-two", "synthetic-three", "external_identity_hash", "rehearsal-read", "in-token", "out-token"} {
+		if strings.Contains(jsonOutput, unsafe) || strings.Contains(textOutput, unsafe) || strings.Contains(string(payload), unsafe) {
+			t.Fatalf("unsafe value emitted: %s", unsafe)
+		}
+	}
+	if after := productCounts(); before != after {
+		t.Fatalf("APOLLO product state changed: before=%s after=%s", before, after)
+	}
+	t.Logf("real ATHENA service+HTTP+Postgres -> APOLLO client/classifier/CLI JSON/text/file: evidence=%d eligible_co_presence=%d daily_ready=%d product_counts_unchanged=%s", len(report.Evidence), gate.Summary.EligibleCoPresenceEvidence, gate.Summary.DailyPresenceReadyCredits, before)
+}
 
 func TestBuildServerDependenciesWiresCompetitionMembershipMatchPreviewAndPresenceRuntime(t *testing.T) {
 	cookies, err := auth.NewSessionCookieManager("apollo_session", "0123456789abcdef0123456789abcdef", true)
@@ -107,30 +314,73 @@ func TestPresenceAthenaGateCommandClassifiesBridgeReportWithoutRawIdentityLeak(t
 
 	reportPath := t.TempDir() + "/athena-bridge.json"
 	if err := os.WriteFile(reportPath, []byte(`{
-		"facility_id":"ashtonbee",
-		"zone_id":"gym-floor",
-		"since":"2026-04-10T08:00:00Z",
-		"until":"2026-04-10T12:00:00Z",
-		"evidence":[{
-			"evidence_id":"evidence-001",
-			"event_id":"evt-001",
-			"identity_present":true,
-			"identity_ref":"identity-001",
-			"external_identity_hash":"raw-hash-should-not-emit",
-			"facility_id":"ashtonbee",
-			"zone_id":"gym-floor",
-			"direction":"in",
-			"source_result":"pass",
-			"observed_at":"2026-04-10T09:00:00Z",
-			"source_committed":true,
-			"accepted_presence":true,
-			"eligibility":{
-				"co_presence_proof":{"eligible":true},
-				"private_daily_presence":{"eligible":true},
-				"reliability_verification":{"eligible":true}
-			}
-		}]
-	}`), 0o600); err != nil {
+  "facility_id": "ashtonbee",
+  "zone_id": "gym-floor",
+  "since": "2026-04-10T08:00:00Z",
+  "until": "2026-04-10T12:00:00Z",
+  "evidence": [
+    {
+      "evidence_id": "evidence-001",
+      "event_id": "evt-001",
+      "identity_present": true,
+      "identity_ref": "identity-001",
+      "external_identity_hash": "raw-hash-should-not-emit",
+      "facility_id": "ashtonbee",
+      "zone_id": "gym-floor",
+      "direction": "in",
+      "source_result": "pass",
+      "observed_at": "2026-04-10T09:00:00Z",
+      "source_committed": true,
+      "accepted_presence": true,
+      "eligibility": {
+        "co_presence_proof": {
+          "eligible": true
+        },
+        "private_daily_presence": {
+          "eligible": true
+        },
+        "reliability_verification": {
+          "eligible": false,
+          "reason_codes": [
+            "incomplete_lifecycle"
+          ]
+        }
+      },
+      "acceptance_path": "touchnet_pass"
+    }
+  ],
+  "contract": {
+    "version": "athena_ingress_bridge_v2",
+    "replay_order": "stored_at,observed_at,event_id,observation_id",
+    "identity_scope": "report_local",
+    "scope": "repo_local_runtime_proof",
+    "source_truth": "source pass/fail remains immutable observation truth",
+    "accepted_presence_truth": "policy accepted presence is separate from source pass/fail truth",
+    "session_truth": "source-pass edge_sessions only; accepted-presence session cutover is not claimed",
+    "identity_output": "raw account ids, names, and external identity hashes are redacted",
+    "unknown_identity_scope": "caller-supplied known identity sets"
+  },
+  "completeness": {
+    "observations": true,
+    "sessions": true,
+    "replay_context": true,
+    "reason_codes": []
+  },
+  "sessions": [],
+  "summary": {
+    "total_evidence": 1,
+    "total_sessions": 0,
+    "source_pass": 1,
+    "source_fail": 0,
+    "accepted_source_pass": 1,
+    "accepted_policy": 0,
+    "eligible_co_presence": 1,
+    "eligible_daily_presence": 1,
+    "eligible_reliability_verification": 0,
+    "no_eligible_signals": 0,
+    "reason_counts": []
+  }
+}`), 0o600); err != nil {
 		t.Fatalf("WriteFile(report) error = %v", err)
 	}
 
@@ -172,29 +422,72 @@ func TestPresenceAthenaGateCommandReadsRuntimeAthenaBridge(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"facility_id":"ashtonbee",
-			"zone_id":"gym-floor",
-			"since":"2026-04-10T08:00:00Z",
-			"until":"2026-04-10T12:00:00Z",
-			"evidence":[{
-				"evidence_id":"evidence-001",
-				"event_id":"evt-001",
-				"identity_present":true,
-				"identity_ref":"identity-001",
-				"facility_id":"ashtonbee",
-				"zone_id":"gym-floor",
-				"direction":"in",
-				"source_result":"pass",
-				"observed_at":"2026-04-10T09:00:00Z",
-				"source_committed":true,
-				"accepted_presence":true,
-				"eligibility":{
-					"co_presence_proof":{"eligible":true},
-					"private_daily_presence":{"eligible":true},
-					"reliability_verification":{"eligible":true}
-				}
-			}]
-		}`))
+  "facility_id": "ashtonbee",
+  "zone_id": "gym-floor",
+  "since": "2026-04-10T08:00:00Z",
+  "until": "2026-04-10T12:00:00Z",
+  "evidence": [
+    {
+      "evidence_id": "evidence-001",
+      "event_id": "evt-001",
+      "identity_present": true,
+      "identity_ref": "identity-001",
+      "facility_id": "ashtonbee",
+      "zone_id": "gym-floor",
+      "direction": "in",
+      "source_result": "pass",
+      "observed_at": "2026-04-10T09:00:00Z",
+      "source_committed": true,
+      "accepted_presence": true,
+      "eligibility": {
+        "co_presence_proof": {
+          "eligible": true
+        },
+        "private_daily_presence": {
+          "eligible": true
+        },
+        "reliability_verification": {
+          "eligible": false,
+          "reason_codes": [
+            "incomplete_lifecycle"
+          ]
+        }
+      },
+      "acceptance_path": "touchnet_pass"
+    }
+  ],
+  "contract": {
+    "version": "athena_ingress_bridge_v2",
+    "replay_order": "stored_at,observed_at,event_id,observation_id",
+    "identity_scope": "report_local",
+    "scope": "repo_local_runtime_proof",
+    "source_truth": "source pass/fail remains immutable observation truth",
+    "accepted_presence_truth": "policy accepted presence is separate from source pass/fail truth",
+    "session_truth": "source-pass edge_sessions only; accepted-presence session cutover is not claimed",
+    "identity_output": "raw account ids, names, and external identity hashes are redacted",
+    "unknown_identity_scope": "caller-supplied known identity sets"
+  },
+  "completeness": {
+    "observations": true,
+    "sessions": true,
+    "replay_context": true,
+    "reason_codes": []
+  },
+  "sessions": [],
+  "summary": {
+    "total_evidence": 1,
+    "total_sessions": 0,
+    "source_pass": 1,
+    "source_fail": 0,
+    "accepted_source_pass": 1,
+    "accepted_policy": 0,
+    "eligible_co_presence": 1,
+    "eligible_daily_presence": 1,
+    "eligible_reliability_verification": 0,
+    "no_eligible_signals": 0,
+    "reason_counts": []
+  }
+}`))
 	}))
 	defer upstream.Close()
 
@@ -1332,4 +1625,40 @@ func waitForHealthyHTTP(t *testing.T, url string) {
 	}
 
 	t.Fatalf("health endpoint %s did not become ready", url)
+}
+
+func TestPresenceAthenaGateRejectsNonRegularFiles(t *testing.T) {
+	fifo := filepath.Join(t.TempDir(), "bridge.fifo")
+	if err := syscall.Mkfifo(fifo, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{fifo, t.TempDir()} {
+		done := make(chan error, 1)
+		go func() {
+			stdout, _, err := runRootCommandWithResult(t, "presence", "athena-gate", "--bridge-report", path, "--format", "json")
+			if stdout != "" {
+				done <- fmt.Errorf("unexpected output")
+				return
+			}
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), "regular file") {
+				t.Fatalf("nonregular input error=%v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("nonregular file open blocked")
+		}
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	command := newRootCmd()
+	command.SetContext(canceled)
+	command.SetOut(io.Discard)
+	command.SetErr(io.Discard)
+	command.SetArgs([]string{"presence", "athena-gate", "--bridge-report", fifo})
+	if err := command.Execute(); err != context.Canceled {
+		t.Fatalf("canceled file read=%v", err)
+	}
 }

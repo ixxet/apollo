@@ -2,13 +2,151 @@ package athena
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ixxet/apollo/internal/presence"
 )
+
+func emptyIngressBridgeFixture() presence.AthenaIngressBridgeReport {
+	return presence.AthenaIngressBridgeReport{
+		FacilityID: "ashtonbee", Since: time.Date(2026, 10, 20, 10, 0, 0, 123, time.UTC), Until: time.Date(2026, 10, 20, 11, 0, 0, 123, time.UTC),
+		Contract:     presence.AthenaIngressBridgeContract{Version: presence.AthenaBridgeVersion, Scope: "repo_local_runtime_proof", ReplayOrder: "stored_at,observed_at,event_id,observation_id", IdentityScope: "report_local", SourceTruth: "immutable", AcceptedPresenceTruth: "separate", SessionTruth: "source-pass", IdentityOutput: "redacted", UnknownIdentityScope: "report-local"},
+		Completeness: presence.AthenaIngressBridgeCompleteness{Observations: true, Sessions: true, ReplayContext: true, ReasonCodes: []string{}},
+		Evidence:     []presence.AthenaIngressBridgeEvidence{}, Sessions: []presence.AthenaIngressBridgeSession{}, Summary: presence.AthenaIngressBridgeSummary{ReasonCounts: []presence.GateReasonCount{}},
+	}
+}
+
+func TestIngressBridgeRejectsRedirectsWithoutFollowup(t *testing.T) {
+	for _, status := range []int{301, 302, 303, 307, 308} {
+		for _, crossOrigin := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%d/cross=%t", status, crossOrigin), func(t *testing.T) {
+				var followups atomic.Int32
+				target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					followups.Add(1)
+					if r.Header.Get(internalReadTokenHeader) != "" {
+						t.Error("token reached redirect target")
+					}
+				}))
+				defer target.Close()
+				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/followup" {
+						followups.Add(1)
+						t.Error("same-origin followup reached")
+						return
+					}
+					location := "/followup"
+					if crossOrigin {
+						location = target.URL
+					}
+					http.Redirect(w, r, location, status)
+				}))
+				defer upstream.Close()
+				client, err := NewClientWithInternalReadToken(upstream.URL, time.Second, "bridge-secret")
+				if err != nil {
+					t.Fatal(err)
+				}
+				fixture := emptyIngressBridgeFixture()
+				_, err = client.IngressBridgeReport(context.Background(), IngressBridgeFilter{FacilityID: fixture.FacilityID, Since: fixture.Since, Until: fixture.Until, SessionLimit: 1})
+				var statusErr *UpstreamStatusError
+				if !errors.As(err, &statusErr) || statusErr.StatusCode != status || followups.Load() != 0 {
+					t.Fatalf("redirect error=%v followups=%d", err, followups.Load())
+				}
+			})
+		}
+	}
+}
+
+func TestIngressBridgeValidatesRequestedScopeAndResponseBudget(t *testing.T) {
+	fixture := emptyIngressBridgeFixture()
+	for _, test := range []struct {
+		name   string
+		change func(*presence.AthenaIngressBridgeReport)
+		suffix string
+		valid  bool
+	}{
+		{"valid-empty", func(*presence.AthenaIngressBridgeReport) {}, "", true},
+		{"facility", func(r *presence.AthenaIngressBridgeReport) { r.FacilityID = "elsewhere" }, "", false},
+		{"zone", func(r *presence.AthenaIngressBridgeReport) { r.ZoneID = "other" }, "", false},
+		{"node", func(r *presence.AthenaIngressBridgeReport) { r.NodeID = "other" }, "", false},
+		{"window", func(r *presence.AthenaIngressBridgeReport) { r.Since = r.Since.Add(time.Nanosecond) }, "", false},
+		{"oversize", func(*presence.AthenaIngressBridgeReport) {}, strings.Repeat(" ", presence.AthenaBridgeMaxBytes), false},
+		{"trailing", func(*presence.AthenaIngressBridgeReport) {}, "broken", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("since") != fixture.Since.Format(time.RFC3339Nano) {
+					t.Error("lost subsecond precision")
+				}
+				modified := fixture
+				test.change(&modified)
+				body, err := json.Marshal(modified)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				_, _ = w.Write(append(body, []byte(test.suffix)...))
+			}))
+			defer upstream.Close()
+			client, err := NewClientWithInternalReadToken(upstream.URL, time.Second, "secret")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.IngressBridgeReport(context.Background(), IngressBridgeFilter{FacilityID: fixture.FacilityID, Since: fixture.Since, Until: fixture.Until, SessionLimit: 1})
+			if test.valid && err != nil || !test.valid && !errors.Is(err, ErrIngressBridgeMalformed) {
+				t.Fatalf("response: %v", err)
+			}
+		})
+	}
+}
+
+func TestBridgeHardeningPreservesOccupancyRedirects(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/followup" {
+			http.Redirect(w, r, "/followup", http.StatusFound)
+			return
+		}
+		if r.Header.Get(internalReadTokenHeader) != "" {
+			t.Error("occupancy sent internal token")
+		}
+		_, _ = w.Write([]byte(`{"facility_id":"ashtonbee","current_count":1,"observed_at":"2026-10-20T10:00:00Z"}`))
+	}))
+	defer upstream.Close()
+	client, err := NewClientWithInternalReadToken(upstream.URL, time.Second, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CurrentOccupancy(context.Background(), "ashtonbee"); err != nil {
+		t.Fatalf("occupancy redirect changed: %v", err)
+	}
+}
+
+func TestIngressBridgeBoundsSlowResponseBody(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"facility_id":`))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer upstream.Close()
+	client, err := NewClientWithInternalReadToken(upstream.URL, 20*time.Millisecond, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := emptyIngressBridgeFixture()
+	_, err = client.IngressBridgeReport(context.Background(), IngressBridgeFilter{FacilityID: fixture.FacilityID, Since: fixture.Since, Until: fixture.Until, SessionLimit: 1})
+	if !errors.Is(err, ErrRequestTimeout) {
+		t.Fatalf("slow body error=%v", err)
+	}
+}
 
 func TestClientReadsCurrentOccupancyAndAnalyticsContracts(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,11 +188,70 @@ func TestClientReadsCurrentOccupancyAndAnalyticsContracts(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
-				"facility_id":"ashtonbee",
-				"since":"2026-04-15T13:00:00Z",
-				"until":"2026-04-15T14:00:00Z",
-				"evidence":[{"evidence_id":"evidence-001","event_id":"edge-001","identity_present":true,"identity_ref":"identity-001","facility_id":"ashtonbee","direction":"in","source_result":"pass","observed_at":"2026-04-15T13:05:00Z","source_committed":true,"accepted_presence":true,"eligibility":{"co_presence_proof":{"eligible":true},"private_daily_presence":{"eligible":true},"reliability_verification":{"eligible":false}}}]
-			}`))
+  "facility_id": "ashtonbee",
+  "since": "2026-04-15T13:00:00Z",
+  "until": "2026-04-15T14:00:00Z",
+  "evidence": [
+    {
+      "evidence_id": "evidence-001",
+      "event_id": "edge-001",
+      "identity_present": true,
+      "identity_ref": "identity-001",
+      "facility_id": "ashtonbee",
+      "direction": "in",
+      "source_result": "pass",
+      "observed_at": "2026-04-15T13:05:00Z",
+      "source_committed": true,
+      "accepted_presence": true,
+      "eligibility": {
+        "co_presence_proof": {
+          "eligible": true
+        },
+        "private_daily_presence": {
+          "eligible": true
+        },
+        "reliability_verification": {
+          "eligible": false,
+          "reason_codes": [
+            "incomplete_lifecycle"
+          ]
+        }
+      },
+      "acceptance_path": "touchnet_pass"
+    }
+  ],
+  "contract": {
+    "version": "athena_ingress_bridge_v2",
+    "replay_order": "stored_at,observed_at,event_id,observation_id",
+    "identity_scope": "report_local",
+    "scope": "repo_local_runtime_proof",
+    "source_truth": "source pass/fail remains immutable observation truth",
+    "accepted_presence_truth": "policy accepted presence is separate from source pass/fail truth",
+    "session_truth": "source-pass edge_sessions only; accepted-presence session cutover is not claimed",
+    "identity_output": "raw account ids, names, and external identity hashes are redacted",
+    "unknown_identity_scope": "caller-supplied known identity sets"
+  },
+  "completeness": {
+    "observations": true,
+    "sessions": true,
+    "replay_context": true,
+    "reason_codes": []
+  },
+  "sessions": [],
+  "summary": {
+    "total_evidence": 1,
+    "total_sessions": 0,
+    "source_pass": 1,
+    "source_fail": 0,
+    "accepted_source_pass": 1,
+    "accepted_policy": 0,
+    "eligible_co_presence": 1,
+    "eligible_daily_presence": 1,
+    "eligible_reliability_verification": 0,
+    "no_eligible_signals": 0,
+    "reason_counts": []
+  }
+}`))
 		default:
 			t.Fatalf("unexpected upstream path %s", r.URL.Path)
 		}
@@ -100,7 +297,7 @@ func TestClientReadsCurrentOccupancyAndAnalyticsContracts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IngressBridgeReport() error = %v", err)
 	}
-	if !strings.Contains(string(bridgePayload), `"identity_ref":"identity-001"`) {
+	if !strings.Contains(string(bridgePayload), `"identity_ref": "identity-001"`) {
 		t.Fatalf("bridge payload = %s, want report-local identity ref", bridgePayload)
 	}
 }
