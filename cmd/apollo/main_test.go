@@ -30,6 +30,30 @@ import (
 	"github.com/ixxet/apollo/internal/testutil"
 )
 
+func TestBuildEmailSenderSMTPAndDevelopmentModes(t *testing.T) {
+	cfg := config.Config{SMTPHost: "smtp.example.invalid", SMTPPort: 587, SMTPTLSMode: "starttls", SMTPFrom: "signin@example.invalid", SMTPTimeout: time.Second}
+	sender, err := buildEmailSender(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := sender.(*auth.SMTPEmailSender); !ok {
+		t.Fatal("configured SMTP must select the real sender")
+	}
+	cfg.LogVerificationTokens = true
+	if _, err := buildEmailSender(cfg); err == nil {
+		t.Fatal("SMTP must refuse token logging")
+	}
+	cfg.LogVerificationTokens = false
+	cfg.SMTPFrom = ""
+	if _, err := buildEmailSender(cfg); err == nil {
+		t.Fatal("partial SMTP configuration must not silently fall back to no-op")
+	}
+	sender, err = buildEmailSender(config.Config{})
+	if _, ok := sender.(auth.NoopEmailSender); err != nil || !ok {
+		t.Fatal("unconfigured development mode must retain its existing no-op sender")
+	}
+}
+
 // This explicitly requested rehearsal uses the sibling ATHENA checkout. Normal
 // APOLLO-only CI does not claim cross-service proof when that source is absent.
 func TestPresenceAthenaGateRealServicePostgres(t *testing.T) {

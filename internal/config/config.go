@@ -19,6 +19,13 @@ type Config struct {
 	VerificationTokenTTL    time.Duration
 	SessionTTL              time.Duration
 	LogVerificationTokens   bool
+	SMTPHost                string
+	SMTPPort                int
+	SMTPTLSMode             string
+	SMTPFrom                string
+	SMTPUsername            string
+	SMTPPassword            string
+	SMTPTimeout             time.Duration
 	AthenaBaseURL           string
 	AthenaTimeout           time.Duration
 	AthenaInternalReadToken string
@@ -41,6 +48,30 @@ func Load() (Config, error) {
 	logVerificationTokens, err := getBoolEnv("APOLLO_LOG_VERIFICATION_TOKENS", false)
 	if err != nil {
 		return Config{}, err
+	}
+	smtpMode := getEnv("APOLLO_SMTP_TLS_MODE", "starttls")
+	defaultSMTPPort := "587"
+	if smtpMode == "tls" {
+		defaultSMTPPort = "465"
+	}
+	smtpPort, err := strconv.Atoi(getEnv("APOLLO_SMTP_PORT", defaultSMTPPort))
+	if err != nil || smtpPort < 1 || smtpPort > 65535 {
+		return Config{}, fmt.Errorf("APOLLO_SMTP_PORT must be between 1 and 65535")
+	}
+	smtpTimeout, err := getDurationEnv("APOLLO_SMTP_TIMEOUT", 4*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if smtpTimeout <= 0 || smtpTimeout > 4*time.Second {
+		return Config{}, fmt.Errorf("APOLLO_SMTP_TIMEOUT must be greater than zero and at most 4s")
+	}
+	smtpHost := getEnv("APOLLO_SMTP_HOST", "")
+	if smtpHost == "" {
+		for _, key := range []string{"APOLLO_SMTP_PORT", "APOLLO_SMTP_TLS_MODE", "APOLLO_SMTP_FROM", "APOLLO_SMTP_USERNAME", "APOLLO_SMTP_PASSWORD", "APOLLO_SMTP_TIMEOUT"} {
+			if os.Getenv(key) != "" {
+				return Config{}, fmt.Errorf("APOLLO_SMTP_HOST is required when SMTP settings are present")
+			}
+		}
 	}
 	athenaTimeout, err := getDurationEnv("APOLLO_ATHENA_TIMEOUT", 2*time.Second)
 	if err != nil {
@@ -71,6 +102,13 @@ func Load() (Config, error) {
 		VerificationTokenTTL:    verificationTokenTTL,
 		SessionTTL:              sessionTTL,
 		LogVerificationTokens:   logVerificationTokens,
+		SMTPHost:                smtpHost,
+		SMTPPort:                smtpPort,
+		SMTPTLSMode:             smtpMode,
+		SMTPFrom:                getEnv("APOLLO_SMTP_FROM", ""),
+		SMTPUsername:            getEnv("APOLLO_SMTP_USERNAME", ""),
+		SMTPPassword:            getEnv("APOLLO_SMTP_PASSWORD", ""),
+		SMTPTimeout:             smtpTimeout,
 		AthenaBaseURL:           athenaBaseURL,
 		AthenaTimeout:           athenaTimeout,
 		AthenaInternalReadToken: getEnv("APOLLO_ATHENA_INTERNAL_READ_TOKEN", ""),

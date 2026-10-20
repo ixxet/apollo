@@ -73,3 +73,49 @@ func TestLoadRejectsInvalidOpsAthenaConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadSMTPConfiguration(t *testing.T) {
+	for _, mode := range []string{"starttls", "tls"} {
+		t.Run(mode, func(t *testing.T) {
+			for _, key := range []string{"APOLLO_SMTP_PORT", "APOLLO_SMTP_TIMEOUT"} {
+				t.Setenv(key, "")
+			}
+			t.Setenv("APOLLO_SMTP_HOST", "smtp.example.invalid")
+			t.Setenv("APOLLO_SMTP_TLS_MODE", mode)
+			t.Setenv("APOLLO_SMTP_FROM", "signin@example.invalid")
+			t.Setenv("APOLLO_SMTP_USERNAME", "fixture-user")
+			t.Setenv("APOLLO_SMTP_PASSWORD", "fixture-password")
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			port := 587
+			if mode == "tls" {
+				port = 465
+			}
+			if cfg.SMTPHost != "smtp.example.invalid" || cfg.SMTPPort != port || cfg.SMTPTimeout != 4*time.Second || cfg.SMTPFrom != "signin@example.invalid" || cfg.SMTPUsername != "fixture-user" || cfg.SMTPPassword != "fixture-password" {
+				t.Fatal("SMTP settings were not loaded correctly")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidOrPartialSMTPConfiguration(t *testing.T) {
+	for _, testCase := range []struct{ key, value string }{
+		{"APOLLO_SMTP_PORT", "invalid-port"},
+		{"APOLLO_SMTP_PORT", "65536"},
+		{"APOLLO_SMTP_TIMEOUT", "0s"},
+		{"APOLLO_SMTP_TIMEOUT", "5s"},
+		{"APOLLO_SMTP_FROM", "signin@example.invalid"},
+	} {
+		t.Run(testCase.key+testCase.value, func(t *testing.T) {
+			for _, key := range []string{"APOLLO_SMTP_HOST", "APOLLO_SMTP_PORT", "APOLLO_SMTP_TLS_MODE", "APOLLO_SMTP_FROM", "APOLLO_SMTP_USERNAME", "APOLLO_SMTP_PASSWORD", "APOLLO_SMTP_TIMEOUT"} {
+				t.Setenv(key, "")
+			}
+			t.Setenv(testCase.key, testCase.value)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "APOLLO_SMTP_") {
+				t.Fatalf("expected SMTP configuration error, got %v", err)
+			}
+		})
+	}
+}

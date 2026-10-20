@@ -129,6 +129,10 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			sender, err := buildEmailSender(cfg)
+			if err != nil {
+				return err
+			}
 
 			pool, err := openPool(cmd.Context(), cfg.DatabaseURL)
 			if err != nil {
@@ -194,11 +198,6 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 
-			var sender auth.EmailSender = auth.NoopEmailSender{}
-			if cfg.LogVerificationTokens {
-				sender = auth.LogEmailSender{}
-			}
-
 			deps, err := buildServerDependencies(pool, consumerEnabled, cookies, sender, cfg)
 			if err != nil {
 				return err
@@ -244,6 +243,22 @@ func newServeCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func buildEmailSender(cfg config.Config) (auth.EmailSender, error) {
+	if cfg.SMTPHost != "" {
+		if cfg.LogVerificationTokens {
+			return nil, fmt.Errorf("SMTP delivery cannot be combined with APOLLO_LOG_VERIFICATION_TOKENS")
+		}
+		return auth.NewSMTPEmailSender(auth.SMTPConfig{
+			Host: cfg.SMTPHost, Port: cfg.SMTPPort, TLSMode: cfg.SMTPTLSMode,
+			From: cfg.SMTPFrom, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword, Timeout: cfg.SMTPTimeout,
+		})
+	}
+	if cfg.LogVerificationTokens {
+		return auth.LogEmailSender{}, nil
+	}
+	return auth.NoopEmailSender{}, nil
 }
 
 func buildServerDependencies(pool *pgxpool.Pool, consumerEnabled bool, cookies *auth.SessionCookieManager, sender auth.EmailSender, cfg config.Config) (server.Dependencies, error) {
