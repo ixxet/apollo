@@ -157,7 +157,7 @@ try {
  const staffContext=await browser.newContext({timezoneId:'America/Toronto'});
  const customer=await customerContext.newPage(); const staff=await staffContext.newPage();
  await customer.goto(process.env.BOOKING_PUBLIC_ORIGIN+'/intake',{waitUntil:'networkidle'});
- await customer.locator('select[name="option_id"]').selectOption(process.env.BOOKING_OPTION);
+ await customer.getByRole('button',{name:/Rehearsal Court/}).click();
  await customer.locator('input[name="availability_date"]').fill(process.env.BOOKING_DAY);
  await customer.getByRole('button',{name:'Check availability'}).click();
  await customer.waitForURL(/from=/); await customer.waitForLoadState('networkidle');
@@ -171,7 +171,7 @@ try {
  await expect(customer.getByRole('heading',{name:'Received',exact:true})).toBeVisible();
  const statusURL=customer.url();
  await staff.goto(process.env.BOOKING_STAFF_ORIGIN+'/login',{waitUntil:'networkidle'});
- await staff.getByLabel('Verification token',{exact:true}).fill(process.env.BOOKING_STAFF_TOKEN);
+ await staff.getByLabel('Sign-in code',{exact:true}).fill(process.env.BOOKING_STAFF_TOKEN);
  await staff.getByRole('button',{name:'Verify and continue'}).click();
  await staff.waitForURL(/ops\/facilities/);
  const cookie=(await staffContext.cookies()).find(c=>c.name==='apollo_session');
