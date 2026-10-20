@@ -68,6 +68,89 @@ func TestBookingRequestStateMachineApprovalAndScheduleConflictTruth(t *testing.T
 	}
 }
 
+func TestBookingConcurrentOverlappingApprovalsReserveOnlyOnce(t *testing.T) {
+	for _, relation := range []string{"same-resource", "parent-child", "exclusive", "adjacent"} {
+		t.Run(relation, func(t *testing.T) {
+			service, actor, env, cleanup := newBookingServiceFixture(t)
+			defer cleanup()
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			firstResource := insertBookingResource(t, env, "concurrent-first")
+			secondResource := firstResource
+			if relation == "parent-child" || relation == "exclusive" {
+				secondResource = insertBookingResource(t, env, "concurrent-second")
+				edge := schedule.EdgeContains
+				if relation == "exclusive" {
+					edge = schedule.EdgeExclusiveWith
+				}
+				insertBookingResourceEdge(t, env, firstResource, secondResource, edge)
+			}
+			first, err := service.CreateRequest(ctx, actor, bookingRequestInput(firstResource, "2026-04-18T14:00:00Z", "2026-04-18T15:00:00Z"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondStart := "2026-04-18T14:30:00Z"
+			if relation == "adjacent" {
+				secondStart = "2026-04-18T15:00:00Z"
+			}
+			second, err := service.CreateRequest(ctx, actor, bookingRequestInput(secondResource, secondStart, "2026-04-18T15:30:00Z"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Widen the real insert race in this disposable database, without service mocks.
+			if _, err := env.DB.Exec(ctx, `
+CREATE FUNCTION apollo.test_slow_schedule_insert() RETURNS trigger AS $$
+BEGIN PERFORM pg_sleep(0.25); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER test_slow_schedule_insert BEFORE INSERT ON apollo.schedule_blocks
+FOR EACH ROW EXECUTE FUNCTION apollo.test_slow_schedule_insert();`); err != nil {
+				t.Fatal(err)
+			}
+			start := make(chan struct{})
+			results := make(chan error, 2)
+			for _, request := range []Request{first, second} {
+				go func(request Request) {
+					<-start
+					_, err := service.Approve(ctx, actor, request.ID, TransitionInput{ExpectedVersion: request.Version})
+					results <- err
+				}(request)
+			}
+			close(start)
+			approved, rejected := 0, 0
+			for range 2 {
+				err := <-results
+				if err == nil {
+					approved++
+				} else if errors.Is(err, schedule.ErrBlockConflictRejected) {
+					rejected++
+				} else {
+					t.Errorf("unexpected approval result: %v", err)
+				}
+			}
+			var reservations int
+			if err := env.DB.QueryRow(ctx, `SELECT count(*) FROM apollo.schedule_blocks WHERE status = 'scheduled' AND kind = 'reservation'`).Scan(&reservations); err != nil {
+				t.Fatal(err)
+			}
+			wantApproved := 1
+			if relation == "adjacent" {
+				wantApproved = 2
+			}
+			if approved != wantApproved || rejected != 2-wantApproved || reservations != wantApproved {
+				t.Fatalf("approved=%d conflict_rejected=%d active_reservations=%d; want %d/%d/%d", approved, rejected, reservations, wantApproved, 2-wantApproved, wantApproved)
+			}
+			for _, request := range []Request{first, second} {
+				current, err := service.GetRequest(ctx, request.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if current.Status == StatusRequested && (current.Version != 1 || current.ScheduleBlockID != nil) {
+					t.Fatalf("rejected approval mutated pending request: %#v", current)
+				}
+			}
+		})
+	}
+}
+
 func TestBookingRequestApprovedCancellationCancelsLinkedReservation(t *testing.T) {
 	service, actor, env, cleanup := newBookingServiceFixture(t)
 	defer cleanup()
@@ -109,6 +192,37 @@ func TestBookingRequestApprovedCancellationCancelsLinkedReservation(t *testing.T
 	}
 	if _, err := service.Approve(context.Background(), actor, cancelled.ID, TransitionInput{ExpectedVersion: cancelled.Version}); !errors.Is(err, ErrRequestTransitionInvalid) {
 		t.Fatalf("Approve(cancelled approved request) error = %v, want %v", err, ErrRequestTransitionInvalid)
+	}
+}
+
+func TestBookingApprovalFacilityLockHonoursCancellation(t *testing.T) {
+	service, actor, env, cleanup := newBookingServiceFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	resource := insertBookingResource(t, env, "booking-lock-cancellation")
+	request, err := service.CreateRequest(ctx, actor, bookingRequestInput(resource, "2026-04-18T14:00:00Z", "2026-04-18T15:00:00Z"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := env.DB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Rollback(ctx)
+	if _, err := lock.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('apollo.schedule:' || $1::text, 0))`, "ashtonbee"); err != nil {
+		t.Fatal(err)
+	}
+	bounded, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+	defer cancel()
+	if _, err := service.Approve(bounded, actor, request.ID, TransitionInput{ExpectedVersion: 1}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked approval error=%v, want deadline exceeded", err)
+	}
+	current, err := service.GetRequest(ctx, request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != StatusRequested || current.Version != 1 || current.ScheduleBlockID != nil {
+		t.Fatal("cancelled approval changed pending request")
 	}
 }
 

@@ -390,6 +390,12 @@ func (s *Service) CreateBlockWithQueries(ctx context.Context, queries *store.Que
 		return Block{}, err
 	}
 
+	// Serialize the conflict snapshot and insert across all resources in a facility.
+	// Request-row locks alone do not protect distinct overlapping approvals.
+	if err := queries.LockScheduleFacility(ctx, resolved.FacilityKey); err != nil {
+		return Block{}, err
+	}
+
 	if err := s.validateBlockReferences(ctx, queries, resolved); err != nil {
 		return Block{}, err
 	}

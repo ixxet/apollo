@@ -1106,6 +1106,15 @@ func (q *Queries) ListScheduleResourcesByFacilityKey(ctx context.Context, facili
 	return items, nil
 }
 
+const lockScheduleFacility = `-- name: LockScheduleFacility :exec
+SELECT pg_advisory_xact_lock(hashtextextended('apollo.schedule:' || $1::text, 0))
+`
+
+func (q *Queries) LockScheduleFacility(ctx context.Context, facilityKey string) error {
+	_, err := q.db.Exec(ctx, lockScheduleFacility, facilityKey)
+	return err
+}
+
 const upsertScheduleResource = `-- name: UpsertScheduleResource :one
 INSERT INTO apollo.schedule_resources (
     resource_key,

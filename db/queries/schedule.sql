@@ -14,6 +14,9 @@ FROM apollo.schedule_resources
 WHERE facility_key = $1
 ORDER BY resource_key;
 
+-- name: LockScheduleFacility :exec
+SELECT pg_advisory_xact_lock(hashtextextended('apollo.schedule:' || sqlc.arg(facility_key)::text, 0));
+
 -- name: GetScheduleResourceByKey :one
 SELECT resource_key,
        facility_key,
