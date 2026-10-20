@@ -1,5 +1,42 @@
 # Launch Expansion Audit
 
+## R1 bridge hardening and booking-first priority (2026-10-20)
+
+R1 repairs the internal ATHENA bridge. `athena_ingress_bridge_v2` requires
+explicit observations/session/replay completeness, report-local identity scope
+and storage replay order. The client rejects every redirect without forwarding
+the internal token. HTTP and saved regular-file inputs share required-field,
+version, scope/window, identity/time, eligibility/session and summary checks;
+legacy files must be regenerated, while harmless additive fields are allowed.
+FIFOs/devices/directories are rejected without blocking. Incomplete context
+blocks every signal, including source-pass reliability. Source failures accepted
+by policy remain separate from source-pass sessions.
+
+Budgets are 1,000 observations, 250 sessions (requested limit 1..250), 2 MiB
+response/file input and a 24-hour window. ATHENA also caps replay context at
+4,000 rows, uses a 5-second operation context / 4-second SQL statement timeout,
+and rejects overflow rather than producing eligible truncated evidence. The
+APOLLO bridge HTTP client uses the shorter of its configured timeout and 5s;
+occupancy/analytics behaviour is preserved. No product state or schema changes.
+
+Local verification and the real producer/consumer command are recorded in the
+[canonical R1 readiness record](https://github.com/ixxet/ashton-platform/blob/main/planning/BOOKING-SCHEDULING-CLOSED-TEST-READINESS.md). The rehearsal requires Docker plus the
+sibling ATHENA source, builds the actual server and uses disposable PostgreSQL /
+NATS and actual tap HTTP. It invokes the APOLLO client/classifier/CLI in JSON,
+text and file modes and checks unchanged visits/tap-links/streaks/bookings /
+schedule blocks. Its explicit opt-in skip in single-repo CI is not a pass.
+
+Delivery priority is booking/scheduling through Hestia and Themis, then
+competition/rating/game identity, then member services; broader ATHENA physical
+truth is later. The next implementation packet is Booking/Scheduling Closed-Test
+Implementation + Deployment. It must repair the documented frontend load/malformed
+states and test fixtures, package both frontends, establish staff login and
+inventory, prove migration/rollback compatibility, then obtain explicit live
+approval. Booking has no required ATHENA dependency. Daily credits, teams,
+reliability scoring, public tournaments, OpenSkill cutover and destructive probes
+remain separately deferred. This is source/local proof, not an external booking
+launch or a live deployment.
+
 Status: consolidated read-only audit artifact
 Scope: APOLLO-centered, with ATHENA, Hestia, Themis, gateway, and platform compatibility noted where they affect launch safety
 Original audit date: 2026-04-26
@@ -1573,8 +1610,8 @@ Current next launch-expansion packets in priority order:
 
 | Priority | Packet | Why now |
 | --- | --- | --- |
-| 1 | Live destructive-probe execution gate | Packet 8 planned the probe. Actual execution still requires explicit operator approval, disposable APOLLO/ATHENA fixtures, current image capture, metrics/log access, and concrete rollback proof. |
-| 2 | Feature-specific reliability gate | Packet 7 gives ATHENA local/runtime bridge evidence and APOLLO now has a co-presence/private daily presence classification proof, but reliability scoring/product behavior remains deferred until a separate packet defines its own gate. |
+| 1 | Booking/Scheduling Closed-Test Implementation + Deployment | R1 sets booking-first delivery: resolve concrete Hestia/Themis readiness gaps, then seek explicit target/image/migration/fixture/rollback approval before live execution. |
+| Later | Feature-specific reliability or destructive probe gate | Separately approved work with its own prerequisites; ordinary booking deployment is not held behind a destructive-test programme. |
 
 What to avoid as a next packet:
 
@@ -1640,8 +1677,8 @@ These priorities and avoidances are forward-looking guidance. The Immediate Acti
     that classifies source/accepted presence, identity presence, scope,
     timestamp, projection, and source-pass session facts for future APOLLO
     trust gates. APOLLO runtime and deployed truth are unchanged.
-18. Next: live destructive-probe/SIGTERM proof planning or another bounded
-    trust packet, depending on the next planning ruling.
+18. R1 next: Booking/Scheduling Closed-Test Implementation + Deployment;
+    competition expansion remains governed by this audit and its existing gates.
 
 ## Proof Commands
 
@@ -2668,9 +2705,9 @@ cd /Users/zizo/Personal-Projects/ASHTON/ashton-platform
 git diff --check
 ```
 
-Next launch-expansion packet: live destructive probe/SIGTERM execution gate,
-only with explicit operator approval, disposable fixtures, and concrete
-rollback proof; otherwise another bounded trust packet.
+R1 delivery update: Booking/Scheduling Closed-Test Implementation + Deployment
+comes next. Destructive probes remain separate, approval-gated work with their
+own disposable fixtures and restore prerequisites.
 
 ## Game Identity Policy Tuning Loop Addendum
 

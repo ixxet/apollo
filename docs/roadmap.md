@@ -5,6 +5,43 @@
 Keep APOLLO moving through narrow bounded release lines instead of trying to
 jump straight to a broad product.
 
+## R1 bridge hardening and booking-first priority (2026-10-20)
+
+R1 repairs the internal ATHENA bridge. `athena_ingress_bridge_v2` requires
+explicit observations/session/replay completeness, report-local identity scope
+and storage replay order. The client rejects every redirect without forwarding
+the internal token. HTTP and saved regular-file inputs share required-field,
+version, scope/window, identity/time, eligibility/session and summary checks;
+legacy files must be regenerated, while harmless additive fields are allowed.
+FIFOs/devices/directories are rejected without blocking. Incomplete context
+blocks every signal, including source-pass reliability. Source failures accepted
+by policy remain separate from source-pass sessions.
+
+Budgets are 1,000 observations, 250 sessions (requested limit 1..250), 2 MiB
+response/file input and a 24-hour window. ATHENA also caps replay context at
+4,000 rows, uses a 5-second operation context / 4-second SQL statement timeout,
+and rejects overflow rather than producing eligible truncated evidence. The
+APOLLO bridge HTTP client uses the shorter of its configured timeout and 5s;
+occupancy/analytics behaviour is preserved. No product state or schema changes.
+
+Local verification and the real producer/consumer command are recorded in the
+[canonical R1 readiness record](https://github.com/ixxet/ashton-platform/blob/main/planning/BOOKING-SCHEDULING-CLOSED-TEST-READINESS.md). The rehearsal requires Docker plus the
+sibling ATHENA source, builds the actual server and uses disposable PostgreSQL /
+NATS and actual tap HTTP. It invokes the APOLLO client/classifier/CLI in JSON,
+text and file modes and checks unchanged visits/tap-links/streaks/bookings /
+schedule blocks. Its explicit opt-in skip in single-repo CI is not a pass.
+
+Delivery priority is booking/scheduling through Hestia and Themis, then
+competition/rating/game identity, then member services; broader ATHENA physical
+truth is later. The next implementation packet is Booking/Scheduling Closed-Test
+Implementation + Deployment. It must repair the documented frontend load/malformed
+states and test fixtures, package both frontends, establish staff login and
+inventory, prove migration/rollback compatibility, then obtain explicit live
+approval. Booking has no required ATHENA dependency. Daily credits, teams,
+reliability scoring, public tournaments, OpenSkill cutover and destructive probes
+remain separately deferred. This is source/local proof, not an external booking
+launch or a live deployment.
+
 ## Current Line
 
 Current repo/runtime working line on `main`: Phase 3B.20.1 cohesion hardening
