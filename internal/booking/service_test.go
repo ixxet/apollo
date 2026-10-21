@@ -13,6 +13,85 @@ import (
 	"github.com/ixxet/apollo/internal/testutil"
 )
 
+func TestBookingWithinPostedHoursRemainsAvailableThroughApprovalAndCancellation(t *testing.T) {
+	service, actor, env, cleanup := newBookingServiceFixture(t)
+	defer cleanup()
+	ctx := context.Background()
+	resourceKey := insertBookingResource(t, env, "booking-posted-hours-court")
+	endDate := "2026-11-19"
+	hours, err := service.schedule.CreateBlock(ctx, schedule.StaffActor{
+		UserID: actor.UserID, SessionID: actor.SessionID, Role: actor.Role,
+		Capability: authz.CapabilityScheduleManage, TrustedSurfaceKey: actor.TrustedSurfaceKey,
+	}, schedule.BlockInput{
+		FacilityKey: "ashtonbee", ResourceKey: &resourceKey, Scope: schedule.ScopeResource,
+		Kind: schedule.KindOperatingHours, Effect: schedule.EffectInformational,
+		Visibility: schedule.VisibilityPublicLabeled,
+		Weekly: &schedule.WeeklyInput{
+			Weekday: 1, StartTime: "09:00", EndTime: "18:00", Timezone: "America/Toronto",
+			RecurrenceStartDate: "2026-10-21", RecurrenceEndDate: &endDate,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBlock(operating hours) error = %v", err)
+	}
+	input := bookingRequestInput(resourceKey, "2026-10-26T13:00:00Z", "2026-10-26T14:00:00Z")
+	request, err := service.CreateRequest(ctx, actor, input)
+	if err != nil {
+		t.Fatalf("CreateRequest(within posted hours) error = %v", err)
+	}
+	if !request.Availability.Available || len(request.Availability.Conflicts) != 0 {
+		t.Fatalf("posted opening hours must not conflict with a request: %#v", request.Availability)
+	}
+	approved, err := service.Approve(ctx, actor, request.ID, TransitionInput{ExpectedVersion: request.Version})
+	if err != nil {
+		t.Fatalf("Approve(within posted hours) error = %v", err)
+	}
+	if approved.ScheduleBlockID == nil {
+		t.Fatal("approved request has no linked reservation")
+	}
+	assertLinkedReservationBlock(t, env, *approved.ScheduleBlockID, resourceKey)
+
+	occurrences, err := service.schedule.GetCalendar(ctx, "ashtonbee", schedule.CalendarWindow{
+		From: mustParseBookingTime("2026-10-26T04:00:00Z"), Until: mustParseBookingTime("2026-10-27T04:00:00Z"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(occurrences) != 2 {
+		t.Fatalf("calendar has %d occurrences, want hours and reservation", len(occurrences))
+	}
+	for _, occurrence := range occurrences {
+		if len(occurrence.Conflicts) != 0 {
+			t.Fatalf("opening hours and their reservation must coexist without a conflict: %#v", occurrence.Conflicts)
+		}
+	}
+	overlapping, err := service.CreateRequest(ctx, actor, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overlapping.Availability.Available || len(overlapping.Availability.Conflicts) != 1 || overlapping.Availability.Conflicts[0].BlockID != *approved.ScheduleBlockID {
+		t.Fatalf("actual reservation must remain the only conflict: %#v", overlapping.Availability)
+	}
+	if _, err := service.Approve(ctx, actor, overlapping.ID, TransitionInput{ExpectedVersion: overlapping.Version}); !errors.Is(err, schedule.ErrBlockConflictRejected) {
+		t.Fatalf("Approve(overlapping reservation) error = %v", err)
+	}
+	if _, err := service.Cancel(ctx, actor, approved.ID, TransitionInput{ExpectedVersion: approved.Version}); err != nil {
+		t.Fatal(err)
+	}
+	assertLinkedReservationCancelled(t, env, *approved.ScheduleBlockID)
+	released, err := service.GetRequest(ctx, overlapping.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !released.Availability.Available || len(released.Availability.Conflicts) != 0 {
+		t.Fatalf("cancellation must release the time while retaining opening hours: %#v", released.Availability)
+	}
+	var hoursStatus string
+	if err := env.DB.QueryRow(ctx, "SELECT status FROM apollo.schedule_blocks WHERE id=$1", hours.ID).Scan(&hoursStatus); err != nil || hoursStatus != schedule.StatusScheduled {
+		t.Fatalf("opening hours status=%q error=%v, want scheduled", hoursStatus, err)
+	}
+}
+
 func TestBookingRequestStateMachineApprovalAndScheduleConflictTruth(t *testing.T) {
 	service, actor, env, cleanup := newBookingServiceFixture(t)
 	defer cleanup()

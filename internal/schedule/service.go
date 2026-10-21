@@ -1523,6 +1523,10 @@ func blockConflicts(candidate Block, allOccurrences []blockOccurrence, snapshot 
 			continue
 		}
 		otherHardClaim := isHardClaimOccurrence(other.Occurrence)
+		// Posted opening hours describe availability without claiming inventory.
+		if (candidate.Kind == KindOperatingHours && otherHardClaim) || (other.Kind == KindOperatingHours && candidateHardClaim) {
+			continue
+		}
 		scopeConflict := scopeInventoryConflictBlockOccurrence(candidate, other.Occurrence, snapshot)
 		coverageBasedConflict := coverageConflict(candidateCoverage, other.coverage, snapshot)
 		if (candidateHardClaim && otherHardClaim && coverageBasedConflict) || (!candidateHardClaim || !otherHardClaim) && (scopeConflict || coverageBasedConflict) {
@@ -1561,6 +1565,9 @@ func occurrenceConflicts(candidate blockOccurrence, all []blockOccurrence, snaps
 			continue
 		}
 		otherHardClaim := isHardClaimOccurrence(other.Occurrence)
+		if (candidate.Kind == KindOperatingHours && otherHardClaim) || (other.Kind == KindOperatingHours && candidateHardClaim) {
+			continue
+		}
 		scopeConflict := scopeInventoryConflictOccurrences(candidate.Occurrence, other.Occurrence, snapshot)
 		coverageBasedConflict := coverageConflict(candidate.coverage, other.coverage, snapshot)
 		if (candidateHardClaim && otherHardClaim && coverageBasedConflict) || (!candidateHardClaim || !otherHardClaim) && (scopeConflict || coverageBasedConflict) {
